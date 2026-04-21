@@ -1,0 +1,35 @@
+[project]
+name = "harness"
+version = "0.0.0"
+description = "Harness — desktop wrapper driving longtaskforagent 14-skill pipeline"
+requires-python = ">=3.11,<4"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["harness"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["harness", "tests"]
+exclude = ["reference", ".venv", "apps/ui"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+extend-exclude = "reference|\\.venv|apps/ui"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["harness"]
+exclude = ["reference/", "apps/ui/"]
