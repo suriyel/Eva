@@ -8,3 +8,23 @@
 
 ## Session Log
 
+### Session 0 — Init (2026-04-21)
+
+- **SRS**: `docs/plans/2026-04-21-harness-srs.md` (46 active FR, 4 deferred to v1.1)
+- **Design**: `docs/plans/2026-04-21-harness-design.md` (Approach A · asyncio + pty worker threads)
+- **UCD**: `docs/plans/2026-04-21-harness-ucd.md` (Cockpit Dark, 8 UI views)
+- **ATS**: `docs/plans/2026-04-21-harness-ats.md` (category mapping per requirement)
+- **Deferred**: `docs/plans/2026-04-21-harness-deferred.md`
+- **feature-list.json**: 17 features — 0 passing / 17 failing; `current=null`
+  - UI features: 5 (F12–F16)
+  - required_configs: 6 (2 env + 4 file)
+  - Constraints: 9 · Assumptions: 7 · Waves: 1
+- **env-guide.md**: approved §3 + §4 (approved_by=godsuriyel@gmail.com, 2026-04-21)
+- **Bootstrap**: `init.sh` (175 lines, bash -n clean) + `init.ps1` (234 lines, PowerShell parser clean)
+- **Skeleton**: `harness/` (Python package), `tests/`, `apps/ui/` (all `.gitkeep`-only)
+- **pyproject.toml**: scopes pytest/ruff/mypy/coverage to `harness/` + `tests/`; excludes `reference/`
+- **Env verified**: Python 3.12.3 · Node 22.22.1 · pytest 8.4.2 · ruff 0.15.11 · black 24.10.0 · mypy 1.20.1 · pyinstaller 6.19.0
+- **Commits**: `d3119b0` (scaffold) + `a367bc9` (pyproject + svc stubs)
+
+Handoff → next session: open new conversation; `phase_route.py` will pick first dep-ready feature (F01 App Shell & Platform Bootstrap) and route to `long-task-work-design`.
+
