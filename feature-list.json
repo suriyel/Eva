@@ -119,10 +119,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 1,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -131,7 +128,10 @@
       "title": "F01 · App Shell & Platform Bootstrap",
       "description": "PyWebView 壳 + FastAPI (bind 127.0.0.1) + 首启向导建 ~/.harness/；承载 NFR-007/008/009 基线，是所有后端特性的起点。",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
+      "git_sha": "162bc03",
+      "st_case_path": "docs/test-cases/feature-1-f01-app-shell-platform-bootstrap.md",
+      "st_case_count": 18,
       "srs_trace": [
         "FR-046",
         "FR-050",

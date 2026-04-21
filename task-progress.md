@@ -55,3 +55,17 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Risk log**: `harness/app/bootstrap.py` 88% line coverage (webview-thread teardown branches mock-only); suggest E2E PyWebView smoke in F17 packaging wave
 - current.phase: tdd → st
 
+### Feature #1: F01 · App Shell & Platform Bootstrap — PASS
+- Completed: 2026-04-21
+- TDD: green (93/93)
+- Quality Gates: 95.53% line, 85.09% branch
+- Feature-ST: 18 cases (FUNC×8 / SEC×5 / BNDRY×3 / PERF×1 / UI×1 delegation); 16 automated PASS; 2 PENDING-MANUAL (ST-FUNC-001-006 FR-046 OAuth external-action; ST-UI-001-001 NFR-010 visual → F12-F16)
+- Inline Check: PASS (P2: 15/15 methods, T2: 93 tests / 13 files, D3: requirements.txt pinned, ATS Category: 6/6 covered, §4: greenfield 0 constraints)
+- Cold start: 1.67s (<10s NFR-013)
+- Real-service INTG: svc-api-start.sh on 127.0.0.1:8765; `ss -tnlp` confirms loopback-only (NFR-007)
+- Git: 162bc03 feat: feature #1 f01-app-shell-platform-bootstrap — ST cases 18 (16 auto PASS, 2 manual)
+#### Risks
+- ⚠ [Coverage] harness/app/bootstrap.py 88% line (webview-thread teardown branches mock-only) — mitigation deferred to F17 PyInstaller smoke
+- ⚠ [Manual] FR-046 Happy OAuth (ST-FUNC-001-006) — requires real `claude auth login` before release sign-off
+- ⚠ [Cross-feature] NFR-010 visual review (ST-UI-001-001) — delegated to F12-F16 ST; must be tracked at system-wide ST
+
