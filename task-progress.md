@@ -86,3 +86,20 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Design: DONE (docs/features/2-f02-persistence-core.md)
 - current.phase: design → tdd
 
+### Session 4 — Feature #2 F02 · Persistence Core · TDD (2026-04-21)
+
+- target_feature: id=2, title="F02 · Persistence Core", category=data, ui=false
+- dependencies: [1] (passing) · required_configs: []
+- design doc verified on disk: `docs/features/2-f02-persistence-core.md`
+- env: .venv activated; Python 3.12.3; smoke test `tests/test_f01_coverage_supplement.py` → 34/34 pass in 2.46s
+- mode: CLI / library (SQLite file-backed; no service processes required)
+- **Red** (40 tests across 7 files): categories=FUNC/happy(6) + FUNC/error(6) + BNDRY/edge(6) + SEC/fs-isolation+injection(2) + INTG/db+fs(2) + parametric expansions; negative_ratio=0.50 (20/40); low_value_ratio=0.052 (5/96); real_test_count=3; all 40 FAILED as expected (ModuleNotFoundError `harness.domain` / `harness.persistence`); F01 regression check 93/0 untouched; added `aiosqlite==0.20.0` + `structlog==24.4.0` to requirements.txt
+- **Green** (40 → PASS): 10 impl files under `harness/{domain,persistence}/` (domain: ticket.py, state_machine.py; persistence: errors.py, schema.py, runs.py, tickets.py, audit.py, recovery.py); full suite 133/133 pass in 8.71s
+- **Design alignment**: §4 matches (Schema / TicketRepository / RunRepository / AuditWriter / TicketStateMachine / RecoveryScanner signatures verified); §6 matches (module layout + UPSERT + per-run asyncio.Lock + state/payload split); §8 matches (aiosqlite ^0.20 + structlog ^24.4); drift=none
+- **Refactor**: `dict` → `dict[str, Any]` on `Run.payload` + `AuditEvent.payload`; removed 3 unused identifiers; black reformatted 12 f02 files + 4 pre-existing script drifts (scripts/count_pending.py, init_project.py, phase_route.py E731 lambda→def, validate_features.py F401); ruff 0 / black 69 files unchanged / mypy strict 0 issues; tests remain 133/133 green
+- **Quality gates**: Gate 0 real-test PASS (3 real tests); Gate 0.5 SRS trace 5/5 (FR-005, FR-006, FR-007, NFR-005, NFR-006); line=97.39% (971/997, ≥90%); branch=89.53% (154/172, ≥80%)
+- **Supplement**: `tests/test_f02_coverage_supplement.py` (+31 tests for F02 branch/line gap closure) — total 164 tests passing
+- **Per-file coverage (F02)**: state_machine.py 100% · ticket.py 100% · audit.py 100% · errors.py 100% · recovery.py 100% · schema.py 100% · runs.py 97% · tickets.py 99%
+- **Risk log**: harness/app/bootstrap.py 88% line (F01 regression below threshold — tracked for F01 revisit, not blocking F02); harness/persistence/runs.py branch 81→84 partial (optional-update no-field path; caller always passes ≥1 field per Design §4.2)
+- current.phase: tdd → st
+
