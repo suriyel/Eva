@@ -69,3 +69,20 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Manual] FR-046 Happy OAuth (ST-FUNC-001-006) — requires real `claude auth login` before release sign-off
 - ⚠ [Cross-feature] NFR-010 visual review (ST-UI-001-001) — delegated to F12-F16 ST; must be tracked at system-wide ST
 
+### Session 3 — Feature #2 F02 · Persistence Core · Design (2026-04-21)
+
+- target_feature: id=2, title="F02 · Persistence Core", category=data, ui=false
+- dependencies: [1] (passing) · required_configs: []
+- srs_trace: FR-005 (SRS lines 177-185), FR-006 (186-194), FR-007 (195-203), NFR-005 (SRS line 728), NFR-006 (SRS line 729)
+- design_section: §4.2 F02 · Persistence Core (Design lines 315-336); §5 Data Model (680-922, 含 §5.3 SQLite DDL 732, §5.4 Ticket JSON1 Payload 788, §5.6 Audit Log 行 Schema 907); §6.2 Internal API Contracts 相关片段 (1076-1209, 含 ticket supervisor 1188)
+- ats_section: FR table rows 58-60, NFR rows 161-162; 5.1 scenarios 279-281, INT-020/021 322-323, INT-024 326, Err-E 331
+- ucd_section: N/A (ui=false)
+- current lock: `null` → `{feature_id:2, phase:"design"}` (commit `c49f666`)
+- **Feature Design**: PASS (22 test scenarios, 0 existing-code reuses, 0 assumptions)
+  - Design doc: `docs/features/2-f02-persistence-core.md` (287 lines, 36 KB)
+  - Test inventory categories: FUNC/happy(6) + FUNC/error(6) + BNDRY/edge(6) + SEC/fs-isolation+injection(2) + INTG/db+fs(2); negative ratio 45.5%–59%
+  - Contracts wired: Provider for IAPI-011 (TicketRepository.save/get/list_by_run + Ticket schema) and IAPI-009 (AuditWriter.append + AuditEvent schema); zero Consumer edges
+  - Interface coverage: 5 classes / 14 public methods mapped to FR-005/006/007 + NFR-005/006 (7 ACs fully traced)
+- Design: DONE (docs/features/2-f02-persistence-core.md)
+- current.phase: design → tdd
+
