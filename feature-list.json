@@ -1,0 +1,431 @@
+{
+  "project": "Harness",
+  "created": "2026-04-21",
+  "single_round": false,
+  "tech_stack": {
+    "language": "python",
+    "test_framework": "pytest",
+    "coverage_tool": "pytest-cov"
+  },
+  "quality_gates": {
+    "line_coverage_min": 90,
+    "branch_coverage_min": 80
+  },
+  "waves": [
+    {
+      "id": 1,
+      "date": "2026-04-21",
+      "description": "v1.0 MVP — 17 features covering 46 active FR + 17 NFR + 7 IFR；Milestones M1-M4（Foundation → Core Loop → UI → Release）"
+    }
+  ],
+  "constraints": [
+    "CON-001 Python 3.11+ 后端 + PyInstaller 单文件分发（现代语法 + 零依赖安装）",
+    "CON-002 单机单用户，无 SaaS 化 / 团队协作（v1 聚焦）",
+    "CON-003 UI 仅桌面（PyWebView），仅简体中文（用户画像 + v1 范围）",
+    "CON-004 继承用户 claude auth login 凭证，不管理 Anthropic API key（避免双重凭证）",
+    "CON-005 静态 bundle longtaskforagent plugin，不自动更新；仅 UI 手动 git pull（版本可控）",
+    "CON-006 FastAPI 绑 127.0.0.1 only（NFR-007 安全）",
+    "CON-007 Harness 不写入 ~/.claude/（NFR-009 环境清洁）",
+    "CON-008 路由暂由 longtaskforagent phase_route.py 控制；v1 不上移到 Harness（单一事实源）",
+    "CON-009 v1 Out-of-Scope: 云端/多用户、CI/CD 外部触发、移动 UI、i18n、skill 自动更新、历史全文搜索、插件市场"
+  ],
+  "assumptions": [
+    "ASM-001 scripts/phase_route.py --json 返回字段稳定（松弛解析容忍增减）；若字段语义变更，适配器分支判定需更新",
+    "ASM-002 Claude Code CLI 与 OpenCode CLI 在用户 PATH 可调用且已完成 auth/login；否则 ticket 直接 skill_error",
+    "ASM-003 Claude Code 交互模式下 AskUserQuestion 可被 pty 捕获且 stdin 写回后会话能续跑（v1 需 FR-013 PoC 验证）",
+    "ASM-004 OpenCode hooks 机制可监听 Question 工具；hooks 失效则 OpenCode 分支降级到仅非-HIL skill",
+    "ASM-005 LLM provider（GLM/MiniMax 等）与 OpenAI-compat chat completions schema 兼容",
+    "ASM-006 longtaskforagent skill 已把关键状态持久化到磁盘，HIL 答案注入后能从磁盘正确续跑",
+    "ASM-007 目标项目 workdir 为 git 仓库；非 git 仓库则 Harness 拒启动（FR-001 错误路径）"
+  ],
+  "real_test": {
+    "marker_pattern": "@pytest.mark.(real_cli|real_fs|real_http)",
+    "test_dir": "tests/integration",
+    "mock_patterns": [
+      "monkeypatch",
+      "respx",
+      "pytest-mock",
+      "keyring.backends.null",
+      "keyring.backends.fail"
+    ]
+  },
+  "required_configs": [
+    {
+      "name": "HARNESS_HOME",
+      "type": "env",
+      "key": "HARNESS_HOME",
+      "description": "Harness 用户级配置与历史根目录（~/.harness）",
+      "check_hint": "首启向导自动建；留空使用默认 ~/.harness。移至自定义路径请在 .env 设绝对路径",
+      "required_by": [1, 17]
+    },
+    {
+      "name": "HARNESS_WORKDIR",
+      "type": "env",
+      "key": "HARNESS_WORKDIR",
+      "description": "当前 run 的目标 repo 绝对路径（首启向导写入）",
+      "check_hint": "必须是已 git init 的目录；非 git 仓库会被 FR-001 错误路径拒启动（ASM-007）",
+      "required_by": [1, 11]
+    },
+    {
+      "name": "HarnessConfigFile",
+      "type": "file",
+      "path": "~/.harness/config.json",
+      "description": "Harness 全局配置（首启 FR-050 自动生成；历史保留策略 N=20 默认）",
+      "check_hint": "如不存在：删 HARNESS_HOME 目录后重启 Harness 触发首启向导重建",
+      "required_by": [1, 15, 17]
+    },
+    {
+      "name": "HarnessModelRulesFile",
+      "type": "file",
+      "path": "~/.harness/model_rules.json",
+      "description": "per-skill 模型覆写规则表（FR-019/020）",
+      "check_hint": "首启建空表；F07 会在 UI 表单落盘。非法 JSON 会被 backend pydantic 拒",
+      "required_by": [7, 15]
+    },
+    {
+      "name": "ClassifierProviderPresets",
+      "type": "file",
+      "path": "~/.harness/classifier_providers.json",
+      "description": "Classifier endpoint preset 列表（GLM/MiniMax/OpenAI/custom，FR-021）",
+      "check_hint": "base_url 由 preset 给，API key 进 keyring；若需禁用 classifier 整体 toggle，设 enabled=false",
+      "required_by": [8, 15]
+    },
+    {
+      "name": "PluginLongTaskForAgent",
+      "type": "file",
+      "path": "plugins/longtaskforagent/.plugin.json",
+      "description": "静态 bundle 的 longtaskforagent plugin（CON-005 不自动更新）",
+      "check_hint": "由 F10 Skills Installer 放置；缺失则 FR-043/044/045 相关测试会立刻失败",
+      "required_by": [3, 10, 15]
+    }
+  ],
+  "current": null,
+  "features": [
+    {
+      "id": 1,
+      "wave": 1,
+      "category": "core",
+      "title": "F01 · App Shell & Platform Bootstrap",
+      "description": "PyWebView 壳 + FastAPI (bind 127.0.0.1) + 首启向导建 ~/.harness/；承载 NFR-007/008/009 基线，是所有后端特性的起点。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-046", "FR-050", "NFR-007", "NFR-010", "NFR-012", "NFR-013"],
+      "dependencies": [],
+      "verification_steps": [
+        "Given 干净环境 when 启动 Harness then ~/.harness/config.json 被创建且不含 API key 明文（FR-050 + NFR-008）",
+        "Given app 已启动 when 跑 ss -tnlp then FastAPI socket 仅 bind 127.0.0.1（NFR-007）",
+        "Given 已跑 claude auth login when spawn 子 ticket then 无二次凭证提示（FR-046）",
+        "Given 三平台 build 产物 when 干净 VM 首启 then UI 主窗口 10s 内可见且无 Python 预装（NFR-012/013）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 2,
+      "wave": 1,
+      "category": "data",
+      "title": "F02 · Persistence Core",
+      "description": "SQLite tickets 单表 + append-only JSONL audit log，9 态状态机与核心字段 schema。所有后续 ticket 生命周期依赖本 feature。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-005", "FR-006", "FR-007", "NFR-005", "NFR-006"],
+      "dependencies": [1],
+      "verification_steps": [
+        "Given pending ticket when 合法转 running then updated_at 刷新 + JSONL 追加一行（FR-005/006）",
+        "Given pending ticket when 非法转 completed then 抛 TransitionError 且状态不变（FR-006 负面）",
+        "Given running ticket when 进程被 SIGKILL 后重启 then UI 该 ticket 标 interrupted（NFR-005）",
+        "Given 任意 ticket 崩溃 when filesystem audit then 仅 .harness/ 与 .harness-workdir/ 有写入（NFR-006）",
+        "Given depth=3 ticket when spawn then 拒绝并抛错（FR-007 边界）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 3,
+      "wave": 1,
+      "category": "core",
+      "title": "F10 · Environment Isolation & Skills Installer",
+      "description": "IsolatedPaths 拷 ~/.claude 模板到 .harness-workdir/<run-id>/.claude/；Skills Installer 支持 git clone + 本地 pull；承载 NFR-009 实施点。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-043", "FR-044", "FR-045", "NFR-009"],
+      "dependencies": [1],
+      "verification_steps": [
+        "Given 一次完整 run when stat ~/.claude 前后 then 所有文件 mtime 无变化（NFR-009 / FR-043）",
+        "Given run 结束 when 扫 workdir 非 .harness/ 目录 then 无 Harness 临时文件（FR-044）",
+        "Given git URL when 点 Skills 安装 then clone 目录生成并在 UI 显示 sha（FR-045）",
+        "Given run 运行期 when 观察 plugins/longtaskforagent/ then mtime 全程不变（CON-005 反面断言）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 4,
+      "wave": 1,
+      "category": "core",
+      "title": "F03 · PTY & ToolAdapter Foundation",
+      "description": "ClaudeCodeAdapter 交互模式 + pty 穿透 + argv 构造；ToolAdapter Protocol 定义；含 HIL PoC gating（20 次 round-trip ≥ 95% 否则冻结 v1）。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-008", "FR-013", "FR-015", "FR-016", "FR-018", "NFR-014", "IFR-001"],
+      "dependencies": [2, 3],
+      "verification_steps": [
+        "Given spawn claude when 检查 argv then 不含 -p 且含 FR-016 列表全部 flag（FR-008/016）",
+        "Given ClaudeCodeAdapter when mypy --strict then 通过且 Mock Provider 缺方法时报错（FR-015/NFR-014）",
+        "Given ToolAdapter 新增可选方法 when 既有 Adapter 跑 then 不破坏（FR-018 向后兼容）",
+        "Given PoC 20 次 HIL round-trip when 统计成功率 then ≥ 95% 否则 run 报告 + 冻结（FR-013）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 5,
+      "wave": 1,
+      "category": "core",
+      "title": "F04 · Stream Parser & HIL Pipeline",
+      "description": "监听 stream-json → 识别 AskUserQuestion → 生成 HIL event → pty stdin 回写；含 BannerConflictArbiter 处理终止横幅 vs 未答 HIL 冲突。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-009", "FR-011", "FR-014"],
+      "dependencies": [2, 4],
+      "verification_steps": [
+        "Given stream-json tool_use=AskUserQuestion when parser 处理 then hil.detected=true 且事件字段齐全（FR-009）",
+        "Given 半行 JSON 缓冲 when 下一块到达 then 正确续解析不崩（FR-009 BNDRY）",
+        "Given > 10MB 单事件 when 解析 then 截断并记 warning 不 OOM（FR-009 SEC/DoS）",
+        "Given HIL 答案含特殊字符 when 写入 pty stdin then 转义后子进程续跑且内容完整（FR-011）",
+        "Given ticket 末尾同时有 banner + 未答 AskUserQuestion when arbiter 判定 then state=hil_waiting 而非 completed（FR-014）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 6,
+      "wave": 1,
+      "category": "core",
+      "title": "F05 · OpenCode Adapter",
+      "description": "OpenCodeAdapter argv + hooks.json 注入捕获 Question 工具；hooks.json 写入限 <isolated>/.opencode/ 防目录逃逸；v1 不全适配 MCP（降级提示）。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-012", "FR-017", "IFR-002"],
+      "dependencies": [4, 5],
+      "verification_steps": [
+        "Given OpenCode hooks 注册成功 when skill 调 Question 工具 then HIL 控件生成（FR-012 happy）",
+        "Given hooks 版本不兼容 when 注册 then ticket failed + UI 提示升级（FR-012 error）",
+        "Given argv 构造 when 指定 mcp_config then v1 降级并 UI 提示；否则 argv 首 opencode（FR-017）",
+        "Given Question name > 256B when hooks 注入 then 截断不崩（IFR-002 SEC BNDRY）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 7,
+      "wave": 1,
+      "category": "core",
+      "title": "F07 · Model Override Resolver",
+      "description": "per-ticket / per-skill / run-default 三层模型覆写优先级解析；F03 构造 DispatchSpec 时调。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-019", "FR-020"],
+      "dependencies": [1],
+      "verification_steps": [
+        "Given skill=requirements 配 opus when resolve then argv 含 --model opus（FR-019）",
+        "Given per-ticket 与 per-skill 重叠 when resolve then per-ticket 胜（FR-020 优先级）",
+        "Given 四层全空 when resolve then argv 不含 --model（FR-020 边界）",
+        "Given 2^4=16 组合抽样 when 全跑 then 优先级顺序与 SRS 表完全一致（FR-020 全覆盖）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 8,
+      "wave": 1,
+      "category": "core",
+      "title": "F08 · Classifier Service",
+      "description": "OpenAI-compatible endpoint（GLM/MiniMax/OpenAI/custom）分类 ticket 结果为 HIL/CONTINUE/RETRY/ABORT/COMPLETED；可 toggle off 降级硬编码 rule。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-021", "FR-022", "FR-023"],
+      "dependencies": [1],
+      "verification_steps": [
+        "Given GLM preset 保存 when UI then base_url 自动填 + api_key 读 keyring（FR-021）",
+        "Given classifier off + exit_code=0 + 无 banner when 处理 then rule 判 COMPLETED（FR-022 降级）",
+        "Given classifier off + stderr 含 'context window' when 处理 then 判 context_overflow（FR-022）",
+        "Given LLM 返非法 JSON when 分类 then 降级 rule + audit warning（FR-023）",
+        "Given base_url 非白名单域 when 保存 then 拒绝（FR-021 SSRF 防护）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 9,
+      "wave": 1,
+      "category": "core",
+      "title": "F09 · Anomaly Recovery & Watchdog",
+      "description": "context_overflow / rate_limit / network / timeout / skill_error 五类异常识别 + 指数退避重试 + watchdog SIGTERM/SIGKILL + 重试上限 escalate。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-024", "FR-025", "FR-026", "FR-027", "FR-028", "FR-029", "NFR-003", "NFR-004"],
+      "dependencies": [2, 8],
+      "verification_steps": [
+        "Given mock stderr 注入 context_overflow 4 次 when 第 4 次触发 then escalate 暂停而非 spawn（NFR-003 / FR-024）",
+        "Given HTTP 429 mock when 退避 then 间隔 30/120/300s ±10% 容忍（FR-025 / NFR-004）",
+        "Given ticket 30 分钟未结束 when watchdog then SIGTERM；5s 后未终止 SIGKILL（FR-027）",
+        "Given result_text 首行 [CONTRACT-DEVIATION] when classify then aborted + anomaly=skill_error 不重试（FR-028）",
+        "Given异常暂停 when 用户点 Skip then 跳过 ticket 并调 phase_route（FR-029）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 10,
+      "wave": 1,
+      "category": "core",
+      "title": "F11 · Subprocess Integrations (git + validators)",
+      "description": "git CLI（status/log/show/pull）+ phase_route.py + validate_*.py 统一 subprocess 层；argv 列表禁 shell=True；为 F16 三页面提供后端。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-039", "FR-040", "FR-042", "NFR-015"],
+      "dependencies": [1, 2],
+      "verification_steps": [
+        "Given 2 commit ticket when 结束 then git.commits 长度=2 且 head_after != head_before（FR-042）",
+        "Given 合法 feature-list.json when 点过程文件自检 then exit=0 UI 标 PASS（FR-040）",
+        "Given 脚本 exit≠0 stderr 非空 when 执行 then 错误不被吞且 UI 显示（FR-040 / FR-039）",
+        "Given phase_route.py 缺字段 feature_id when 解析 then 松弛解析填默认不崩（NFR-015）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 11,
+      "wave": 1,
+      "category": "core",
+      "title": "F06 · Run Orchestrator & Phase Router",
+      "description": "主循环：Start → spawn ticket → stream → classify → phase_route → 下一 ticket；Pause/Cancel；signal-file 感知 hotfix/increment；14-skill 全驱动。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-001", "FR-002", "FR-003", "FR-004", "FR-047", "FR-048", "NFR-016", "IFR-003"],
+      "dependencies": [2, 4, 5, 6, 7, 8, 9, 3],
+      "verification_steps": [
+        "Given 合法 workdir when 点 Start then 5s 内进 running 且 phase=requirements（FR-001）",
+        "Given 非 git 仓库 workdir when 点 Start then 拒启动 + 错误提示（FR-001 error path / ASM-007）",
+        "Given ticket 结束 when 调 phase_route.py then next_skill 透传为 skill_hint（FR-002）",
+        "Given bugfix-request.json 存在 when router 判定 then 进入 hotfix 分支（FR-003）",
+        "Given 完整 run when 回看 when dispatch skill 集 then ⊇ 14 必要子集（FR-047）",
+        "Given 并发 2 run 同 workdir when 第二个 then filelock 拒绝（NFR-016）",
+        "Given 外部新增 bugfix-request.json when watcher 触发 then 2s 内 UI 可见（FR-048）"
+      ],
+      "ui": false
+    },
+    {
+      "id": 12,
+      "wave": 1,
+      "category": "ui",
+      "title": "F12 · Frontend Foundation",
+      "description": "React 18 + Vite + Tailwind + shadcn/ui 母板；Cockpit Dark style tokens；Sidebar + Top header + WebSocket 客户端 + 15 个 shadcn 组件封装。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["NFR-001", "NFR-010", "NFR-011"],
+      "dependencies": [1],
+      "verification_steps": [
+        "Given 页面切换 100 次 when 测 p95 then < 500ms（NFR-001 Playwright）",
+        "Given 源代码 grep when 扫 en/ja/fr 字符串 then 无匹配（NFR-010 中文唯一）",
+        "Given HIL 控件渲染 when 视觉验收 then 顶部显示 '单选/多选/自由文本' 标签（NFR-011）",
+        "[devtools] Given 首启 when take_snapshot of / then Sidebar + Top header + 主内容区组件全部可见（UCD §3.8）"
+      ],
+      "ui": true,
+      "ui_entry": "/"
+    },
+    {
+      "id": 13,
+      "wave": 1,
+      "category": "ui",
+      "title": "F13 · RunOverview + HILInbox Pages",
+      "description": "首屏 RunOverview（phase stepper + 当前 ticket + 运行指标 + 近期流）与 HILInbox（3 种 HIL 控件：radio/checkbox/textarea）；HIL 核心闭环。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": ["FR-010", "FR-030", "FR-031", "IFR-007"],
+      "dependencies": [5, 11, 12],
+      "verification_steps": [
+        "Given phase stepper 6 元素 when 渲染 then 可见且 cost 总和 = Σ ticket.cost_usd（FR-030）",
+        "Given 3 张 hil_waiting ticket when 进入 HILInbox then 3 卡片渲染 + Empty State 反面覆盖（FR-031）",
+        "Given multiSelect=false + options≥2 when 渲染 then Radio；true → Checkbox；allowFreeform+options=0 → Textarea（FR-010 控件映射）",
+        "Given HIL freeform 提交 when 回填 DOM then 无 XSS（FR-031 SEC）",
+        "Given WebSocket 连接 when 60s 未收消息 then 自动重连（IFR-007）",
+        "[devtools] Given navigate_page /hil when take_snapshot then 3 张 HIL 卡片 + counter chip '3 条待答' 可见（UCD §4.2）"
+      ],
+      "ui": true,
+      "ui_entry": "/hil"
+    },
+    {
+      "id": 14,
+      "wave": 1,
+      "category": "ui",
+      "title": "F14 · TicketStream Page",
+      "description": "3-pane：ticket list + stream-json event tree + inspector；虚拟滚动支持 10k+ 事件；Ctrl/Cmd+F inline search。",
+      "priority": "medium",
+      "status": "failing",
+      "srs_trace": ["FR-034", "NFR-002"],
+      "dependencies": [2, 5, 12],
+      "verification_steps": [
+        "Given 筛选 tool=claude when 应用 then 仅 claude ticket 显示（FR-034）",
+        "Given 10k+ 事件 when 滚动 then 帧率 ≥ 30fps 不卡（FR-034 PERF）",
+        "Given 100 个 stream 事件 when 测到达时间戳差 then p95 < 2s（NFR-002）",
+        "[devtools] Given navigate_page /ticket-stream when take_snapshot then 左 ticket 列表 + 中 event tree + 右 inspector 三 pane 全可见（UCD §4.5）"
+      ],
+      "ui": true,
+      "ui_entry": "/ticket-stream"
+    },
+    {
+      "id": 15,
+      "wave": 1,
+      "category": "ui",
+      "title": "F15 · SystemSettings + PromptsAndSkills Pages",
+      "description": "SystemSettings（模型 / API key keyring / Classifier / Classifier 测试 / 界面偏好）+ PromptsAndSkills（skill tree 只读 + classifier prompt 可编辑 + git pull Update Plugin）。",
+      "priority": "medium",
+      "status": "failing",
+      "srs_trace": ["FR-032", "FR-033", "NFR-008", "IFR-004", "IFR-006"],
+      "dependencies": [1, 7, 8, 10, 3, 12],
+      "verification_steps": [
+        "Given 保存 API key when 写入 then keyring 存原文 + UI masked '***abc'（FR-032 / NFR-008）",
+        "Given 测试连接 401 when 响应 then UI 错误横幅 + classifier 降级 rule（FR-032 / IFR-004）",
+        "Given DOM 扫描 when 读取 api key 字段 then 明文不在 DOM（FR-032 SEC）",
+        "Given 编辑 classifier prompt when 保存 then 历史追加一条（FR-033 v1 基础）",
+        "Given skill tree 只读节点 when 尝试编辑 then 禁止（FR-033 SEC path traversal）",
+        "Given Linux 无 keyring daemon when 读 api key then 降级 keyrings.alt + UI 告警（IFR-006）",
+        "[devtools] Given navigate_page /settings when take_snapshot then 左 5 个二级 tab + 右 Settings-Form-Section 卡片堆叠可见（UCD §4.3）"
+      ],
+      "ui": true,
+      "ui_entry": "/settings"
+    },
+    {
+      "id": 16,
+      "wave": 1,
+      "category": "ui",
+      "title": "F16 · DocsAndROI + ProcessFiles + CommitHistory Pages",
+      "description": "DocsAndROI（文件树 + MD 预览 + ROI 按钮 disabled v1.1 占位）+ ProcessFiles（feature-list.json 结构化表单 + 双层校验）+ CommitHistory（commits 列表 + diff viewer）。",
+      "priority": "medium",
+      "status": "failing",
+      "srs_trace": ["FR-035", "FR-038", "FR-041", "IFR-005"],
+      "dependencies": [2, 10, 12],
+      "verification_steps": [
+        "Given docs/plans/* 存在 when 进入 DocsAndROI then 文件树列出 + MD 预览渲染 + ROI 按钮 disabled tooltip 'v1.1 规划中'（FR-035）",
+        "Given 文件读取路径含 ..  when 请求 then 拒绝（FR-035 SEC）",
+        "Given feature-list.json 打开 ProcessFiles when 编辑必填空 then 字段红 + Save 禁用（FR-038/039）",
+        "Given 5 feature 8 commit when 进入 CommitHistory then 列表完整 + 点击 commit 显示 diff（FR-041）",
+        "Given 二进制文件 when 渲染 diff then 占位不崩（FR-041 BNDRY）",
+        "Given git CLI 非 git 目录 exit=128 when 调用 then 捕获并 UI 提示（IFR-005）",
+        "[devtools] Given navigate_page /docs when take_snapshot then 左文件树 + 中 MD 预览 + 右 TOC 三 pane 可见（UCD §4.6）"
+      ],
+      "ui": true,
+      "ui_entry": "/docs"
+    },
+    {
+      "id": 17,
+      "wave": 1,
+      "category": "non-functional",
+      "title": "F17 · PyInstaller Packaging",
+      "description": "三平台（Linux x86_64 / macOS x86_64+arm64 / Windows x86_64）单文件打包 + CI matrix smoke；冷启动 < 10s；嵌入 apps/ui/dist 与 plugins/。",
+      "priority": "low",
+      "status": "failing",
+      "srs_trace": ["FR-049", "NFR-012", "NFR-013", "NFR-017"],
+      "dependencies": [11, 13, 14, 15, 16],
+      "verification_steps": [
+        "Given 无 Python 干净 Linux VM when 跑二进制 then UI 10s 内可见（FR-049 / NFR-013）",
+        "Given macOS Apple Silicon 二进制 when 启动 then UI 可见（NFR-012 arm64）",
+        "Given Windows 二进制 when 启动 then UI 可见（NFR-012）",
+        "Given 21 个历史 run when 主列表加载 then 显示最新 20 + 最老 1 条进归档入口（NFR-017）"
+      ],
+      "ui": false
+    }
+  ]
+}
