@@ -28,3 +28,16 @@
 
 Handoff → next session: open new conversation; `phase_route.py` will pick first dep-ready feature (F01 App Shell & Platform Bootstrap) and route to `long-task-work-design`.
 
+### Session 1 — Feature #1 F01 · App Shell & Platform Bootstrap · Design (2026-04-21)
+
+- **Scripts backfilled (init omission)**: analyze-tokens.py, check_env_guide_approval.py, check_srs_trace_coverage.py, feature_paths.py, find-polluter.sh, validate_ats.py, validate_env_guide.py (commit `5b260c3`)
+- **env-guide**: re-approved to v1.1 with ISO timestamp `approved_date: 2026-04-21T09:21:02+08:00` to clear same-day-commit false positive (content unchanged)
+- **current lock**: `null` → `{feature_id:1, phase:"design"}` (commit `e3c3799`)
+- **Feature Design**: PASS (27 test scenarios, 0 existing-code reuses, 0 assumptions)
+  - Design doc: `docs/features/1-f01-app-shell-platform-bootstrap.md` (301 lines)
+  - Negative ratio: 66.7% (18/27); categories: FUNC(11)/SEC(5)/BNDRY(5)/INTG(5)/PERF(1)
+  - Contracts wired: IAPI-014 (provides → F07/F08/F15), IFR-006 (keyring façade), IFR-001 (auth inheritance surface)
+  - Module layout: `harness/{app,config,auth,net,api}/` — 5 packages, 13 new files
+- Design: DONE (docs/features/1-f01-app-shell-platform-bootstrap.md)
+- current.phase: design → tdd
+
