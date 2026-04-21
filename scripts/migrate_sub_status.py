@@ -26,13 +26,12 @@ Usage:
 
 import argparse
 import json
-import sys
 
 
 _SUB_TO_PHASE = {
     "design_pending": "design",
-    "tdd_pending":    "tdd",
-    "st_pending":     "st",
+    "tdd_pending": "tdd",
+    "st_pending": "st",
 }
 # Higher rank = more advanced = higher priority when picking `current`.
 _PHASE_RANK = {"st_pending": 2, "tdd_pending": 1, "design_pending": 0}
@@ -42,9 +41,7 @@ def migrate(data: dict, force: bool = False) -> dict:
     features = data.get("features", [])
     stats = {"cleared": 0, "current_set": False, "all_done": False, "noop": False}
 
-    any_sub_status = any(
-        isinstance(f, dict) and "sub_status" in f for f in features
-    )
+    any_sub_status = any(isinstance(f, dict) and "sub_status" in f for f in features)
     already_migrated = "current" in data
 
     if already_migrated and not any_sub_status and not force:
@@ -52,10 +49,13 @@ def migrate(data: dict, force: bool = False) -> dict:
         return stats
 
     pending = sorted(
-        [f for f in features
-         if isinstance(f, dict)
-         and not f.get("deprecated")
-         and f.get("sub_status") in _SUB_TO_PHASE],
+        [
+            f
+            for f in features
+            if isinstance(f, dict)
+            and not f.get("deprecated")
+            and f.get("sub_status") in _SUB_TO_PHASE
+        ],
         # Most-advanced phase first (preserves in-flight work), then smallest id.
         key=lambda f: (-_PHASE_RANK[f["sub_status"]], f["id"]),
     )
@@ -83,8 +83,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("path", help="Path to feature-list.json")
     ap.add_argument("--dry-run", action="store_true", help="Preview without writing")
-    ap.add_argument("--force", action="store_true",
-                    help="Re-run even if root `current` already exists")
+    ap.add_argument(
+        "--force", action="store_true", help="Re-run even if root `current` already exists"
+    )
     args = ap.parse_args()
 
     with open(args.path, "r", encoding="utf-8") as f:
@@ -96,12 +97,15 @@ def main():
         print("migrate_sub_status: already migrated; no changes")
         return
 
-    desc = "current=null (all done)" if stats["all_done"] else (
-        f"current={{feature_id:{data['current']['feature_id']}, "
-        f"phase:{data['current']['phase']}}}"
+    desc = (
+        "current=null (all done)"
+        if stats["all_done"]
+        else (
+            f"current={{feature_id:{data['current']['feature_id']}, "
+            f"phase:{data['current']['phase']}}}"
+        )
     )
-    print(f"migrate_sub_status: cleared sub_status from {stats['cleared']} "
-          f"features; {desc}")
+    print(f"migrate_sub_status: cleared sub_status from {stats['cleared']} " f"features; {desc}")
 
     if args.dry_run:
         print("[dry-run] no file written")

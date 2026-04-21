@@ -41,14 +41,14 @@ DEFAULT_FEATURE_REF_PATTERN = r"feature[_:\s#-]*{id}(?!\d)"
 # Patterns match single lines — multi-line `if not env:\n    return` is caught by
 # the `if not` guard pattern (the return on a separate line is implicit)
 DEFAULT_SKIP_PATTERNS = [
-    r"if\s+not\s+(?:os\.environ|os\.getenv)",   # if not os.environ.get(...) guard
-    r"if\s*\(\s*!\s*process\.env\.",             # if (!process.env.X) guard
-    r"pytest\.mark\.skipif",                     # pytest conditional skip decorator
-    r"@Disabled",                                # JUnit @Disabled
-    r"test\.skip",                               # Jest/Vitest test.skip
-    r"\.skip\(",                                 # describe.skip( / it.skip(
-    r"GTEST_SKIP",                               # gtest skip macro
-    r"unittest\.skip",                           # Python unittest.skip decorator
+    r"if\s+not\s+(?:os\.environ|os\.getenv)",  # if not os.environ.get(...) guard
+    r"if\s*\(\s*!\s*process\.env\.",  # if (!process.env.X) guard
+    r"pytest\.mark\.skipif",  # pytest conditional skip decorator
+    r"@Disabled",  # JUnit @Disabled
+    r"test\.skip",  # Jest/Vitest test.skip
+    r"\.skip\(",  # describe.skip( / it.skip(
+    r"GTEST_SKIP",  # gtest skip macro
+    r"unittest\.skip",  # Python unittest.skip decorator
 ]
 
 # Default config used when feature-list.json has no real_test section
@@ -75,8 +75,12 @@ TEST_FILE_PATTERNS = {
 FUNC_DEF_PATTERNS = {
     "python": re.compile(r"^(\s*)(def\s+\w+)"),
     "java": re.compile(r"^(\s*)((?:public|private|protected|static|\s)*void\s+\w+|@Test)"),
-    "javascript": re.compile(r"^(\s*)((?:it|test|describe)\s*\(|function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:\(|function))"),
-    "typescript": re.compile(r"^(\s*)((?:it|test|describe)\s*\(|function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:\(|function))"),
+    "javascript": re.compile(
+        r"^(\s*)((?:it|test|describe)\s*\(|function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:\(|function))"
+    ),
+    "typescript": re.compile(
+        r"^(\s*)((?:it|test|describe)\s*\(|function\s+\w+|(?:const|let|var)\s+\w+\s*=\s*(?:async\s+)?(?:\(|function))"
+    ),
     "c": re.compile(r"^(\s*)(void\s+test_\w+|TEST\s*\()"),
     "cpp": re.compile(r"^(\s*)(void\s+test_\w+|TEST\s*\(|TEST_F\s*\()"),
     "c++": re.compile(r"^(\s*)(void\s+test_\w+|TEST\s*\(|TEST_F\s*\()"),
@@ -89,8 +93,7 @@ def find_test_files(test_dir, language):
     if not pattern:
         # Fallback: scan all common test file patterns
         pattern = re.compile(
-            r"^test_.*\.\w+$|^.*_test\.\w+$|^.*Test\.\w+$|"
-            r"^.*\.test\.\w+$|^.*\.spec\.\w+$"
+            r"^test_.*\.\w+$|^.*_test\.\w+$|^.*Test\.\w+$|" r"^.*\.test\.\w+$|^.*\.spec\.\w+$"
         )
 
     test_files = []
@@ -227,21 +230,22 @@ def find_real_tests(test_files, marker_pattern, language):
             if best_func:
                 # Avoid duplicates (same function matched by multiple markers)
                 if not any(
-                    rt["file"] == best_func["file"]
-                    and rt["func_name"] == best_func["func_name"]
+                    rt["file"] == best_func["file"] and rt["func_name"] == best_func["func_name"]
                     for rt in real_tests
                 ):
                     real_tests.append(best_func)
             else:
                 # Marker found but no enclosing function — report as standalone
-                real_tests.append({
-                    "file": fpath,
-                    "line_no": ml + 1,
-                    "func_name": "(no function found)",
-                    "func_body_start": ml,
-                    "func_body_end": min(ml + 50, len(lines)),
-                    "marker_line": lines[ml].rstrip(),
-                })
+                real_tests.append(
+                    {
+                        "file": fpath,
+                        "line_no": ml + 1,
+                        "func_name": "(no function found)",
+                        "func_body_start": ml,
+                        "func_body_end": min(ml + 50, len(lines)),
+                        "marker_line": lines[ml].rstrip(),
+                    }
+                )
 
     return real_tests
 
@@ -272,18 +276,20 @@ def check_mock_usage(real_tests, mock_patterns, test_files_content_cache):
                 continue
 
         lines = test_files_content_cache[fpath]
-        body_lines = lines[rt["func_body_start"]:rt["func_body_end"]]
+        body_lines = lines[rt["func_body_start"] : rt["func_body_end"]]
 
         for pat_str, pat_re in mock_regexes:
             for i, line in enumerate(body_lines):
                 if pat_re.search(line):
-                    warnings.append({
-                        "file": rt["file"],
-                        "line_no": rt["func_body_start"] + i + 1,
-                        "func_name": rt["func_name"],
-                        "mock_pattern": pat_str,
-                        "matched_text": line.strip(),
-                    })
+                    warnings.append(
+                        {
+                            "file": rt["file"],
+                            "line_no": rt["func_body_start"] + i + 1,
+                            "func_name": rt["func_name"],
+                            "mock_pattern": pat_str,
+                            "matched_text": line.strip(),
+                        }
+                    )
                     break  # One warning per pattern per function
 
     return warnings
@@ -324,18 +330,20 @@ def check_skip_patterns(real_tests, skip_patterns, test_files_content_cache):
         # Scan both decorator zone (marker_line..func_body_start) and function body
         marker_line_idx = rt["line_no"] - 1  # Convert 1-based to 0-based
         scan_start = min(marker_line_idx, rt["func_body_start"])
-        scan_lines = lines[scan_start:rt["func_body_end"]]
+        scan_lines = lines[scan_start : rt["func_body_end"]]
 
         for pat_str, pat_re in skip_regexes:
             for i, line in enumerate(scan_lines):
                 if pat_re.search(line):
-                    warnings.append({
-                        "file": rt["file"],
-                        "line_no": scan_start + i + 1,
-                        "func_name": rt["func_name"],
-                        "skip_pattern": pat_str,
-                        "matched_text": line.strip(),
-                    })
+                    warnings.append(
+                        {
+                            "file": rt["file"],
+                            "line_no": scan_start + i + 1,
+                            "func_name": rt["func_name"],
+                            "skip_pattern": pat_str,
+                            "matched_text": line.strip(),
+                        }
+                    )
                     break  # One warning per pattern per function
 
     return warnings
@@ -390,7 +398,7 @@ def associate_real_tests_to_features(
             lines = test_files_content_cache[fpath]
             # Scan from marker line through function body end
             scan_start = min(rt["line_no"] - 1, rt["func_body_start"])
-            body_lines = lines[scan_start:rt["func_body_end"]]
+            body_lines = lines[scan_start : rt["func_body_end"]]
 
             for line in body_lines:
                 if ref_re.search(line):
@@ -499,10 +507,7 @@ def check_real_tests(path, feature_id=None, require_for_deps=False):
             result["issues"].append(f"Feature {feature_id} not found")
             return result
 
-    active_features = [
-        f for f in features
-        if not f.get("deprecated", False)
-    ]
+    active_features = [f for f in features if not f.get("deprecated", False)]
     result["active_features"] = len(active_features)
 
     # Find test files
@@ -520,7 +525,11 @@ def check_real_tests(path, feature_id=None, require_for_deps=False):
     # Find real tests
     real_tests = find_real_tests(test_files, marker_pattern, language)
     result["real_tests"] = [
-        {"file": os.path.relpath(rt["file"], base_dir), "line_no": rt["line_no"], "func_name": rt["func_name"]}
+        {
+            "file": os.path.relpath(rt["file"], base_dir),
+            "line_no": rt["line_no"],
+            "func_name": rt["func_name"],
+        }
         for rt in real_tests
     ]
 
@@ -580,9 +589,7 @@ def check_real_tests(path, feature_id=None, require_for_deps=False):
     ]
 
     # Per-feature real test association
-    feature_ref_pattern = rt_config.get(
-        "feature_ref_pattern", DEFAULT_FEATURE_REF_PATTERN
-    )
+    feature_ref_pattern = rt_config.get("feature_ref_pattern", DEFAULT_FEATURE_REF_PATTERN)
     result["feature_ref_pattern"] = feature_ref_pattern
 
     if active_features and real_tests:
@@ -714,7 +721,6 @@ def format_text_output(result):
 
     # Verdict
     verdict = result["verdict"]
-    total_warnings = len(mock_warnings) + len(skip_warnings)
     if verdict == "PASS":
         summary = f"PASS — {len(real_tests)} real tests found, no warnings"
     elif verdict == "WARN":
@@ -728,7 +734,9 @@ def format_text_output(result):
             f"{', '.join(warn_parts)} require LLM review"
         )
     else:
-        summary = f"FAIL — {', '.join(result['issues']) if result['issues'] else 'no real tests found'}"
+        summary = (
+            f"FAIL — {', '.join(result['issues']) if result['issues'] else 'no real tests found'}"
+        )
 
     lines.append(f"Result: {summary}")
     return "\n".join(lines)
@@ -739,18 +747,16 @@ def main():
         description="Check real test compliance for a long-task project"
     )
     parser.add_argument("path", help="Path to feature-list.json")
+    parser.add_argument("--feature", type=int, default=None, help="Check a specific feature by ID")
     parser.add_argument(
-        "--feature", type=int, default=None,
-        help="Check a specific feature by ID"
+        "--json", action="store_true", dest="json_output", help="Output as JSON (for LLM parsing)"
     )
     parser.add_argument(
-        "--json", action="store_true", dest="json_output",
-        help="Output as JSON (for LLM parsing)"
-    )
-    parser.add_argument(
-        "--require-for-deps", action="store_true", dest="require_for_deps",
+        "--require-for-deps",
+        action="store_true",
+        dest="require_for_deps",
         help="Cross-check: if feature has required_configs with connection-string "
-             "keys, real tests are mandatory (pure-function exemption blocked)"
+        "keys, real tests are mandatory (pure-function exemption blocked)",
     )
 
     args = parser.parse_args()

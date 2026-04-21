@@ -23,9 +23,7 @@ import sys
 
 # Case ID pattern: ST-{CATEGORY}-{FEATURE_ID}-{SEQ}
 # FEATURE_ID is zero-padded 3 digits, SEQ is zero-padded 3 digits
-CASE_ID_PATTERN = re.compile(
-    r"^ST-(FUNC|BNDRY|UI|SEC|PERF)-(\d{3})-(\d{3})$"
-)
+CASE_ID_PATTERN = re.compile(r"^ST-(FUNC|BNDRY|UI|SEC|PERF)-(\d{3})-(\d{3})$")
 
 VALID_CATEGORIES = {"FUNC", "BNDRY", "UI", "SEC", "PERF"}
 
@@ -82,10 +80,12 @@ def _parse_case_blocks(content: str) -> list[dict]:
         if heading and (heading == "用例编号" or heading == "Case ID"):
             # Save previous case if any
             if in_case and current_case_lines:
-                cases.append({
-                    "raw": "\n".join(current_case_lines),
-                    "line": current_case_start + 1,
-                })
+                cases.append(
+                    {
+                        "raw": "\n".join(current_case_lines),
+                        "line": current_case_start + 1,
+                    }
+                )
             current_case_lines = [line]
             current_case_start = i
             in_case = True
@@ -94,10 +94,12 @@ def _parse_case_blocks(content: str) -> list[dict]:
 
     # Save last case
     if in_case and current_case_lines:
-        cases.append({
-            "raw": "\n".join(current_case_lines),
-            "line": current_case_start + 1,
-        })
+        cases.append(
+            {
+                "raw": "\n".join(current_case_lines),
+                "line": current_case_start + 1,
+            }
+        )
 
     # Parse sections within each case
     for case in cases:
@@ -160,7 +162,9 @@ def _extract_ats_requirements(ats_path: str, feature_id: int = None) -> dict:
     return result
 
 
-def validate(path: str, feature_list_path: str = None, feature_id: int = None, ats_path: str = None) -> tuple[list[str], list[str]]:
+def validate(
+    path: str, feature_list_path: str = None, feature_id: int = None, ats_path: str = None
+) -> tuple[list[str], list[str]]:
     """Validate an ST test case document. Returns (errors, warnings)."""
     errors = []
     warnings = []
@@ -180,18 +184,22 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
     cases = _parse_case_blocks(content)
 
     if not cases:
-        errors.append("No test case blocks found (expected '### 用例编号' or '### Case ID' headings)")
+        errors.append(
+            "No test case blocks found (expected '### 用例编号' or '### Case ID' headings)"
+        )
         return errors, warnings
 
     # Check for summary section
-    has_summary = ("摘要" in content or "Summary" in content)
+    has_summary = "摘要" in content or "Summary" in content
     if not has_summary:
         warnings.append("Missing summary table section ('摘要' or 'Summary')")
 
     # Check for traceability matrix
-    has_matrix = ("可追溯矩阵" in content or "Traceability Matrix" in content)
+    has_matrix = "可追溯矩阵" in content or "Traceability Matrix" in content
     if not has_matrix:
-        warnings.append("Missing traceability matrix section ('可追溯矩阵' or 'Traceability Matrix')")
+        warnings.append(
+            "Missing traceability matrix section ('可追溯矩阵' or 'Traceability Matrix')"
+        )
 
     # Validate each test case
     case_ids_seen = set()
@@ -247,7 +255,9 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
         # Check test steps table exists (look for pipe-separated table)
         steps_content = sections.get("测试步骤") or sections.get("Test Steps") or ""
         if steps_content and "|" not in steps_content:
-            warnings.append(f"{case_label}: test steps section does not contain a table (expected '|' delimited rows)")
+            warnings.append(
+                f"{case_label}: test steps section does not contain a table (expected '|' delimited rows)"
+            )
 
         # Check verification points are non-empty
         vp_content = sections.get("验证点") or sections.get("Verification Points") or ""
@@ -264,8 +274,7 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
             )
             if is_manual:
                 has_reason = (
-                    "手动测试原因" in metadata_content
-                    or "Manual Test Reason" in metadata_content
+                    "手动测试原因" in metadata_content or "Manual Test Reason" in metadata_content
                 )
                 if not has_reason:
                     warnings.append(
@@ -285,9 +294,7 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
             break
 
     if has_manual_cases:
-        has_manual_summary = (
-            "Manual Test Case Summary" in content or "手动测试用例摘要" in content
-        )
+        has_manual_summary = "Manual Test Case Summary" in content or "手动测试用例摘要" in content
         if not has_manual_summary:
             warnings.append(
                 "Document has manual test cases (已自动化: No) but missing "
@@ -314,9 +321,13 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
 
         # Count step rows in table (lines containing | that aren't header/separator)
         step_rows = [
-            line for line in steps_content.split("\n")
-            if "|" in line and "---" not in line and "Step" not in line
-            and "操作" not in line and "step" not in line.lower().split("|")[0]
+            line
+            for line in steps_content.split("\n")
+            if "|" in line
+            and "---" not in line
+            and "Step" not in line
+            and "操作" not in line
+            and "step" not in line.lower().split("|")[0]
         ]
 
         # Warn: UI test case with fewer than 3 steps
@@ -329,9 +340,19 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
         # Warn: UI test case missing three-layer detection
         if is_ui_case:
             all_content = case.get("raw", "")
-            has_layer1 = "evaluate_script" in all_content or "error_detector" in all_content or "Layer 1" in all_content or "错误检测" in all_content
+            has_layer1 = (
+                "evaluate_script" in all_content
+                or "error_detector" in all_content
+                or "Layer 1" in all_content
+                or "错误检测" in all_content
+            )
             has_layer2 = "EXPECT" in all_content and "REJECT" in all_content
-            has_layer3 = "list_console_messages" in all_content or "console" in all_content.lower() or "Layer 3" in all_content or "控制台" in all_content
+            has_layer3 = (
+                "list_console_messages" in all_content
+                or "console" in all_content.lower()
+                or "Layer 3" in all_content
+                or "控制台" in all_content
+            )
             if not has_layer1:
                 warnings.append(
                     f"[QUALITY] {cid}: UI test case missing Layer 1 detection "
@@ -361,7 +382,10 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
         # Track negative path presence
         objective = sections.get("测试目标") or sections.get("Test Objective") or ""
         all_text = (objective + " " + cid).lower()
-        if any(w in all_text for w in ["error", "invalid", "fail", "reject", "deny", "异常", "失败", "拒绝", "错误"]):
+        if any(
+            w in all_text
+            for w in ["error", "invalid", "fail", "reject", "deny", "异常", "失败", "拒绝", "错误"]
+        ):
             has_negative_path = True
 
     # Warn: no negative/error path test case in the entire document
@@ -394,9 +418,7 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
             srs_trace = target_feature.get("srs_trace", [])
             for req_id in srs_trace:
                 if isinstance(req_id, str) and req_id not in content:
-                    warnings.append(
-                        f"srs_trace requirement {req_id} not referenced in ST document"
-                    )
+                    warnings.append(f"srs_trace requirement {req_id} not referenced in ST document")
 
             # Backward compatibility: also check verification_steps if present
             v_steps = target_feature.get("verification_steps", [])
@@ -435,7 +457,9 @@ def validate(path: str, feature_list_path: str = None, feature_id: int = None, a
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: validate_st_cases.py <path/to/test-case-doc.md> [--feature-list path] [--feature id]")
+        print(
+            "Usage: validate_st_cases.py <path/to/test-case-doc.md> [--feature-list path] [--feature id]"
+        )
         sys.exit(1)
 
     path = sys.argv[1]

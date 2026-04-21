@@ -29,39 +29,55 @@ import sys
 # Required section concepts — each is (label, list of alternative patterns).
 # The guide passes if at least ONE pattern from each group is found (case-insensitive).
 REQUIRED_SECTIONS = [
-    ("Orient / current state",
-     [r"orient", r"current state", r"understand.*state"]),
-    ("Bootstrap / restore environment",
-     [r"bootstrap", r"restore.*environment", r"init\s*script", r"init\.sh"]),
-    ("Config Gate / required configurations",
-     [r"config\s*gate", r"required.config", r"check_configs"]),
-    ("TDD Red / failing tests first",
-     [r"tdd\s*red", r"failing\s*tests?\s*first", r"write.*failing.*test"]),
-    ("TDD Green / implement to pass",
-     [r"tdd\s*green", r"implement.*pass", r"minimal.*code.*pass"]),
-    ("Coverage Gate",
-     [r"coverage\s*gate", r"coverage.*threshold", r"line.*coverage.*branch.*coverage"]),
-    ("TDD Refactor",
-     [r"tdd\s*refactor", r"refactor.*keeping.*test", r"clean\s*up"]),
-    ("Verification enforcement",
-     [r"verification.*enforce", r"fresh.*evidence", r"never.*mark.*passing.*without"]),
-    ("ST Test Cases / test case generation",
-     [r"st\s*test\s*case", r"test\s*case\s*generat", r"29119", r"st-case", r"long-task-st-case"]),
-    ("Inline Compliance Check",
-     [r"inline.*compliance", r"compliance.*check", r"spec.*coverage", r"design.*compliance"]),
-    ("Persist / save state / commit",
-     [r"persist", r"save.*state", r"git.*commit", r"task-progress"]),
-    ("Critical Rules",
-     [r"critical\s*rule", r"iron\s*rule", r"must\s*never"]),
-    ("Real Test Convention",
-     [r"real\s*test\s*convention", r"real.test.identification", r"real.test.marker"]),
+    ("Orient / current state", [r"orient", r"current state", r"understand.*state"]),
+    (
+        "Bootstrap / restore environment",
+        [r"bootstrap", r"restore.*environment", r"init\s*script", r"init\.sh"],
+    ),
+    (
+        "Config Gate / required configurations",
+        [r"config\s*gate", r"required.config", r"check_configs"],
+    ),
+    (
+        "TDD Red / failing tests first",
+        [r"tdd\s*red", r"failing\s*tests?\s*first", r"write.*failing.*test"],
+    ),
+    ("TDD Green / implement to pass", [r"tdd\s*green", r"implement.*pass", r"minimal.*code.*pass"]),
+    (
+        "Coverage Gate",
+        [r"coverage\s*gate", r"coverage.*threshold", r"line.*coverage.*branch.*coverage"],
+    ),
+    ("TDD Refactor", [r"tdd\s*refactor", r"refactor.*keeping.*test", r"clean\s*up"]),
+    (
+        "Verification enforcement",
+        [r"verification.*enforce", r"fresh.*evidence", r"never.*mark.*passing.*without"],
+    ),
+    (
+        "ST Test Cases / test case generation",
+        [r"st\s*test\s*case", r"test\s*case\s*generat", r"29119", r"st-case", r"long-task-st-case"],
+    ),
+    (
+        "Inline Compliance Check",
+        [r"inline.*compliance", r"compliance.*check", r"spec.*coverage", r"design.*compliance"],
+    ),
+    (
+        "Persist / save state / commit",
+        [r"persist", r"save.*state", r"git.*commit", r"task-progress"],
+    ),
+    ("Critical Rules", [r"critical\s*rule", r"iron\s*rule", r"must\s*never"]),
+    (
+        "Real Test Convention",
+        [r"real\s*test\s*convention", r"real.test.identification", r"real.test.marker"],
+    ),
 ]
 
 
 # Conditional sections — only required when the project has UI features (ui: true).
 CHROME_DEVTOOLS_SECTIONS = [
-    ("Chrome DevTools MCP / UI functional testing",
-     [r"chrome\s*devtools", r"devtools\s*mcp", r"take_snapshot", r"functional\s*test.*ui"]),
+    (
+        "Chrome DevTools MCP / UI functional testing",
+        [r"chrome\s*devtools", r"devtools\s*mcp", r"take_snapshot", r"functional\s*test.*ui"],
+    ),
 ]
 
 
@@ -71,10 +87,7 @@ def has_ui_features(feature_list_path: str) -> bool:
         with open(feature_list_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         features = data.get("features", [])
-        return any(
-            isinstance(feat, dict) and feat.get("ui") is True
-            for feat in features
-        )
+        return any(isinstance(feat, dict) and feat.get("ui") is True for feat in features)
     except (json.JSONDecodeError, FileNotFoundError, Exception):
         return False
 
@@ -163,9 +176,12 @@ def _append_footer(path: str) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Validate LLM-generated long-task-guide.md")
     parser.add_argument("guide_path", help="Path to long-task-guide.md")
-    parser.add_argument("--feature-list", default=None,
-                        help="Path to feature-list.json; enables Chrome DevTools section "
-                             "checks when UI features are present")
+    parser.add_argument(
+        "--feature-list",
+        default=None,
+        help="Path to feature-list.json; enables Chrome DevTools section "
+        "checks when UI features are present",
+    )
     args = parser.parse_args()
 
     errors = validate_guide(args.guide_path, args.feature_list)

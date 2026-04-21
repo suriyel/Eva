@@ -85,12 +85,17 @@ def _cmd_design_doc(args) -> int:
 
     if args.as_json:
         slug = path[len("docs/features/") + len(str(args.feature)) + 1 : -len(".md")]
-        print(json.dumps({
-            "path": path,
-            "exists": exists,
-            "feature_id": args.feature,
-            "slug": slug,
-        }, ensure_ascii=False))
+        print(
+            json.dumps(
+                {
+                    "path": path,
+                    "exists": exists,
+                    "feature_id": args.feature,
+                    "slug": slug,
+                },
+                ensure_ascii=False,
+            )
+        )
     else:
         print(path)
     return 0
@@ -104,7 +109,11 @@ def main() -> int:
     p.add_argument("--feature", type=int, required=True, help="Feature id")
     p.add_argument("--must-exist", action="store_true", help="Exit 1 if file missing")
     p.add_argument("--json", dest="as_json", action="store_true", help="Emit JSON to stdout")
-    p.add_argument("--feature-list", default=None, help="Path to feature-list.json (default: cwd/feature-list.json)")
+    p.add_argument(
+        "--feature-list",
+        default=None,
+        help="Path to feature-list.json (default: cwd/feature-list.json)",
+    )
 
     args = parser.parse_args()
     if args.cmd == "design-doc":

@@ -74,15 +74,16 @@ def validate(path: str, strict: bool = False) -> tuple[bool, list[str]]:
 
     # 1. Section header check
     for label, patterns in REQUIRED_SECTIONS:
-        found = any(re.search(pat, content, flags=re.MULTILINE | re.IGNORECASE)
-                    for pat in patterns)
+        found = any(re.search(pat, content, flags=re.MULTILINE | re.IGNORECASE) for pat in patterns)
         if not found:
             messages.append(f"MISSING: {label}")
 
     # 2. Frontmatter presence
     fm = parse_frontmatter(content)
     if not fm:
-        messages.append("MISSING: YAML frontmatter (version/approved_by/approved_date/approved_sections)")
+        messages.append(
+            "MISSING: YAML frontmatter (version/approved_by/approved_date/approved_sections)"
+        )
     else:
         for key in ("version", "approved_by", "approved_date", "approved_sections"):
             if key not in fm:
@@ -92,7 +93,9 @@ def validate(path: str, strict: bool = False) -> tuple[bool, list[str]]:
     if strict and fm:
         approved_by = fm.get("approved_by", "").strip().strip('"').strip("'")
         if not approved_by or approved_by.lower() in ("null", "none", ""):
-            messages.append("NOT APPROVED: frontmatter approved_by is null (strict mode requires explicit approval)")
+            messages.append(
+                "NOT APPROVED: frontmatter approved_by is null (strict mode requires explicit approval)"
+            )
 
     ok = len(messages) == 0
     return ok, messages
@@ -101,15 +104,17 @@ def validate(path: str, strict: bool = False) -> tuple[bool, list[str]]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("path", help="Path to env-guide.md")
-    parser.add_argument("--strict", action="store_true",
-                        help="Require frontmatter approved_by to be non-null")
+    parser.add_argument(
+        "--strict", action="store_true", help="Require frontmatter approved_by to be non-null"
+    )
     args = parser.parse_args()
 
     ok, messages = validate(args.path, strict=args.strict)
 
     if ok:
-        print(f"OK: {args.path} — all six sections present" +
-              (" and approved" if args.strict else ""))
+        print(
+            f"OK: {args.path} — all six sections present" + (" and approved" if args.strict else "")
+        )
         return 0
 
     for msg in messages:

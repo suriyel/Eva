@@ -41,3 +41,17 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Design: DONE (docs/features/1-f01-app-shell-platform-bootstrap.md)
 - current.phase: design → tdd
 
+### Session 2 — Feature #1 F01 · App Shell & Platform Bootstrap · TDD (2026-04-21)
+
+- target_feature: id=1, title="F01 · App Shell & Platform Bootstrap", category=core
+- dependencies: [] · required_configs: []
+- design doc verified on disk
+- **Red** (59 tests): categories=FUNC/SEC/BNDRY/INTG/PERF; negative_ratio=0.559 (33/59); low_value_ratio=0.069 (7/102); real_test_count=6; all FAILED (ModuleNotFoundError on `harness.*` as expected)
+- **Green** (59 → PASS): 12 impl files under `harness/{app,config,auth,net,api}/` + `requirements.txt` pin (fastapi 0.136.0, uvicorn 0.44.0, pydantic 2.13.3, httpx 0.28.1, keyring 25.7.0, keyrings.alt 5.0.2, pywebview 6.2.1, respx 0.23.1); uvicorn banner captured on `http://127.0.0.1:8765`; `/api/health` returns 200 with `bind=127.0.0.1`
+- **Design alignment**: §4=matches (hint literal `"请运行: claude auth login"` aligned byte-for-byte), §6=matches, §8=matches; drift=resolved
+- **Refactor**: ruff 0 / black 51 files unchanged / mypy strict 0 issues on 13 source files; tests remain 59/59 green
+- **Quality gates**: line=95.53% (≥90%), branch=85.09% (≥80%); srs_trace_coverage 6/6 (FR-046, FR-050, NFR-007, NFR-010, NFR-012, NFR-013); real tests 6/6 pass
+- **Supplement**: `tests/test_f01_coverage_supplement.py` (+34 tests for branch coverage) — total 93 tests passing
+- **Risk log**: `harness/app/bootstrap.py` 88% line coverage (webview-thread teardown branches mock-only); suggest E2E PyWebView smoke in F17 packaging wave
+- current.phase: tdd → st
+

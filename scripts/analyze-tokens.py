@@ -33,21 +33,23 @@ def analyze_directory(root_dir: str):
 
     for dirpath, dirnames, filenames in os.walk(root_dir):
         # Skip hidden dirs and __pycache__
-        dirnames[:] = [d for d in dirnames if not d.startswith('.') and d != '__pycache__']
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "__pycache__"]
 
         for filename in sorted(filenames):
-            if not any(filename.endswith(ext) for ext in ['.md', '.py', '.sh', '.ps1', '.json', '.js']):
+            if not any(
+                filename.endswith(ext) for ext in [".md", ".py", ".sh", ".ps1", ".json", ".js"]
+            ):
                 continue
 
             filepath = os.path.join(dirpath, filename)
             try:
-                with open(filepath, 'r', encoding='utf-8') as f:
+                with open(filepath, "r", encoding="utf-8") as f:
                     content = f.read()
             except (UnicodeDecodeError, PermissionError):
                 continue
 
             tokens = estimate_tokens(content)
-            lines = content.count('\n') + 1
+            lines = content.count("\n") + 1
             rel_path = os.path.relpath(filepath, root_dir)
             results.append((rel_path, tokens, lines, len(content)))
             total_tokens += tokens
@@ -59,7 +61,7 @@ def main():
     if len(sys.argv) > 1:
         root = sys.argv[1]
     else:
-        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+        root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 
     root = os.path.abspath(root)
     print(f"=== Token Analysis: {root} ===\n")
@@ -97,8 +99,8 @@ def main():
     print("\n=== Category Breakdown ===")
     categories = {}
     for rel_path, tokens, _, _ in results:
-        parts = rel_path.replace('\\', '/').split('/')
-        cat = parts[0] if len(parts) > 1 else 'root'
+        parts = rel_path.replace("\\", "/").split("/")
+        cat = parts[0] if len(parts) > 1 else "root"
         categories[cat] = categories.get(cat, 0) + tokens
 
     for cat in sorted(categories, key=categories.get, reverse=True):

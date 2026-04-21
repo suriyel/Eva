@@ -42,10 +42,7 @@ def has_ui_features(path: str, feature_id: int = None) -> list[dict]:
         data = json.load(f)
 
     features = data.get("features", [])
-    ui_features = [
-        feat for feat in features
-        if isinstance(feat, dict) and feat.get("ui") is True
-    ]
+    ui_features = [feat for feat in features if isinstance(feat, dict) and feat.get("ui") is True]
 
     if feature_id is not None:
         ui_features = [f for f in ui_features if f.get("id") == feature_id]
@@ -81,7 +78,9 @@ def detect_chrome_debug_port() -> dict:
             # Use tasklist + findstr — avoids needing wmic
             result = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq chrome.exe", "/FO", "LIST"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if "chrome.exe" in result.stdout.lower():
                 return {
@@ -93,7 +92,9 @@ def detect_chrome_debug_port() -> dict:
             # Unix: ps + grep
             result = subprocess.run(
                 ["sh", "-c", "ps aux | grep -i 'chrome\\|chromium' | grep -v grep"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.stdout.strip():
                 return {
@@ -136,8 +137,9 @@ def main():
         description="Check Chrome DevTools MCP availability for UI features"
     )
     parser.add_argument("path", help="Path to feature-list.json")
-    parser.add_argument("--feature", type=int, default=None,
-                        help="Only check for this specific feature ID")
+    parser.add_argument(
+        "--feature", type=int, default=None, help="Only check for this specific feature ID"
+    )
     args = parser.parse_args()
 
     try:
@@ -161,7 +163,7 @@ def main():
         print(f"\nCHROME DEVTOOLS: AVAILABLE (detected via {result['method']}: {result['detail']})")
         sys.exit(0)
     else:
-        print(f"\nCHROME DEVTOOLS: NOT DETECTED")
+        print("\nCHROME DEVTOOLS: NOT DETECTED")
         print(f"  {result['detail']}")
         print()
         print("To resolve:")

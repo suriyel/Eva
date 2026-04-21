@@ -65,9 +65,7 @@ def validate(path: str) -> list[str]:
         if not isinstance(severity, str):
             errors.append(f"'severity' must be a string, got {type(severity).__name__}")
         elif severity not in VALID_SEVERITIES:
-            errors.append(
-                f"'severity' must be one of {sorted(VALID_SEVERITIES)}, got '{severity}'"
-            )
+            errors.append(f"'severity' must be one of {sorted(VALID_SEVERITIES)}, got '{severity}'")
 
     # Check feature_id (key must be present; value is int >= 1 or null)
     if "feature_id" not in data:
@@ -76,7 +74,9 @@ def validate(path: str) -> list[str]:
         fid = data["feature_id"]
         if fid is not None:
             if not isinstance(fid, int) or isinstance(fid, bool):
-                errors.append(f"'feature_id' must be an integer >= 1 or null, got {type(fid).__name__}")
+                errors.append(
+                    f"'feature_id' must be an integer >= 1 or null, got {type(fid).__name__}"
+                )
             elif fid < 1:
                 errors.append(f"'feature_id' must be >= 1, got {fid}")
 
@@ -109,15 +109,11 @@ def validate(path: str) -> list[str]:
     if "attachments" in data and data["attachments"] is not None:
         attachments = data["attachments"]
         if not isinstance(attachments, list):
-            errors.append(
-                f"'attachments' must be a list or null, got {type(attachments).__name__}"
-            )
+            errors.append(f"'attachments' must be a list or null, got {type(attachments).__name__}")
         else:
             for i, item in enumerate(attachments):
                 if not isinstance(item, str):
-                    errors.append(
-                        f"'attachments[{i}]' must be a string, got {type(item).__name__}"
-                    )
+                    errors.append(f"'attachments[{i}]' must be a string, got {type(item).__name__}")
 
     return errors
 

@@ -70,8 +70,7 @@ def find_test_files(test_dir, language):
     pattern = TEST_FILE_PATTERNS.get(language)
     if not pattern:
         pattern = re.compile(
-            r"^test_.*\.\w+$|^.*_test\.\w+$|^.*Test\.\w+$|"
-            r"^.*\.test\.\w+$|^.*\.spec\.\w+$"
+            r"^test_.*\.\w+$|^.*_test\.\w+$|^.*Test\.\w+$|" r"^.*\.test\.\w+$|^.*\.spec\.\w+$"
         )
 
     files = []
@@ -156,8 +155,9 @@ def find_coverage(fr_id, aliases, files, path_cache):
     return hits
 
 
-def check_feature(feat, all_test_files, feature_ref_pattern,
-                  explicit_test_files, base_dir, path_cache):
+def check_feature(
+    feat, all_test_files, feature_ref_pattern, explicit_test_files, base_dir, path_cache
+):
     """Check a single feature's srs_trace coverage."""
     fid = feat.get("id")
     srs_trace = feat.get("srs_trace", []) or []
@@ -166,9 +166,7 @@ def check_feature(feat, all_test_files, feature_ref_pattern,
     if explicit_test_files is not None:
         scope_files = list(explicit_test_files)
     else:
-        scope_files = filter_files_by_feature_ref(
-            all_test_files, fid, feature_ref_pattern
-        )
+        scope_files = filter_files_by_feature_ref(all_test_files, fid, feature_ref_pattern)
         if not scope_files:
             scope_files = list(all_test_files)
 
@@ -177,9 +175,7 @@ def check_feature(feat, all_test_files, feature_ref_pattern,
         aliases = aliases_map.get(fr_id, []) or []
         hits = find_coverage(fr_id, aliases, scope_files, path_cache)
         per_id[fr_id] = [
-            {"file": os.path.relpath(h["file"], base_dir),
-             "evidence": h["evidence"]}
-            for h in hits
+            {"file": os.path.relpath(h["file"], base_dir), "evidence": h["evidence"]} for h in hits
         ]
 
     uncovered = [fr for fr, h in per_id.items() if not h]
@@ -228,9 +224,7 @@ def check(feature_list_path, feature_id=None, explicit_test_files=None):
 
     real_test_cfg = data.get("real_test", {}) or {}
     test_dir = real_test_cfg.get("test_dir", "tests")
-    feature_ref_pattern = real_test_cfg.get(
-        "feature_ref_pattern", DEFAULT_FEATURE_REF_PATTERN
-    )
+    feature_ref_pattern = real_test_cfg.get("feature_ref_pattern", DEFAULT_FEATURE_REF_PATTERN)
     result["test_dir"] = test_dir
 
     base_dir = os.path.dirname(os.path.abspath(feature_list_path))
@@ -252,26 +246,24 @@ def check(feature_list_path, feature_id=None, explicit_test_files=None):
 
     features = data.get("features", []) or []
     if feature_id is not None:
-        features = [
-            f for f in features
-            if isinstance(f, dict) and f.get("id") == feature_id
-        ]
+        features = [f for f in features if isinstance(f, dict) and f.get("id") == feature_id]
         if not features:
             result["issues"].append(f"Feature {feature_id} not found")
             return result
 
-    active = [
-        f for f in features
-        if isinstance(f, dict) and not f.get("deprecated", False)
-    ]
+    active = [f for f in features if isinstance(f, dict) and not f.get("deprecated", False)]
     result["features_checked"] = len(active)
 
     path_cache = {}
     total_uncovered = 0
     for feat in active:
         feat_result = check_feature(
-            feat, all_test_files, feature_ref_pattern,
-            explicit_abs, base_dir, path_cache,
+            feat,
+            all_test_files,
+            feature_ref_pattern,
+            explicit_abs,
+            base_dir,
+            path_cache,
         )
         result["per_feature"].append(feat_result)
         total_uncovered += len(feat_result["uncovered_fr_ids"])
@@ -280,13 +272,10 @@ def check(feature_list_path, feature_id=None, explicit_test_files=None):
 
     # Features with no srs_trace are treated as N/A — they do not fail
     # the gate by themselves, but they are surfaced as a warning issue.
-    features_no_trace = [
-        f["feature_id"] for f in result["per_feature"] if not f["srs_trace"]
-    ]
+    features_no_trace = [f["feature_id"] for f in result["per_feature"] if not f["srs_trace"]]
     if features_no_trace:
         result["issues"].append(
-            "Features without srs_trace: "
-            + ", ".join(str(i) for i in features_no_trace)
+            "Features without srs_trace: " + ", ".join(str(i) for i in features_no_trace)
         )
 
     if total_uncovered == 0:
@@ -346,25 +335,19 @@ def format_text(result):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Check SRS trace coverage for a long-task project"
-    )
+    parser = argparse.ArgumentParser(description="Check SRS trace coverage for a long-task project")
     parser.add_argument("path", help="Path to feature-list.json")
+    parser.add_argument("--feature", type=int, default=None, help="Check a specific feature by ID")
     parser.add_argument(
-        "--feature", type=int, default=None,
-        help="Check a specific feature by ID"
-    )
-    parser.add_argument(
-        "--test-files", nargs="+", default=None,
+        "--test-files",
+        nargs="+",
+        default=None,
         help=(
             "Explicit test file list to scan (relative to project root). "
             "If omitted, scope is auto-derived from feature_ref_pattern."
         ),
     )
-    parser.add_argument(
-        "--json", action="store_true", dest="json_output",
-        help="Output as JSON"
-    )
+    parser.add_argument("--json", action="store_true", dest="json_output", help="Output as JSON")
     args = parser.parse_args()
 
     result = check(

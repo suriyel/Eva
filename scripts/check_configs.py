@@ -98,9 +98,9 @@ def main() -> None:
     # 过滤到指定 feature（若给定）
     if args.feature is not None:
         configs = [
-            c for c in configs
-            if isinstance(c, dict)
-            and args.feature in (c.get("required_by") or [])
+            c
+            for c in configs
+            if isinstance(c, dict) and args.feature in (c.get("required_by") or [])
         ]
 
     missing: list[tuple[str, str]] = []

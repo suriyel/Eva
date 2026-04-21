@@ -96,8 +96,7 @@ def check_st_readiness(path: str) -> dict:
 
     if result["failing_features"] > 0:
         result["issues"].append(
-            f"{result['failing_features']} feature(s) still failing: "
-            f"{result['failing_ids']}"
+            f"{result['failing_features']} feature(s) still failing: " f"{result['failing_ids']}"
         )
 
     # Check docs/plans/ for SRS and design docs
@@ -183,10 +182,14 @@ def main():
     # ST test case coverage (warning) — only if st_case_coverage was computed
     if "st_case_coverage" in result:
         if result["st_case_missing"]:
-            print(f"ST test cases: {result['st_case_coverage']}/{result['total_features']} features covered")
+            print(
+                f"ST test cases: {result['st_case_coverage']}/{result['total_features']} features covered"
+            )
             print(f"  Warning: features without ST test cases: {result['st_case_missing']}")
         else:
-            print(f"ST test cases: {result['st_case_coverage']}/{result['total_features']} features covered")
+            print(
+                f"ST test cases: {result['st_case_coverage']}/{result['total_features']} features covered"
+            )
 
     if result["ready"]:
         print("\nREADY for system testing.")

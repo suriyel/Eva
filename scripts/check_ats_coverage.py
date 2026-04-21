@@ -24,14 +24,10 @@ import sys
 VALID_CATEGORIES = {"FUNC", "BNDRY", "UI", "SEC", "PERF"}
 
 # Table row pattern: | REQ-ID | ... |
-TABLE_ROW_PATTERN = re.compile(
-    r"^\|\s*((?:FR|NFR|IFR)-\d{3})\s*\|"
-)
+TABLE_ROW_PATTERN = re.compile(r"^\|\s*((?:FR|NFR|IFR)-\d{3})\s*\|")
 
 # Case ID pattern in ST documents
-CASE_ID_PATTERN = re.compile(
-    r"ST-(FUNC|BNDRY|UI|SEC|PERF)-(\d{3})-(\d{3})"
-)
+CASE_ID_PATTERN = re.compile(r"ST-(FUNC|BNDRY|UI|SEC|PERF)-(\d{3})-(\d{3})")
 
 
 def _extract_ats_rows(ats_path: str) -> tuple[list[dict], list[str]]:
@@ -58,10 +54,12 @@ def _extract_ats_rows(ats_path: str) -> tuple[list[dict], list[str]]:
                     if c in VALID_CATEGORIES:
                         categories.add(c)
 
-                rows.append({
-                    "req_id": req_id,
-                    "categories": categories,
-                })
+                rows.append(
+                    {
+                        "req_id": req_id,
+                        "categories": categories,
+                    }
+                )
 
     return rows, errors
 

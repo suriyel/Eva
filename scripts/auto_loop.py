@@ -43,7 +43,7 @@ ERROR_PATTERNS = [
 
 # Global interrupt state
 _interrupt_requested = False  # 1st Ctrl+C: graceful stop
-_force_kill = False           # 2nd Ctrl+C: force kill
+_force_kill = False  # 2nd Ctrl+C: force kill
 _active_proc: subprocess.Popen | None = None  # currently running child
 
 
@@ -92,9 +92,9 @@ def load_current_state(path: str) -> dict:
     except (json.JSONDecodeError, FileNotFoundError):
         return {"current": None, "legacy_sub_status": 0}
     features = data.get("features", [])
-    legacy = sum(1 for f in features
-                 if isinstance(f, dict) and "sub_status" in f
-                 and not f.get("deprecated"))
+    legacy = sum(
+        1 for f in features if isinstance(f, dict) and "sub_status" in f and not f.get("deprecated")
+    )
     return {"current": data.get("current"), "legacy_sub_status": legacy}
 
 
@@ -197,9 +197,14 @@ def get_git_commits_since(project_dir: str, since_sha: str) -> str:
         return ""
 
 
-def write_log(log_dir: str, iteration: int, result_text: str,
-              result_json: dict | None, feature_list_path: str,
-              git_commits: str | None = None) -> str:
+def write_log(
+    log_dir: str,
+    iteration: int,
+    result_text: str,
+    result_json: dict | None,
+    feature_list_path: str,
+    git_commits: str | None = None,
+) -> str:
     """Write session log file. Returns log file path."""
     os.makedirs(log_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -251,8 +256,9 @@ def write_log(log_dir: str, iteration: int, result_text: str,
     return log_file
 
 
-def run_iteration_claude(iteration: int, project_dir: str, prompt: str,
-                         log_dir: str) -> tuple[int, str, dict | None, str]:
+def run_iteration_claude(
+    iteration: int, project_dir: str, prompt: str, log_dir: str
+) -> tuple[int, str, dict | None, str]:
     """Run one claude -p iteration with --output-format json.
 
     Returns (exit_code, result_text, result_json, log_file).
@@ -264,7 +270,8 @@ def run_iteration_claude(iteration: int, project_dir: str, prompt: str,
         "-p",
         prompt,
         "--dangerously-skip-permissions",
-        "--output-format", "json",
+        "--output-format",
+        "json",
     ]
 
     header = f"\n{'='*60}\n  Iteration {iteration}\n{'='*60}\n"
@@ -306,9 +313,14 @@ def run_iteration_claude(iteration: int, project_dir: str, prompt: str,
         git_commits = get_git_commits_since(project_dir, head_before) if head_before else None
 
         # Write log
-        log_file = write_log(log_dir, iteration, result_text,
-                             result_json, os.path.join(project_dir, "feature-list.json"),
-                             git_commits=git_commits)
+        log_file = write_log(
+            log_dir,
+            iteration,
+            result_text,
+            result_json,
+            os.path.join(project_dir, "feature-list.json"),
+            git_commits=git_commits,
+        )
 
         return proc.returncode, result_text, result_json, log_file
 
@@ -327,8 +339,9 @@ def run_iteration_claude(iteration: int, project_dir: str, prompt: str,
         return -2, "", None, ""
 
 
-def run_iteration_opencode(iteration: int, project_dir: str, prompt: str,
-                           log_dir: str) -> tuple[int, str, dict | None, str]:
+def run_iteration_opencode(
+    iteration: int, project_dir: str, prompt: str, log_dir: str
+) -> tuple[int, str, dict | None, str]:
     """Run one opencode -p iteration.
 
     Returns (exit_code, result_text, result_json, log_file).
@@ -364,9 +377,14 @@ def run_iteration_opencode(iteration: int, project_dir: str, prompt: str,
 
         result_text = "".join(captured)
         git_commits = get_git_commits_since(project_dir, head_before) if head_before else None
-        log_file = write_log(log_dir, iteration, result_text,
-                             None, os.path.join(project_dir, "feature-list.json"),
-                             git_commits=git_commits)
+        log_file = write_log(
+            log_dir,
+            iteration,
+            result_text,
+            None,
+            os.path.join(project_dir, "feature-list.json"),
+            git_commits=git_commits,
+        )
 
         return proc.returncode, result_text, None, log_file
 
@@ -424,7 +442,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description="Auto-loop for long-task feature development. "
-                    "Each iteration runs in a fresh context (implicit /clear)."
+        "Each iteration runs in a fresh context (implicit /clear)."
     )
     parser.add_argument("feature_list", help="Path to feature-list.json")
     parser.add_argument(
@@ -475,17 +493,18 @@ def main() -> int:
         state = load_current_state(feature_list_path)
         cur = state["current"]
         if cur and isinstance(cur, dict):
-            print(f"Current lock: feature #{cur.get('feature_id')} "
-                  f"({cur.get('phase')})")
+            print(f"Current lock: feature #{cur.get('feature_id')} " f"({cur.get('phase')})")
         else:
             print("Current lock: none (next session will pick a new feature)")
         if state["legacy_sub_status"]:
-            print(f"NOTE: {state['legacy_sub_status']} feature(s) still carry "
-                  f"legacy sub_status — router will run "
-                  f"migrate_sub_status.py on first iteration")
+            print(
+                f"NOTE: {state['legacy_sub_status']} feature(s) still carry "
+                f"legacy sub_status — router will run "
+                f"migrate_sub_status.py on first iteration"
+            )
         print(f"Max iterations: {args.max_iterations}, Cooldown: {args.cooldown}s")
         print(f"Log dir: {log_dir}")
-        print(f"Tip: Ctrl+C once = stop after iteration, twice = force kill")
+        print("Tip: Ctrl+C once = stop after iteration, twice = force kill")
     except Exception as e:
         print(f"ERROR: Cannot read feature-list.json: {e}")
         return 1
@@ -497,7 +516,7 @@ def main() -> int:
     # Git dirty state check
     dirty = check_git_dirty(project_dir)
     if dirty:
-        print(f"\nWARNING: Dirty git state detected:")
+        print("\nWARNING: Dirty git state detected:")
         for line in dirty.split("\n")[:5]:
             print(f"  {line}")
         print()
@@ -541,10 +560,10 @@ def main() -> int:
             ask_input = detect_ask_user(result_json)
             if ask_input:
                 print(f"\n{'='*60}")
-                print(f"  USER INPUT REQUIRED — Loop paused")
+                print("  USER INPUT REQUIRED — Loop paused")
                 print(f"{'='*60}")
                 print(format_ask_question(ask_input))
-                print(f"\nPlease handle the request, then restart the loop:")
+                print("\nPlease handle the request, then restart the loop:")
                 print(f"  python scripts/auto_loop.py {args.feature_list}")
                 print(f"Total cost: ${total_cost:.4f}")
                 return 4
@@ -554,11 +573,11 @@ def main() -> int:
             ask_signal = detect_ask_user_signal(project_dir)
             if ask_signal:
                 print(f"\n{'='*60}")
-                print(f"  USER INPUT REQUIRED — Loop paused")
+                print("  USER INPUT REQUIRED — Loop paused")
                 print(f"{'='*60}")
                 q = ask_signal.get("question", ask_signal.get("text", str(ask_signal)))
                 print(f"  {q}")
-                print(f"\nPlease handle the request, then restart the loop:")
+                print("\nPlease handle the request, then restart the loop:")
                 print(f"  python scripts/auto_loop.py {args.feature_list} --tool opencode")
                 print(f"Total cost: ${total_cost:.4f}")
                 return 4
@@ -579,8 +598,10 @@ def main() -> int:
         # Check if all features now pass
         try:
             total, passing, failing = load_feature_status(feature_list_path)
-            print(f"\n--- Status: {passing}/{total} passing, {failing} failing | "
-                  f"Cost so far: ${total_cost:.4f} ---")
+            print(
+                f"\n--- Status: {passing}/{total} passing, {failing} failing | "
+                f"Cost so far: ${total_cost:.4f} ---"
+            )
         except Exception:
             pass
 

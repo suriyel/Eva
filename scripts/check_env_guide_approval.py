@@ -62,7 +62,10 @@ def run_git(args: list[str], cwd: Path) -> tuple[int, str]:
     try:
         result = subprocess.run(
             ["git"] + args,
-            cwd=cwd, capture_output=True, text=True, check=False,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         return result.returncode, result.stdout
     except FileNotFoundError:
@@ -90,7 +93,9 @@ def parse_iso_date(s: str) -> datetime | None:
     return dt
 
 
-def commits_touching_sections(repo: Path, relpath: str, sections: tuple[str, ...]) -> list[tuple[str, datetime]]:
+def commits_touching_sections(
+    repo: Path, relpath: str, sections: tuple[str, ...]
+) -> list[tuple[str, datetime]]:
     """
     Return [(commit_sha, commit_date)] for commits where the diff touches any
     section in `sections` (e.g. ("§3", "§4")). Most recent first.
@@ -180,14 +185,12 @@ def touches_sections(diff: str, sections: tuple[str, ...]) -> bool:
 def check(path: str) -> dict:
     p = Path(path).resolve()
     if not p.exists():
-        return {"status": "missing", "path": str(p),
-                "message": f"env-guide.md not found: {p}"}
+        return {"status": "missing", "path": str(p), "message": f"env-guide.md not found: {p}"}
 
     content = p.read_text(encoding="utf-8")
     fm = parse_frontmatter(content)
     if not fm:
-        return {"status": "malformed", "path": str(p),
-                "message": "missing YAML frontmatter"}
+        return {"status": "malformed", "path": str(p), "message": "missing YAML frontmatter"}
 
     approved_by_raw = fm.get("approved_by", "").strip().strip('"').strip("'")
     approved_by_is_null = (not approved_by_raw) or approved_by_raw.lower() in ("null", "none")
@@ -207,58 +210,84 @@ def check(path: str) -> dict:
     # First-generation exemption: approved_by is null AND no commit has modified §3/§4
     rc, _ = run_git(["rev-parse", "--is-inside-work-tree"], cwd=repo)
     if rc != 0:
-        return {"status": "approved", "path": str(p),
-                "reason": "not in a git repo — exempt from approval gate",
-                "frontmatter": fm}
+        return {
+            "status": "approved",
+            "path": str(p),
+            "reason": "not in a git repo — exempt from approval gate",
+            "frontmatter": fm,
+        }
 
     commits = commits_touching_sections(repo, relpath, ("§3", "§4"))
 
     if approved_by_is_null:
         if not commits:
-            return {"status": "approved", "path": str(p),
-                    "reason": "first-generation exemption (no §3/§4 history)",
-                    "frontmatter": fm}
+            return {
+                "status": "approved",
+                "path": str(p),
+                "reason": "first-generation exemption (no §3/§4 history)",
+                "frontmatter": fm,
+            }
         # There IS history touching §3/§4, but approved_by is null → unapproved
         latest_sha, latest_date = commits[0]
-        return {"status": "unapproved", "path": str(p),
-                "reason": "frontmatter approved_by is null and §3/§4 have been modified",
-                "latest_section_commit": latest_sha,
-                "latest_section_commit_date": latest_date.isoformat(),
-                "frontmatter": fm}
+        return {
+            "status": "unapproved",
+            "path": str(p),
+            "reason": "frontmatter approved_by is null and §3/§4 have been modified",
+            "latest_section_commit": latest_sha,
+            "latest_section_commit_date": latest_date.isoformat(),
+            "frontmatter": fm,
+        }
 
     if approved_date is None:
-        return {"status": "unapproved", "path": str(p),
-                "reason": "approved_by set but approved_date is missing/invalid",
-                "frontmatter": fm}
+        return {
+            "status": "unapproved",
+            "path": str(p),
+            "reason": "approved_by set but approved_date is missing/invalid",
+            "frontmatter": fm,
+        }
 
     if not commits:
         # approved_by set but §3/§4 never modified in git → approved
-        return {"status": "approved", "path": str(p),
-                "reason": "no §3/§4 edits in git history",
-                "frontmatter": fm}
+        return {
+            "status": "approved",
+            "path": str(p),
+            "reason": "no §3/§4 edits in git history",
+            "frontmatter": fm,
+        }
 
     latest_sha, latest_date = commits[0]
     if latest_date > approved_date:
-        return {"status": "unapproved", "path": str(p),
-                "reason": (f"§3 or §4 modified in commit {latest_sha[:8]} at "
-                           f"{latest_date.isoformat()}, which is after "
-                           f"approved_date {approved_date.isoformat()}"),
-                "latest_section_commit": latest_sha,
-                "latest_section_commit_date": latest_date.isoformat(),
-                "approved_date": approved_date.isoformat(),
-                "frontmatter": fm}
-
-    return {"status": "approved", "path": str(p),
-            "reason": f"approved_date {approved_date.isoformat()} "
-                      f"is at or after latest §3/§4 edit",
+        return {
+            "status": "unapproved",
+            "path": str(p),
+            "reason": (
+                f"§3 or §4 modified in commit {latest_sha[:8]} at "
+                f"{latest_date.isoformat()}, which is after "
+                f"approved_date {approved_date.isoformat()}"
+            ),
+            "latest_section_commit": latest_sha,
+            "latest_section_commit_date": latest_date.isoformat(),
             "approved_date": approved_date.isoformat(),
-            "frontmatter": fm}
+            "frontmatter": fm,
+        }
+
+    return {
+        "status": "approved",
+        "path": str(p),
+        "reason": f"approved_date {approved_date.isoformat()} " f"is at or after latest §3/§4 edit",
+        "approved_date": approved_date.isoformat(),
+        "frontmatter": fm,
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("path", nargs="?", default="env-guide.md",
-                        help="Path to env-guide.md (default: ./env-guide.md)")
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default="env-guide.md",
+        help="Path to env-guide.md (default: ./env-guide.md)",
+    )
     parser.add_argument("--json", action="store_true", help="Output JSON result")
     args = parser.parse_args()
 
@@ -282,7 +311,9 @@ def main() -> int:
                 print(f"  Latest §3/§4 edit: {latest}")
             if approved:
                 print(f"  Current approved_date: {approved}")
-            print("  Action: review changes, update env-guide.md frontmatter approved_by/approved_date")
+            print(
+                "  Action: review changes, update env-guide.md frontmatter approved_by/approved_date"
+            )
 
     if result.get("status") == "approved":
         return 0

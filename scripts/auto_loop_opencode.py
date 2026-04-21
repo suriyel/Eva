@@ -44,7 +44,7 @@ ERROR_PATTERNS = [
 
 # Global interrupt state
 _interrupt_requested = False  # 1st Ctrl+C: graceful stop
-_force_kill = False           # 2nd Ctrl+C: force kill
+_force_kill = False  # 2nd Ctrl+C: force kill
 _active_proc: subprocess.Popen | None = None  # currently running child
 
 
@@ -138,8 +138,7 @@ def check_git_dirty(project_dir: str) -> str | None:
     return None
 
 
-def write_log(log_dir: str, iteration: int, result_text: str,
-              feature_list_path: str) -> str:
+def write_log(log_dir: str, iteration: int, result_text: str, feature_list_path: str) -> str:
     """Write session log file. Returns log file path."""
     os.makedirs(log_dir, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -240,7 +239,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(
         description="Auto-loop OpenCode for long-task feature development. "
-                    "Each invocation gets a fresh context (implicit /clear)."
+        "Each invocation gets a fresh context (implicit /clear)."
     )
     parser.add_argument("feature_list", help="Path to feature-list.json")
     parser.add_argument(
@@ -296,7 +295,7 @@ def main() -> int:
             print(f"Model: {args.model}")
         if args.attach:
             print(f"Attach: {args.attach}")
-        print(f"Tip: Ctrl+C once = stop after iteration, twice = force kill")
+        print("Tip: Ctrl+C once = stop after iteration, twice = force kill")
     except Exception as e:
         print(f"ERROR: Cannot read feature-list.json: {e}")
         return 1
@@ -308,7 +307,7 @@ def main() -> int:
     # Git dirty state check
     dirty = check_git_dirty(project_dir)
     if dirty:
-        print(f"\nWARNING: Dirty git state detected:")
+        print("\nWARNING: Dirty git state detected:")
         for line in dirty.split("\n")[:5]:
             print(f"  {line}")
         print()
@@ -320,8 +319,13 @@ def main() -> int:
             return 130
 
         exit_code, output, log_file = run_iteration(
-            i, project_dir, args.prompt, log_dir, feature_list_path,
-            args.model, args.attach,
+            i,
+            project_dir,
+            args.prompt,
+            log_dir,
+            feature_list_path,
+            args.model,
+            args.attach,
         )
 
         if log_file:
@@ -339,11 +343,11 @@ def main() -> int:
         ask_signal = detect_ask_user_signal(project_dir)
         if ask_signal:
             print(f"\n{'='*60}")
-            print(f"  USER INPUT REQUIRED — Loop paused")
+            print("  USER INPUT REQUIRED — Loop paused")
             print(f"{'='*60}")
             q = ask_signal.get("question", ask_signal.get("text", str(ask_signal)))
             print(f"  {q}")
-            print(f"\nPlease handle the request, then restart the loop:")
+            print("\nPlease handle the request, then restart the loop:")
             print(f"  python scripts/auto_loop_opencode.py {args.feature_list}")
             return 4
 

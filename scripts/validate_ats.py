@@ -33,17 +33,13 @@ REQUIRED_SECTIONS = [
 REQ_ID_PATTERN = re.compile(r"^(FR|NFR|IFR)-\d{3}$")
 
 # Table row pattern: | REQ-ID | ... |
-TABLE_ROW_PATTERN = re.compile(
-    r"^\|\s*((?:FR|NFR|IFR)-\d{3})\s*\|"
-)
+TABLE_ROW_PATTERN = re.compile(r"^\|\s*((?:FR|NFR|IFR)-\d{3})\s*\|")
 
 
 def _extract_headings(content: str) -> list[str]:
     """Extract all markdown headings."""
     return [
-        line.lstrip("#").strip()
-        for line in content.split("\n")
-        if line.strip().startswith("#")
+        line.lstrip("#").strip() for line in content.split("\n") if line.strip().startswith("#")
     ]
 
 
@@ -56,14 +52,16 @@ def _extract_mapping_rows(content: str) -> list[dict]:
             req_id = match.group(1)
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
             if len(cells) >= 4:
-                rows.append({
-                    "req_id": req_id,
-                    "summary": cells[1] if len(cells) > 1 else "",
-                    "scenarios": cells[2] if len(cells) > 2 else "",
-                    "categories_raw": cells[3] if len(cells) > 3 else "",
-                    "priority": cells[4] if len(cells) > 4 else "",
-                    "line": line.strip(),
-                })
+                rows.append(
+                    {
+                        "req_id": req_id,
+                        "summary": cells[1] if len(cells) > 1 else "",
+                        "scenarios": cells[2] if len(cells) > 2 else "",
+                        "categories_raw": cells[3] if len(cells) > 3 else "",
+                        "priority": cells[4] if len(cells) > 4 else "",
+                        "line": line.strip(),
+                    }
+                )
     return rows
 
 
@@ -80,7 +78,9 @@ def _extract_srs_req_ids(srs_path: str) -> tuple[set[str], list[str]]:
 
     # Find all FR-xxx, NFR-xxx, IFR-xxx patterns in headings or bold text
     ids = set()
-    for match in re.finditer(r"(?:^#{1,4}\s+|(?:\*\*))?((?:FR|NFR|IFR)-\d{3})", srs_content, re.MULTILINE):
+    for match in re.finditer(
+        r"(?:^#{1,4}\s+|(?:\*\*))?((?:FR|NFR|IFR)-\d{3})", srs_content, re.MULTILINE
+    ):
         ids.add(match.group(1))
 
     if not ids:
@@ -126,7 +126,9 @@ def validate(path: str, srs_path: str = None) -> tuple[list[str], list[str]]:
     rows = _extract_mapping_rows(content)
 
     if not rows:
-        errors.append("No mapping table rows found (expected rows starting with '| FR-xxx |' or '| NFR-xxx |')")
+        errors.append(
+            "No mapping table rows found (expected rows starting with '| FR-xxx |' or '| NFR-xxx |')"
+        )
         return errors, warnings
 
     ats_req_ids = set()
@@ -161,7 +163,9 @@ def validate(path: str, srs_path: str = None) -> tuple[list[str], list[str]]:
                 if "BNDRY" not in cats:
                     warnings.append(f"{req_id}: FR missing BNDRY category")
                 if len(cats) < 2:
-                    warnings.append(f"{req_id}: FR has only one category — should have at least FUNC + BNDRY")
+                    warnings.append(
+                        f"{req_id}: FR has only one category — should have at least FUNC + BNDRY"
+                    )
 
         # Check for empty scenarios
         if not row["scenarios"].strip():
@@ -186,8 +190,7 @@ def validate(path: str, srs_path: str = None) -> tuple[list[str], list[str]]:
     # Check for NFR test method section
     has_nfr_rows = any(r["req_id"].startswith("NFR-") for r in rows)
     has_nfr_matrix = any(
-        v.lower() in all_headings_text
-        for v in ["nfr 测试方法", "nfr test method", "测试方法矩阵"]
+        v.lower() in all_headings_text for v in ["nfr 测试方法", "nfr test method", "测试方法矩阵"]
     )
     if has_nfr_rows and not has_nfr_matrix:
         warnings.append("ATS has NFR requirements but no NFR Test Method Matrix section")
@@ -204,10 +207,7 @@ def validate(path: str, srs_path: str = None) -> tuple[list[str], list[str]]:
         )
 
     # Check for risk section
-    has_risk = any(
-        v.lower() in all_headings_text
-        for v in ["风险", "risk"]
-    )
+    has_risk = any(v.lower() in all_headings_text for v in ["风险", "risk"])
     if len(rows) > 10 and not has_risk:
         warnings.append(
             f"ATS has {len(rows)} requirements but no Risk-Driven Test Priority section "

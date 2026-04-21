@@ -20,22 +20,22 @@ import sys
 # ---------------------------------------------------------------------------
 
 TEST_COMMANDS = {
-    "pytest":  "pytest",
-    "junit":   "mvn test",
-    "jest":    "npx jest",
-    "vitest":  "npx vitest run",
-    "ctest":   "ctest --test-dir build",
-    "gtest":   "ctest --test-dir build",
+    "pytest": "pytest",
+    "junit": "mvn test",
+    "jest": "npx jest",
+    "vitest": "npx vitest run",
+    "ctest": "ctest --test-dir build",
+    "gtest": "ctest --test-dir build",
     "go-test": "go test ./...",
 }
 
 COVERAGE_COMMANDS = {
     "pytest-cov": "pytest --cov=src --cov-branch --cov-report=term-missing",
-    "jacoco":     "mvn test jacoco:report",
-    "c8":         "npx vitest run --coverage",
-    "c8-jest":    "npx c8 --branches 80 --lines 90 --reporter=text npx jest",
-    "gcov":       "make CFLAGS=\"--coverage\" test && gcov -b src/*.c && lcov --capture -d . -o coverage.info && lcov --summary coverage.info",
-    "go-cover":   "go test -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out",
+    "jacoco": "mvn test jacoco:report",
+    "c8": "npx vitest run --coverage",
+    "c8-jest": "npx c8 --branches 80 --lines 90 --reporter=text npx jest",
+    "gcov": 'make CFLAGS="--coverage" test && gcov -b src/*.c && lcov --capture -d . -o coverage.info && lcov --summary coverage.info',
+    "go-cover": "go test -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out",
 }
 
 
@@ -78,13 +78,13 @@ def format_text(cmds: dict) -> str:
         f"Test framework: {ts['test_framework']}",
         f"Coverage tool: {ts['coverage_tool']}",
         "",
-        f"[test]",
+        "[test]",
         f"  {cmds['test']}",
         "",
-        f"[coverage]",
+        "[coverage]",
         f"  {cmds['coverage']}",
         "",
-        f"[thresholds]",
+        "[thresholds]",
         f"  line_coverage  >= {th['line_coverage_min']}%",
         f"  branch_coverage >= {th['branch_coverage_min']}%",
     ]
@@ -96,8 +96,7 @@ def main():
         description="Output exact tool commands for a long-task project"
     )
     parser.add_argument("feature_list", help="Path to feature-list.json")
-    parser.add_argument("--json", action="store_true",
-                        help="Output as JSON instead of text")
+    parser.add_argument("--json", action="store_true", help="Output as JSON instead of text")
     args = parser.parse_args()
 
     try:
