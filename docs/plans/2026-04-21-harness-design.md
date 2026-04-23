@@ -548,21 +548,22 @@ graph LR
 
 ### 4.12 F12 · Frontend Foundation
 
-**4.12.1 Overview**：React SPA 骨架、全局布局、路由、WebSocket 客户端、API client、UCD token、UCD §3.1-3.14 共享组件。无业务逻辑。
+**4.12.1 Overview**：React 18 + Vite + TypeScript + TailwindCSS + shadcn/ui 前端基座。**视觉真相源**: `docs/design-bundle/eava2/project/`(由 Claude Design 导出的可运行 prototype);**视觉规则源**:UCD §2(a11y / 动效 / 中文排印 / 响应式 / 状态色)。本节**只描述架构与集成契约**,不复述视觉细节(UCD §6 引用禁令)。
 
-**4.12.2 Key Types**（TS 模块）
-- `apps/ui/src/app/AppShell.tsx`
-- `apps/ui/src/app/router.tsx`
-- `apps/ui/src/lib/api.ts`（fetch + TanStack Query hook 工厂）
-- `apps/ui/src/lib/ws.ts`（WebSocket 重连 + 多 channel 订阅）
-- `apps/ui/src/store/`（Zustand slices：uiState / runState / hilState）
-- `apps/ui/src/theme/tokens.css`（UCD §2 全 CSS 变量）
-- `apps/ui/src/components/ui/{button,input,modal,toast,chip,empty,table,sidebar,...}.tsx`（UCD §3.1-3.14）
-- `apps/ui/src/components/{ticket-card,hil-question-card,stream-tree,phase-stepper,diff-viewer,skill-tree}.tsx`
+**4.12.2 职责范围**
+- **基座**:AppShell + 路由 + WebSocket 客户端(重连 + 多 channel 订阅) + REST client(TanStack Query hook 工厂) + Zustand store slices。
+- **主题**:把 `design-bundle/eava2/project/styles/tokens.css` **原样**移入 `apps/ui/src/theme/tokens.css`;追加 UCD §2.5 中文排印扩展 class 与 §2.2 `prefers-reduced-motion` 降级分支;不新增 token,不改 token 值。
+- **shared primitives 移植**(由 prototype `components/*.jsx` 的 CDN React + 内联 style **重构**为 TS + Tailwind + shadcn/ui,视觉产物**像素等价**):
+  - `components/Icons.jsx` → `apps/ui/src/components/icons.ts`(或直接用 `lucide-react`,见 UCD §2.7)
+  - `components/Sidebar.jsx` → `apps/ui/src/components/sidebar.tsx`
+  - `components/PhaseStepper.jsx` → `apps/ui/src/components/phase-stepper.tsx`
+  - `components/TicketCard.jsx` → `apps/ui/src/components/ticket-card.tsx`
+  - `components/PageFrame.jsx` → `apps/ui/src/components/page-frame.tsx`
+- **无业务逻辑**:不实现任何 FR(F13-F16 才实现具体页面业务)。
 
 **4.12.3 Integration Surface**
-- **Provides**：组件 / hook / client → F13-F16
-- **Requires**：F01 REST + WebSocket endpoint
+- **Provides**:基座组件 / hook / client / tokens → F13-F16
+- **Requires**:F01 提供的 REST + WebSocket endpoint
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
@@ -570,62 +571,67 @@ graph LR
 | Requires | F06/F04/F09 | IAPI-001 | WebSocket | — |
 | Requires | 后端各特性 | IAPI-002 | REST | — |
 
+**4.12.4 视觉保真义务**
+所有 shared primitives 的移植产物必须通过 UCD §7 视觉回归 SOP(像素差 < 3%)。token 值来自 `design-bundle/eava2/project/styles/tokens.css`,禁止在 `apps/ui/src/theme/tokens.css` 中覆写或偏移。
+
 ### 4.13 F13 · RunOverview + HILInbox Pages
 
-**4.13.1 Overview**：首页总览（phase stepper + 当前 ticket + Run 指标 + 近期流）+ HIL 待答列表（single/multi/free）。满足 FR-010/030/031 + UCD §4.1/4.2。
+**4.13.1 Overview**:实现 UCD §4.1(RunOverview)与 §4.2(HILInbox)两页,承接 SRS FR-010 / FR-030 / FR-031 + IFR-007。视觉真相源: `design-bundle/eava2/project/pages/RunOverview.jsx` 与 `pages/HILInbox.jsx`;**禁止复述** `HILCard` / `RadioRow` 的 DOM 结构、色号、尺寸到本文档。
 
-**4.13.2 Key Types**
-- `apps/ui/src/routes/run-overview/page.tsx`
-- `apps/ui/src/routes/run-overview/RunControls.tsx`
-- `apps/ui/src/routes/hil-inbox/page.tsx`
-- `apps/ui/src/routes/hil-inbox/HilQuestionForm.tsx`
-- `apps/ui/src/routes/hil-inbox/hooks/useHilAnswer.ts`
-- `apps/ui/src/components/ticket-card-expanded.tsx`
+**4.13.2 职责范围**
+- **RunOverview** (`/`):移植 `pages/RunOverview.jsx` 到 `apps/ui/src/routes/run-overview/`,接 F06 `GET /api/runs/current` 与 `POST /api/runs/:id/{pause,cancel}`;phase stepper 数据来自 WebSocket phase 推进事件(IAPI-001)。
+- **HILInbox** (`/hil`):移植 `pages/HILInbox.jsx`(含 local `HILCard` + `RadioRow` 组件)。HIL 问题经 `/ws/hil` 到达;三种控件映射规则:`multiSelect=false` + `options≥2` → radio;`multiSelect=true` → checkbox;`allowFreeform=true` + `options=0` → textarea(锚 FR-010)。
+- **反 XSS**:HIL freeform 文本回填 DOM 使用 React `textContent` 赋值,禁止 `dangerouslySetInnerHTML`。
 
 **4.13.3 Integration Surface**
-- **Provides**：路由 `/` 和 `/hil-inbox`
-- **Requires**：F06/F04/F12
+- **Provides**:路由 `/` 与 `/hil`(feature-list.json `ui_entry` 现为 `/hil`,保留)
+- **Requires**:F06 / F04 / F12
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
 | Requires | F06 | IAPI-002 | `GET /api/runs/current`, `POST /api/runs/:id/pause\|cancel` | `RunStatus` |
 | Requires | F04 | IAPI-001 | WebSocket `/ws/hil` + `POST /api/hil/:ticket_id/answer` | `HilQuestion`, `HilAnswer` |
-| Requires | F12 | 内部 FE | TicketCard / HilCard / PhaseStepper | — |
+| Requires | F12 | 内部 FE | `Sidebar` / `PhaseStepper` / `TicketCard` / `PageFrame` | — |
+
+**4.13.4 视觉保真义务**
+RunOverview 与 HILInbox 两页各自跑 UCD §7 视觉回归(像素差 < 3%);HIL phase 色带氤氲 header、pulse 光环、状态 chip 必须与 prototype 等价(实现点见 `pages/HILInbox.jsx` `HILCard` 与 `tokens.css` `.state-dot.pulse`)。
 
 ### 4.14 F14 · TicketStream Page
 
-**4.14.1 Overview**：3 栏布局（ticket 列表 + event tree + inspector），虚拟滚动 10k+ 事件。满足 FR-034 + UCD §4.5。
+**4.14.1 Overview**:实现 UCD §4.5(TicketStream)页,承接 SRS FR-034 + NFR-002。视觉真相源: `design-bundle/eava2/project/pages/TicketStream.jsx`(三栏 · ticket list + event tree + inspector)。
 
-**4.14.2 Key Types**
-- `apps/ui/src/routes/ticket-stream/page.tsx`
-- `apps/ui/src/routes/ticket-stream/TicketList.tsx`
-- `apps/ui/src/routes/ticket-stream/EventTree.tsx`
-- `apps/ui/src/routes/ticket-stream/Inspector.tsx`
-- `apps/ui/src/routes/ticket-stream/hooks/useTicketEvents.ts`
-- `apps/ui/src/lib/filters.ts`
+**4.14.2 职责范围**
+- **三栏布局**:左 ticket 列表 + 中 stream-json event tree + 右 inspector(当前选中事件详情)。
+- **虚拟滚动**:event tree 使用 `@tanstack/react-virtual` 支持 10k+ 事件,滚动帧率 ≥ 30fps(FR-034 PERF)。
+- **筛选**:ticket list 支持 `state` / `tool` / `run_id` 筛选(FR-034);URL 参数同步。
+- **内联搜索**:Ctrl/Cmd+F 触发 event tree 内检索(FR-034)。
+- **实时追加**:新事件从 WebSocket 到达,追加到 event tree,列表 scroll to bottom(用户在滚动时暂停自动 scroll,UX 尊重用户)。
 
 **4.14.3 Integration Surface**
-- **Provides**：路由 `/ticket-stream`
-- **Requires**：F02/F04/F12
+- **Provides**:路由 `/ticket-stream`
+- **Requires**:F02 / F04 / F12
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
 | Requires | F02 | IAPI-002 | `GET /api/tickets?run_id=&state=&tool=` | `Ticket[]` |
 | Requires | F04 | IAPI-001 | WebSocket `/ws/stream/:ticket_id` | `StreamEvent` |
-| Requires | F12 | 内部 FE | EventTree / VirtualList | — |
+| Requires | F12 | 内部 FE | `Sidebar` / `TicketCard` / `PageFrame` | — |
+
+**4.14.4 视觉保真义务**
+跑 UCD §7 视觉回归。event tree 的展开/收起图标、缩进层级、monospace 对齐、hover 高亮必须与 prototype 等价(`pages/TicketStream.jsx` 内 local `EventTree` 组件为真相源)。
 
 ### 4.15 F15 · SystemSettings + PromptsAndSkills Pages
 
-**4.15.1 Overview**：设置页（5 tab）+ Skills 页（skill tree + markdown 预览 + classifier prompt 编辑 + Plugin 更新 modal）。满足 FR-032/033 + UCD §4.3/4.4。
+**4.15.1 Overview**:实现 UCD §4.3(SystemSettings)与 §4.4(PromptsAndSkills)两页,承接 SRS FR-032 / FR-033 + IFR-004 / IFR-006。视觉真相源: `pages/SystemSettings.jsx` 与 `pages/PromptsAndSkills.jsx`。
 
-**4.15.2 Key Types**
-- `apps/ui/src/routes/settings/{page,TabsNav,ModelsTab,ApiKeyTab,ClassifierTab,McpTab,UiTab}.tsx`
-- `apps/ui/src/routes/settings/components/MaskedInput.tsx`
-- `apps/ui/src/routes/prompts-and-skills/{page,SkillTreeViewer,PromptEditor,PluginUpdateModal}.tsx`
+**4.15.2 职责范围**
+- **SystemSettings** (`/settings`) 5 个 tab:`Models` / `ApiKey` / `Classifier` / `MCP` / `UI`。API key 字段用 masked input(显示 `***abc`),明文不入 DOM;存入 keyring(IFR-006 Linux 无 daemon 降级 keyrings.alt + 顶部告警横幅)。
+- **PromptsAndSkills** (`/skills`):skill tree 只读 + markdown 预览 + classifier prompt 可编辑 + Plugin 更新 modal(`POST /api/skills/install|pull`)。prompt 编辑保存时追加历史(F08 提供)。
+- **安全**:skill tree 路径不允许 `..` 穿越;classifier prompt 编辑的 diff 写入历史表(F08)。
 
 **4.15.3 Integration Surface**
-- **Provides**：路由 `/settings`、`/skills`
-- **Requires**：F01/F07/F08/F10/F12
+- **Provides**:路由 `/settings`、`/skills`
+- **Requires**:F01 / F07 / F08 / F10 / F12
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
@@ -633,27 +639,33 @@ graph LR
 | Requires | F07 | IAPI-002 | `GET/PUT /api/settings/model_rules` | `ModelRule[]` |
 | Requires | F08 | IAPI-002 | `GET/PUT /api/settings/classifier`, `GET/PUT /api/prompts/classifier` | `ClassifierConfig`, `ClassifierPrompt` |
 | Requires | F10 | IAPI-018 | `GET /api/skills/tree`, `POST /api/skills/install\|pull` | `SkillTree`, `SkillsInstallRequest` |
+| Requires | F12 | 内部 FE | `Sidebar` / `PageFrame` / shared primitives | — |
+
+**4.15.4 视觉保真义务**
+跑 UCD §7 视觉回归。5 tab 左侧 vertical tab + 右侧 `SettingsFormSection` 卡片堆叠(prototype `pages/SystemSettings.jsx`);Skill tree 节点的 expand chevron、readonly 锁图标(prototype `pages/PromptsAndSkills.jsx`)必须等价。
 
 ### 4.16 F16 · DocsAndROI + ProcessFiles + CommitHistory Pages
 
-**4.16.1 Overview**：文档树 + markdown 预览（ROI 按钮 disabled 标 v1.1）、过程文件结构化编辑 + 校验、git commit 列表 + diff viewer。满足 FR-035（v1 subset）/038/041 + UCD §4.6/4.7/4.8。
+**4.16.1 Overview**:实现 UCD §4.6(DocsAndROI)· §4.7(ProcessFiles)· §4.8(CommitHistory)三页,承接 SRS FR-035 / FR-038 / FR-041 + IFR-005。视觉真相源: `pages/DocsAndROI.jsx` · `pages/ProcessFiles.jsx` · `pages/CommitHistory.jsx`。
 
-**4.16.2 Key Types**
-- `apps/ui/src/routes/docs/{page,FileTree,MarkdownRenderer,RoiButtonPlaceholder}.tsx`
-- `apps/ui/src/routes/process-files/{page,FeatureListForm,ValidationPanel}.tsx`
-- `apps/ui/src/routes/commit-history/{page,CommitList,DiffViewer}.tsx`
-- `apps/ui/src/lib/zod-schemas.ts`（pydantic → TS/Zod 导出）
+**4.16.2 职责范围**
+- **DocsAndROI** (`/docs`):文件树(`docs/plans/*.md` + `docs/features/*.md`) + markdown 预览 + 右侧 TOC。ROI 按钮 `disabled` 带 tooltip "v1.1 规划中"(SRS FR-035 subset)。路径带 `..` 请求一律拒绝(SEC)。
+- **ProcessFiles** (`/process-files`):结构化编辑器,专门针对 `feature-list.json` 等"过程文件",schema 驱动(pydantic → Zod 导出到 `apps/ui/src/lib/zod-schemas.ts`);双层校验(前端 Zod + 后端 `POST /api/validate/:file`);必填空字段红框 + Save 禁用。
+- **CommitHistory** (`/commits`):commit 列表 + diff viewer。二进制文件 diff 显示占位(不崩)。非 git 目录调用 git CLI `exit=128` 时 UI 横幅告警(IFR-005)。Diff 视觉用 prototype `DiffViewer`(半透明 add/del 背景,避免刺眼红绿块)。
 
 **4.16.3 Integration Surface**
-- **Provides**：路由 `/docs`、`/process-files`、`/commits`
-- **Requires**：F11/F02/F12
+- **Provides**:路由 `/docs`、`/process-files`、`/commits`
+- **Requires**:F11 / F02 / F10 / F12
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
 | Requires | F11 | IAPI-002 | `GET /api/files/tree`, `GET /api/files/read` | `FileTree`, `FileContent` |
 | Requires | F11 | IAPI-016 | `POST /api/validate/:file` | `ValidationReport` |
 | Requires | F11 | IAPI-002 | `GET /api/git/commits`, `GET /api/git/diff/:sha` | `GitCommit[]`, `DiffPayload` |
-| Requires | F12 | 内部 FE | DiffViewer / FileTree | — |
+| Requires | F12 | 内部 FE | `Sidebar` / `PageFrame` / shared primitives | — |
+
+**4.16.4 视觉保真义务**
+三页各自跑 UCD §7 视觉回归。DiffViewer 的 add/del 行背景透明度、gutter 色必须取 `tokens.css` `--diff-*` 变量,不得调色。
 
 ### 4.17 F17 · PyInstaller Packaging
 

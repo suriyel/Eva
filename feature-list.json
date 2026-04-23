@@ -449,7 +449,10 @@
         "Given 页面切换 100 次 when 测 p95 then < 500ms（NFR-001 Playwright）",
         "Given 源代码 grep when 扫 en/ja/fr 字符串 then 无匹配（NFR-010 中文唯一）",
         "Given HIL 控件渲染 when 视觉验收 then 顶部显示 '单选/多选/自由文本' 标签（NFR-011）",
-        "[devtools] Given 首启 when take_snapshot of / then Sidebar + Top header + 主内容区组件全部可见（UCD §3.8）"
+        "[devtools] Given 首启 when take_snapshot of / then Sidebar + Top header + 主内容区组件全部可见（UCD §3.8）",
+        "[visual-regression] Given 前端实现渲染 when 与 docs/design-bundle/eava2/project/pages/* 对应 artboard 1280/1440 分辨率截图 pixelmatch 对比 then 像素差 < 3%(UCD §7 SOP)",
+        "[a11y] Given prefers-reduced-motion: reduce when 渲染含 pulse 动画的元素 then 光环动画被禁用(仅保留静态 dot 颜色)(UCD §2.2)",
+        "[token-fidelity] Given apps/ui/src/theme/tokens.css when diff 对比 docs/design-bundle/eava2/project/styles/tokens.css then 仅允许追加(中文排印 + prefers-reduced-motion 扩展),禁止修改已有 token 值(UCD §5 F12 实施规约)"
       ],
       "ui": true,
       "ui_entry": "/"
@@ -479,7 +482,8 @@
         "Given multiSelect=false + options≥2 when 渲染 then Radio；true → Checkbox；allowFreeform+options=0 → Textarea（FR-010 控件映射）",
         "Given HIL freeform 提交 when 回填 DOM then 无 XSS（FR-031 SEC）",
         "Given WebSocket 连接 when 60s 未收消息 then 自动重连（IFR-007）",
-        "[devtools] Given navigate_page /hil when take_snapshot then 3 张 HIL 卡片 + counter chip '3 条待答' 可见（UCD §4.2）"
+        "[devtools] Given navigate_page /hil when take_snapshot then 3 张 HIL 卡片 + counter chip '3 条待答' 可见（UCD §4.2）",
+        "[visual-regression] Given RunOverview(/) 与 HILInbox(/hil) 实现渲染 when 与 design-bundle RunOverview.jsx / HILInbox.jsx 截图 pixelmatch 对比 then 像素差 < 3%(UCD §7)"
       ],
       "ui": true,
       "ui_entry": "/hil"
@@ -505,7 +509,8 @@
         "Given 筛选 tool=claude when 应用 then 仅 claude ticket 显示（FR-034）",
         "Given 10k+ 事件 when 滚动 then 帧率 ≥ 30fps 不卡（FR-034 PERF）",
         "Given 100 个 stream 事件 when 测到达时间戳差 then p95 < 2s（NFR-002）",
-        "[devtools] Given navigate_page /ticket-stream when take_snapshot then 左 ticket 列表 + 中 event tree + 右 inspector 三 pane 全可见（UCD §4.5）"
+        "[devtools] Given navigate_page /ticket-stream when take_snapshot then 左 ticket 列表 + 中 event tree + 右 inspector 三 pane 全可见（UCD §4.5）",
+        "[visual-regression] Given TicketStream(/ticket-stream) 实现渲染 when 与 design-bundle TicketStream.jsx 截图 pixelmatch 对比 then 像素差 < 3%(UCD §7)"
       ],
       "ui": true,
       "ui_entry": "/ticket-stream"
@@ -540,7 +545,8 @@
         "Given 编辑 classifier prompt when 保存 then 历史追加一条（FR-033 v1 基础）",
         "Given skill tree 只读节点 when 尝试编辑 then 禁止（FR-033 SEC path traversal）",
         "Given Linux 无 keyring daemon when 读 api key then 降级 keyrings.alt + UI 告警（IFR-006）",
-        "[devtools] Given navigate_page /settings when take_snapshot then 左 5 个二级 tab + 右 Settings-Form-Section 卡片堆叠可见（UCD §4.3）"
+        "[devtools] Given navigate_page /settings when take_snapshot then 左 5 个二级 tab + 右 Settings-Form-Section 卡片堆叠可见（UCD §4.3）",
+        "[visual-regression] Given SystemSettings(/settings) 与 PromptsAndSkills(/skills) 实现渲染 when 与 design-bundle 对应 .jsx 截图 pixelmatch 对比 then 像素差 < 3%(UCD §7)"
       ],
       "ui": true,
       "ui_entry": "/settings"
@@ -571,7 +577,8 @@
         "Given 5 feature 8 commit when 进入 CommitHistory then 列表完整 + 点击 commit 显示 diff（FR-041）",
         "Given 二进制文件 when 渲染 diff then 占位不崩（FR-041 BNDRY）",
         "Given git CLI 非 git 目录 exit=128 when 调用 then 捕获并 UI 提示（IFR-005）",
-        "[devtools] Given navigate_page /docs when take_snapshot then 左文件树 + 中 MD 预览 + 右 TOC 三 pane 可见（UCD §4.6）"
+        "[devtools] Given navigate_page /docs when take_snapshot then 左文件树 + 中 MD 预览 + 右 TOC 三 pane 可见（UCD §4.6）",
+        "[visual-regression] Given DocsAndROI(/docs)、ProcessFiles(/process-files)、CommitHistory(/commits) 实现渲染 when 与 design-bundle 对应 .jsx 截图 pixelmatch 对比 then 像素差 < 3%(UCD §7)"
       ],
       "ui": true,
       "ui_entry": "/docs"
