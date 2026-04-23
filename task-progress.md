@@ -103,3 +103,31 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Risk log**: harness/app/bootstrap.py 88% line (F01 regression below threshold — tracked for F01 revisit, not blocking F02); harness/persistence/runs.py branch 81→84 partial (optional-update no-field path; caller always passes ≥1 field per Design §4.2)
 - current.phase: tdd → st
 
+### Session 5 — Feature #2 F02 · Persistence Core · ST (2026-04-24)
+
+- target_feature: id=2, title="F02 · Persistence Core", category=data, ui=false
+- dependencies: [1] (passing) · required_configs: []
+- env-guide.md approval: v1.1 valid (approved 2026-04-21T09:21:02+08:00)
+- mode: CLI / library (SQLite file-backed; no service processes — per env-guide §1)
+- **Feature-ST SubAgent**: PASS (20 ST cases · FUNC×12 / BNDRY×6 / SEC×2; negative ratio 50%)
+  - ST doc: `docs/test-cases/feature-2-f02-persistence-core.md` (1019 lines, 41.2 KB)
+  - SRS trace: FR-005/006/007, NFR-005/006 — all 5 covered (≥1 ST case each)
+  - ATS categories satisfied: FUNC + BNDRY (FR-005/006/007, NFR-005) + SEC (NFR-006)
+  - Automated execution: 20/20 PASS (backed by 68 pytest tests in 1.82s); 0 manual cases
+  - `validate_st_cases.py` → VALID; `check_ats_coverage.py --feature 2` → OK
+- **Inline Check**: PASS (P2: 16/16 PUBLIC methods signature-matched, T2: 71 tests across 8 F02 files all PASS, D3: aiosqlite==0.20.0 / structlog==24.4.0 / pydantic==2.13.3 vs Design §3.4 / §8.1 locks, ATS Category: 3/3 required covered, §4: greenfield 0 constraints to violate)
+- Git: 9746417 feat: feature #2 f02-persistence-core — ST cases 20 (20 auto PASS)
+- Carry-over in commit 9746417: [tool.mutmut] paths_to_mutate config (pyproject.toml), quality_gates.mutation_score_min=80 (feature-list.json), black reformatting of 4 scripts drift (count_pending.py / init_project.py / phase_route.py / validate_features.py), mutants/ ignore rule (.gitignore)
+
+### Feature #2: F02 · Persistence Core — PASS
+- Completed: 2026-04-24
+- TDD: green (71/71 f02 tests, 164/164 full suite)
+- Quality Gates: 97.39% line, 89.53% branch
+- Feature-ST: 20 cases (FUNC×12 / BNDRY×6 / SEC×2); 20/20 automated PASS; 0 manual
+- Inline Check: PASS
+- Git: 9746417 feat: feature #2 f02-persistence-core — ST cases 20 (20 auto PASS)
+#### Risks
+- ⚠ [Coverage] harness/persistence/runs.py branch 84% (optional-update no-field path) — caller always passes ≥1 field per Design §4.2; revisit if new caller violates
+- ⚠ [Coverage] harness/app/bootstrap.py 88% line (pre-existing F01 regression; webview-thread teardown branches mock-only) — mitigation deferred to F17 PyInstaller smoke
+- ⚠ [Cross-feature] NFR-006 fs-isolation assertion is library-level only (F02 tests workdir `.harness/` writes only); system-wide `~/.harness/` + `~/.claude/` isolation verified at system-ST gate after F10
+

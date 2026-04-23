@@ -9,7 +9,8 @@
   },
   "quality_gates": {
     "line_coverage_min": 90,
-    "branch_coverage_min": 80
+    "branch_coverage_min": 80,
+    "mutation_score_min": 80
   },
   "waves": [
     {
@@ -119,10 +120,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 2,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -159,7 +157,10 @@
       "title": "F02 · Persistence Core",
       "description": "SQLite tickets 单表 + append-only JSONL audit log，9 态状态机与核心字段 schema。所有后续 ticket 生命周期依赖本 feature。",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
+      "git_sha": "9746417",
+      "st_case_path": "docs/test-cases/feature-2-f02-persistence-core.md",
+      "st_case_count": 20,
       "srs_trace": [
         "FR-005",
         "FR-006",
