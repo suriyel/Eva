@@ -131,3 +131,21 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage] harness/app/bootstrap.py 88% line (pre-existing F01 regression; webview-thread teardown branches mock-only) — mitigation deferred to F17 PyInstaller smoke
 - ⚠ [Cross-feature] NFR-006 fs-isolation assertion is library-level only (F02 tests workdir `.harness/` writes only); system-wide `~/.harness/` + `~/.claude/` isolation verified at system-ST gate after F10
 
+### Session 6 — Feature #3 F10 · Environment Isolation & Skills Installer · Design (2026-04-24)
+
+- target_feature: id=3, title="F10 · Environment Isolation & Skills Installer", category=core, ui=false
+- dependencies: [1] (passing) · required_configs: []
+- srs_trace: FR-043 (SRS lines 547-554) · FR-044 (556-562) · FR-045 (564-571) · NFR-009 (SRS line 732)
+- design_section: §4.10 F10 · Environment Isolation & Skills Installer (Design lines 503-524); §3.5 NFR-009 row (line 287); §6.1 IAPI-017/018 合同 (1112-1113 and §6.1 External Interfaces 938-1087, §6.1.5 IFR-005 git CLI 1052); §5 Data Model 若涉及 PluginRegistry schema
+- ats_section: §2.1 FR rows 134-136 (FR-043/044/045) · §2.2 NFR row 165 (NFR-009) · §4 NFR method matrix row 283 · §5.1 INT-002 line 304 · INT-009 line 311 · §5.2 IAPI-017/018 mapping 358-359
+- ucd_section: N/A (ui=false)
+- current lock: `null` → `{feature_id:3, phase:"design"}` (commit `0a2ba27`)
+- **Feature Design**: PASS via Clarification Addendum (27 test scenarios, 7 existing-code reuses incl. `shutil.copytree`+`hashlib.sha256`, 1 assumption `ASM-F10-COPY-PERF` user-approved)
+  - Design doc: `docs/features/3-f10-environment-isolation-skills-install.md` (338 lines / ~51 KB)
+  - Test inventory categories: FUNC/happy×6 + FUNC/error×4 + BNDRY×5 (含新增 T27 copy-isolation) + SEC×5 + INTG×7 (REST/git/audit); negative ratio 18/27=66.7% ≥40%
+  - Contracts wired: Provider for **IAPI-017** (`EnvironmentIsolator.setup_run → IsolatedPaths`) + **IAPI-018** (REST `POST /api/skills/{install|pull}`); Consumer for **IFR-005** (git CLI subprocess)
+  - Interface coverage: 9/9 public methods × 9 Key Types traced to FR-043/044/045 + NFR-009 ACs
+  - **Design Deviation (user-approved 2026-04-24)**: 主 Design §4.10.1 `symlink plugin bundle` → 物理复制 `shutil.copytree(..., dirs_exist_ok=True)`；`PluginRegistry.ensure_bundle_symlink` → `sync_bundle(src, dst) -> PluginSyncResult`；单路径无平台分支。CON-005 反面断言限定为**源** bundle `plugins/longtaskforagent/`；副本 `.harness-workdir/<run-id>/.claude/plugins/longtaskforagent/` 允许 mtime 变化。建议后续 `long-task-increment` 回填 Design §4.10。
+  - User adjudications this session: ASM-F10-ENV-OQD2 APPROVED（F10 与 env 策略解耦，延 F03 PoC）; ASM-F10-WIN-JUNCTION REVISED → copy; ASM-F10-COPY-PERF APPROVED（copytree <5MB p95 <500ms 不破 NFR-013 冷启动预算）
+- Design: DONE (docs/features/3-f10-environment-isolation-skills-install.md)
+- current.phase: design → tdd
