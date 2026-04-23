@@ -33,3 +33,23 @@ python_version = "3.11"
 strict = true
 files = ["harness"]
 exclude = ["reference/", "apps/ui/"]
+
+[tool.mutmut]
+paths_to_mutate = [
+  "harness/domain/ticket.py",
+  "harness/domain/state_machine.py",
+  "harness/persistence/errors.py",
+  "harness/persistence/schema.py",
+  "harness/persistence/runs.py",
+  "harness/persistence/tickets.py",
+  "harness/persistence/audit.py",
+  "harness/persistence/recovery.py",
+]
+tests_dir = [
+  "tests/test_f02_audit_writer.py",
+  "tests/test_f02_coverage_supplement.py",
+  "tests/test_f02_recovery.py",
+  "tests/test_f02_schema_run_repo.py",
+  "tests/test_f02_state_machine.py",
+  "tests/test_f02_ticket_repository.py",
+]

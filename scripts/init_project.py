@@ -50,9 +50,9 @@ _LONG_TASK_REFERENCE_BODY = (
     "**Pre-init** (no `feature-list.json`):\n"
     "  requirements → ucd (if UI) → design → ats → init\n\n"
     "**Post-init** (has `feature-list.json`): route by root `current` lock:\n"
-    '  - `current = {feature_id: N, phase: "design"}` → `long-task-work-design`\n'
-    '  - `current = {feature_id: N, phase: "tdd"}`    → `long-task-work-tdd`\n'
-    '  - `current = {feature_id: N, phase: "st"}`     → `long-task-work-st`\n'
+    "  - `current = {feature_id: N, phase: \"design\"}` → `long-task-work-design`\n"
+    "  - `current = {feature_id: N, phase: \"tdd\"}`    → `long-task-work-tdd`\n"
+    "  - `current = {feature_id: N, phase: \"st\"}`     → `long-task-work-st`\n"
     "  - `current = null` AND any feature `status=failing` → router picks next dep-ready feature\n"
     "  - `current = null` AND all features `status=passing` → `long-task-st` (system-wide)\n\n"
     "Override signals: `bugfix-request.json` or `increment-request.json` at project root\n"
@@ -96,6 +96,7 @@ def append_agents_md_reference(out_dir: str, project_name: str):
     _append_agent_md_reference(out_dir, project_name, "AGENTS.md")
 
 
+
 def create_feature_list(
     project_name: str,
     language: str = "TODO",
@@ -110,16 +111,16 @@ def create_feature_list(
         "tech_stack": {
             "language": language,
             "test_framework": test_framework,
-            "coverage_tool": coverage_tool,
+            "coverage_tool": coverage_tool
         },
         "quality_gates": {
             "line_coverage_min": line_coverage_min,
-            "branch_coverage_min": branch_coverage_min,
+            "branch_coverage_min": branch_coverage_min
         },
         "constraints": [],
         "assumptions": [],
         "required_configs": [],
-        "features": [],
+        "features": []
     }
 
 
@@ -211,31 +212,25 @@ Usage examples for external developers and AI Code Agents. Generated after Syste
 """
 
 
+
 def main():
     parser = argparse.ArgumentParser(description="Initialize a long-task-agent project")
     parser.add_argument("project_name", help="Name of the project")
     parser.add_argument("--path", default=".", help="Output directory (default: current dir)")
 
     # Tech stack options
-    parser.add_argument(
-        "--lang",
-        default=None,
-        help="Project language (python/java/javascript/typescript/c/cpp). Auto-fills tool defaults.",
-    )
-    parser.add_argument(
-        "--test-framework", default=None, help="Test framework (e.g., pytest, junit, vitest, gtest)"
-    )
-    parser.add_argument(
-        "--coverage-tool", default=None, help="Coverage tool (e.g., pytest-cov, jacoco, c8, gcov)"
-    )
+    parser.add_argument("--lang", default=None,
+                        help="Project language (python/java/javascript/typescript/c/cpp). Auto-fills tool defaults.")
+    parser.add_argument("--test-framework", default=None,
+                        help="Test framework (e.g., pytest, junit, vitest, gtest)")
+    parser.add_argument("--coverage-tool", default=None,
+                        help="Coverage tool (e.g., pytest-cov, jacoco, c8, gcov)")
 
     # Quality gate thresholds
-    parser.add_argument(
-        "--line-cov", type=int, default=90, help="Min line coverage %% (default: 90)"
-    )
-    parser.add_argument(
-        "--branch-cov", type=int, default=80, help="Min branch coverage %% (default: 80)"
-    )
+    parser.add_argument("--line-cov", type=int, default=90,
+                        help="Min line coverage %% (default: 90)")
+    parser.add_argument("--branch-cov", type=int, default=80,
+                        help="Min branch coverage %% (default: 80)")
 
     args = parser.parse_args()
 
@@ -251,19 +246,14 @@ def main():
     # feature-list.json
     fl_path = os.path.join(out_dir, "feature-list.json")
     with open(fl_path, "w", encoding="utf-8") as f:
-        json.dump(
-            create_feature_list(
-                args.project_name,
-                language=language,
-                test_framework=test_framework,
-                coverage_tool=coverage_tool,
-                line_coverage_min=args.line_cov,
-                branch_coverage_min=args.branch_cov,
-            ),
-            f,
-            indent=2,
-            ensure_ascii=False,
-        )
+        json.dump(create_feature_list(
+            args.project_name,
+            language=language,
+            test_framework=test_framework,
+            coverage_tool=coverage_tool,
+            line_coverage_min=args.line_cov,
+            branch_coverage_min=args.branch_cov,
+        ), f, indent=2, ensure_ascii=False)
     print(f"Created: {fl_path}")
 
     # CLAUDE.md (append reference, never overwrite)
@@ -295,24 +285,20 @@ def main():
     # it also writes a `.long-task-plugin-root` hint file alongside it so the
     # copied script can locate the plugin's scripts/ directory correctly.
     _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-    _hint_file = os.path.join(_THIS_DIR, ".long-task-plugin-root")
+    _hint_file = os.path.join(_THIS_DIR, '.long-task-plugin-root')
     if os.path.isfile(_hint_file):
-        with open(_hint_file, encoding="utf-8") as _hf:
+        with open(_hint_file, encoding='utf-8') as _hf:
             _hint = _hf.read().strip()
         # Defensive: normalize Git Bash POSIX paths to Windows paths.
         # Git Bash writes /c/Users/... or c/Users/... (missing colon); Python on
         # Windows needs C:/Users/... for os.path.isdir() to succeed.
-        if sys.platform == "win32" and _hint:
+        if sys.platform == 'win32' and _hint:
             import re as _re
-
-            _m = _re.match(r"^/?([a-zA-Z])/(.*)", _hint)
+            _m = _re.match(r'^/?([a-zA-Z])/(.*)', _hint)
             if _m:
-                _hint = _m.group(1).upper() + ":/" + _m.group(2)
-        _PLUGIN_ROOT = (
-            _hint
-            if (_hint and os.path.isdir(_hint))
-            else os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
-        )
+                _hint = _m.group(1).upper() + ':/' + _m.group(2)
+        _PLUGIN_ROOT = _hint if (_hint and os.path.isdir(_hint)) else \
+            os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
     else:
         _PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(_THIS_DIR)))
     plugin_scripts_dir = os.path.join(_PLUGIN_ROOT, "scripts")
@@ -328,6 +314,7 @@ def main():
         "check_st_readiness.py",
         "check_real_tests.py",
         "check_ats_coverage.py",
+        "feature_paths.py",
         "count_pending.py",
         "migrate_sub_status.py",
         "auto_loop.py",
@@ -367,9 +354,7 @@ def main():
     plugin_templates_dir = os.path.join(_PLUGIN_ROOT, "docs", "templates")
     st_template_src = os.path.join(plugin_templates_dir, "st-case-template.md")
     st_template_dst = os.path.join(templates_dir, "st-case-template.md")
-    if os.path.exists(st_template_src) and os.path.abspath(st_template_src) != os.path.abspath(
-        st_template_dst
-    ):
+    if os.path.exists(st_template_src) and os.path.abspath(st_template_src) != os.path.abspath(st_template_dst):
         shutil.copy2(st_template_src, st_template_dst)
         print(f"Copied: st-case-template.md -> {templates_dir}")
 
@@ -382,13 +367,9 @@ def main():
     print(f"Created: {examples_readme}")
 
     print(f"\nProject '{args.project_name}' initialized at {out_dir}")
-    print(
-        "Created: feature-list.json, CLAUDE.md, AGENTS.md, task-progress.md, RELEASE_NOTES.md, examples/, scripts/ (with helper scripts), docs/plans/, docs/test-cases/, docs/report/, docs/templates/"
-    )
+    print("Created: feature-list.json, CLAUDE.md, AGENTS.md, task-progress.md, RELEASE_NOTES.md, examples/, scripts/ (with helper scripts), docs/plans/, docs/test-cases/, docs/report/, docs/templates/")
     print("TODO (LLM generates during Initializer phase):")
-    print(
-        "  - long-task-guide.md         (tailored Worker guide from SKILL.md + references + design doc)"
-    )
+    print("  - long-task-guide.md         (tailored Worker guide from SKILL.md + references + design doc)")
     print("  - init.sh / init.ps1         (environment bootstrap from design doc tech stack)")
 
 
