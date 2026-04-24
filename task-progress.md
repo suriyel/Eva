@@ -278,3 +278,25 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Validator-Warning] `validate_st_cases.py` 对 ST-UI-012-002..009 发 20 条 QUALITY 警告（Chrome DevTools Layer-1/2/3 启发式与 Vitest-only DOM-assertion 纯数据契约用例不完全适配）；信息级，与 F3 同模式，不 block。
 - ⚠ [Stale-Scripts] 会话开始前 `scripts/{count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 显式排除。留待后续 chore commit 处理。
 
+### Session 13 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · Design (2026-04-24)
+
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=2
+- dependencies: [2 (Persistence Core ✓ passing), 3 (Env Isolation ✓ passing)] · required_configs: [] (Config Gate 跳过 — 无连接串键) · priority=high · status=failing
+- srs_trace: FR-008/009/011/012/013/014/015/016/017/018 (C.HIL + D.ToolAdapter 段 · SRS 行 206-307) · NFR-014 (SRS 行 737) · IFR-001/002 (SRS 行 758-759) · ASM-003 PoC (SRS 行 771)
+- design_section: §4.3 F18 Feature Integration Spec (Design 行 339-397)；§4.11 Deprecated IDs (670-690，F03/F04/F05 → F18 合并上下文)
+- context anchors (SubAgent 自读): §1 Drivers (14-57)、§2 Approach A asyncio + worker-thread pty (58-80)、§3 Architecture (81-290)、§5 Data Model incl. Ticket JSON1 (691-933)、§6.1.1/6.1.2 IFR-001/002 外部接口 (941-990)、§6.2 Internal API Contracts incl. Stream/HIL/Ticket supervisor schemas (1087-1410)、§8 Deps (1426-1523)、§9 Testing Strategy + RTM (1524-1550)、§11.2/§11.3 Task Decomp + Dep Chain (1587-1686)、§13 Conventions (1710-1712)
+- env-guide §4: 存量约束均 greenfield empty（§4.1 强制内部库 / §4.2 禁用 API / §4.3 风格基线 / §4.4 构建约定）
+- Internal API Contracts 角色: Provider → IAPI-005/006/007/008 (F20 orchestrator internal) + /ws/hil (IAPI-001)；Consumer → IAPI-009 AuditWriter · IAPI-011 TicketRepository · IAPI-015 ModelResolver (F19，**stubbed via A1**) · IAPI-017 EnvironmentIsolator
+- current lock: `null` → `{feature_id:18, phase:"design"}` (commit `bf40ed2`)
+- **Feature Design**: PASS（assumption_count=1 · 审批关卡：user Approve 接受 A1 stub 方案）
+  - Design doc: `docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md`（420 行 / ~45 KB）
+  - Test Inventory: 32 cases · 负向比例 50% (16/32) ≥ 40%
+  - 类别覆盖: FUNC (13) / BNDRY (7) / SEC (1 explicit + embedded in T03/T23/T25) / PERF (1) / INTG (3 × CLI/audit) / Protocol (2)
+  - Interface Contract: 21 public methods across 10 classes — ToolAdapter Protocol + ClaudeCodeAdapter + OpenCodeAdapter + PtyWorker + JsonLinesParser + BannerConflictArbiter + HilExtractor + HilControlDeriver + HilWriteback + HilEventBus；每条 SRS AC (FR-008/009/011/012/013/014/015/016/017/018 + NFR-014 + IFR-001/002) 均追溯到 ≥1 postcondition
+  - Existing Code Reuse: 10 reused symbols (DispatchSpec / HilQuestion / HilOption / HilAnswer / HilInfo / AuditEvent / state_machine.validate_transition / AuditWriter.append / IsolatedPaths / EnvironmentIsolator.setup_run)；0 re-implementation
+  - UML: 1 classDiagram (9 classes) + 2 sequenceDiagram/stateDiagram (Running/Crashed PTY + Ticket HIL transitions) + 2 flowchart TD (OpenCode build_argv · BannerConflictArbiter) — 33 diagram elements 全追溯至 Test Inventory
+  - ATS alignment: FR-008..018 + NFR-014 + IFR-001/002 mapping rows 全 confirmed in `docs/plans/2026-04-21-harness-ats.md`；INT-001 HIL full round-trip → T29/T30；Err-B/Err-D/Err-J → T07/T17/T08
+  - **Assumption A1 (Approved)**: TDD Green 阶段先用 `ModelResolverStub.resolve(ctx) → ResolveResult(model=ctx.ticket_override or ctx.run_default, provenance=...)` 实现 F19 的 IAPI-015 契约；签名与 Design §6.2.4 一致；F19 落地后仅在 orchestrator 层替换，F18 代码零变更。理由：Wave 2 的 F19 与 F18 无硬顺序约束；stubbing 一个仅影响 DispatchSpec `model` 字段的 Requires 合同不改变 Interface Contract 签名、Boundary Conditions 或 Test Inventory 预期。
+- Design: DONE (docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md)
+- current.phase: design → tdd
+
