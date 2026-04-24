@@ -187,3 +187,26 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - `f705633` feat: increment wave 2 — feature repackaging
   - `9b2f9a1` chore: increment wave 2 — long-task-guide.md feature id remap
 - **Handoff**: current lock 保持 F10 (id=3) phase=st；下一会话 router 仍路由到 `long-task-work-st` 完成 F10 ST；F10 完成后 router 按新依赖图挑 F18 Bk-Adapter 作为下一个 dep-ready feature（deps = [F02, F10]，两者均为 passing 或即将 passing）
+
+### Session 9 — Feature #3 F10 · Environment Isolation & Skills Installer · ST (2026-04-24)
+
+- **Date**: 2026-04-24
+- **Phase**: ST (Feature-ST — 黑盒验收)
+- **Env lifecycle**: No server processes — environment activation only（env-guide §1 纯 CLI / library 模式，F10 特性为 backend/library）；`.venv` 已激活，`harness.env` / `harness.skills` / `harness.api` 可导入；无需 `api` / `ui-dev` dev server
+- **Pre-run baseline**: `pytest tests/test_f10_*.py tests/integration/test_f10_*.py` 全绿（100 passed / 0.76s）；F01 + F02 基线未触碰
+- **ST doc 生成**: `docs/test-cases/feature-3-f10-environment-isolation-skills-install.md`（26 cases：FUNC×12 + BNDRY×7 + UI×1 + SEC×6；负向比例 54%；全部 Real）
+- **Validators**: `validate_st_cases.py` exit 0（VALID — 26 test case(s) | 3 warnings，均为 `ui:false` feature 的 Chrome DevTools Layer 1/2/3 警告，不适用于数据契约型 UI 用例）；`check_ats_coverage.py --strict` exit 0
+- **ST 执行**: 35 unique test nodes + 17 parametrized variants = 52 执行点，全部 PASS（0.64s 合计）；FR-045 UI 类别通过 ST-UI-003-001（REST schema 数据契约覆盖）满足；F22 Fe-Config 端 DOM 渲染 E2E 留待 F22 ST
+- **Session lifecycle 结束**: venv 保留激活（parent agent 可继续使用）；无服务进程需清理；环境已复位为 known-clean（tmp 清理由 `pytest tmp_path` 自动处理）
+
+### Feature #3: F10 · Environment Isolation & Skills Installer — PASS
+- Completed: 2026-04-24
+- TDD: green ✓ (commit `6a6f03b`)
+- Quality Gates: 97.28% line, 90.71% branch (line ≥ 90 / branch ≥ 80 per env-guide §3)
+- Feature-ST: 26 cases (FUNC×12 + BNDRY×7 + UI×1 + SEC×6 · 54% negative · 100% PASS · 0 manual)
+- Inline Check: PASS (P2: 10/10 PUBLIC methods, T2: 39/39 pytest node IDs, D3: stdlib only, ATS Category: strict OK, §4: greenfield — 0 violations)
+- Git: `f587fb9` feat: feature #3 f10-environment-isolation-skills-install — ST cases 26 (26 auto PASS)
+#### Risks
+- ⚠ [ST-UI-Coverage] ST-UI-003-001 covers FR-045 UI category via REST data contract only; real DOM `显示 commit sha` end-to-end verification deferred to F22 Fe-Config ST. Feature design §Acceptance Mapping + §Design Alignment both record this cross-feature anchor; non-blocking for F10.
+- ⚠ [Validator-Warning] `validate_st_cases.py` emits 3 QUALITY warnings on ST-UI-003-001 (Chrome DevTools Layer 1/2/3 heuristics); inapplicable to `ui:false` data-contract UI case — informational only.
+- ⚠ [PERF-Assumption] `ASM-F10-COPY-PERF` (assumed authority) — `shutil.copytree` p95 < 500 ms assumed but not independently PERF-benchmarked (ATS §5 K did not mandate PERF for FR-043/044/045); fallback plan to `long-task-increment` if real-world p95 > 1 s, per Clarification Addendum #2.

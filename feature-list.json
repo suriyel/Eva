@@ -125,10 +125,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 3,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -195,7 +192,7 @@
       "title": "F10 · Environment Isolation & Skills Installer",
       "description": "IsolatedPaths 拷 ~/.claude 模板到 .harness-workdir/<run-id>/.claude/；Skills Installer 支持 git clone + 本地 pull；承载 NFR-009 实施点。",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-043",
         "FR-044",
@@ -211,7 +208,10 @@
         "Given git URL when 点 Skills 安装 then clone 目录生成并在 UI 显示 sha（FR-045）",
         "Given run 运行期 when 观察 plugins/longtaskforagent/ then mtime 全程不变（CON-005 反面断言）"
       ],
-      "ui": false
+      "ui": false,
+      "git_sha": "f587fb9",
+      "st_case_path": "docs/test-cases/feature-3-f10-environment-isolation-skills-install.md",
+      "st_case_count": 26
     },
     {
       "id": 4,
