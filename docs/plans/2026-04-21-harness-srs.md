@@ -846,3 +846,10 @@ flowchart TD
 
 ## 11. 遗留问题（Open Questions）
 - OQ-5: Classifier 硬编码规则（FR-022）与 LLM 分类在生产环境下的一致性如何回归测试？需要一个金标准测试集（例如 50 条已知 ticket 结果，含 HIL / 异常 / 正常结束各类样本）—— 延到 ATS 阶段定义。
+
+## 12. 变更历史（Revision History）
+
+| Date | Rev | 变更 | Author |
+|---|---|---|---|
+| 2026-04-21 | v1.0 | 初始 SRS — 46 active FR / 17 NFR / 7 IFR / 9 CON / 7 ASM | long-task-requirements skill |
+| 2026-04-24 | v1.1 | Wave 2 refactor-only feature repackaging — 0 FR/NFR/IFR 修改；feature 边界调整参见 feature-list.json 与 design.md §4；SRS 本体零语义变更 | long-task-increment-srs SubAgent |
