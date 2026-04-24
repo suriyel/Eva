@@ -125,10 +125,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 18,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -540,7 +537,7 @@
       "title": "F18 · Bk-Adapter — Agent Adapter & HIL Pipeline",
       "description": "合并原 F03 PTY + ToolAdapter / F04 Stream Parser + HIL Pipeline / F05 OpenCode Adapter 为单一 TDD 单元；承载 spawn agent CLI → pty 穿透 → stream-json 解析 → HIL 识别 → pty stdin 回写全链路；含 HIL PoC gate（FR-013 20-round ≥95%）",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-008",
         "FR-009",
@@ -572,7 +569,10 @@
         "Given ClaudeCodeAdapter when mypy --strict then 通过且 Mock Provider 缺方法时报错（FR-015/NFR-014）",
         "Given Question name > 256B when hooks 注入 then 截断不崩（IFR-002 SEC BNDRY）"
       ],
-      "ui": false
+      "ui": false,
+      "git_sha": "26a076a",
+      "st_case_path": "docs/test-cases/feature-18-f18-bk-adapter-agent-adapter-hil-pipeline.md",
+      "st_case_count": 39
     },
     {
       "id": 19,

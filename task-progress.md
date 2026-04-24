@@ -317,3 +317,30 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - current.phase: tdd → st
 - Next session: `long-task-work-st`（feature ST acceptance for #18）
 
+### Session 15 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · ST (2026-04-24)
+
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=2
+- srs_trace: FR-008/009/011/012/013/014/015/016/017/018 + NFR-014 + IFR-001/002
+- ATS mapping: FR-008 `FUNC,BNDRY,SEC` · FR-009 `FUNC,BNDRY,SEC` · FR-011 `FUNC,BNDRY,SEC` · FR-012 `FUNC,BNDRY` · FR-013 `FUNC,BNDRY,PERF` · FR-014 `FUNC,BNDRY` · FR-015 `FUNC,BNDRY` · FR-016 `FUNC,BNDRY` · FR-017 `FUNC,BNDRY` · FR-018 `FUNC,BNDRY` · NFR-014 `FUNC` · IFR-001 `FUNC,BNDRY,SEC` · IFR-002 `FUNC,BNDRY,SEC`
+- **Env lifecycle**: No server processes — environment activation only（env-guide §1 纯 CLI / library 模式，F18 为 backend-only 后端单向数据通道；`.venv` 已激活；无需 `api` / `ui-dev` dev server）
+- **ST doc 生成**: `docs/test-cases/feature-18-f18-bk-adapter-agent-adapter-hil-pipeline.md`（39 cases：FUNC×26 + BNDRY×7 + SEC×4 + PERF×2；1:1 映射 Feature Design Test Inventory T01–T32 + CapabilityFlags + env-whitelist + provider-consistency + backward-compat + NFR-014 mypy）
+- **Validators**: `validate_st_cases.py` → `VALID — 39 test case(s)` · `check_ats_coverage.py --strict --feature 18` → `ATS COVERAGE OK` · `mypy --strict harness/adapter/` → `Success: no issues found in 7 source files`
+- **ST 执行**: `pytest tests/test_f18_*.py tests/integration/test_f18_pty_real_subprocess.py tests/integration/test_f18_real_fs_hooks.py -q` → `118 passed in 1.49s`（118 pytest functions → 37 ST rows PASS）
+- **Manual cases（external-action，保留 `已自动化: No`，非静默跳过）**:
+  - ST-FUNC-018-018（T29）: real claude CLI HIL round-trip — 需用户完成 `claude login` OAuth + 提供稳定触发 AskUserQuestion 的 prompt
+  - ST-PERF-018-002（T30 = FR-013 PoC gate）: 20 × HIL round-trip 成功率 ≥95% — 同前置；若 <19/20 → 按 SRS FR-013 AC-2 冻结 HIL FRs 并上报
+- **Inline Check**: PASS (P2: 13/13 PUBLIC 方法签名匹配（ToolAdapter 6 方法 + ClaudeCodeAdapter/OpenCodeAdapter build_argv + OpenCodeAdapter.ensure_hooks/parse_hook_line + PtyWorker.start/write/close + JsonLinesParser.feed/events + BannerConflictArbiter.arbitrate + HilExtractor.extract + HilControlDeriver.derive + HilWriteback.write_answer + HilEventBus.publish_opened/answered） · T2: 70/70 ST 测试函数引用 grep 命中 · D3: pydantic 2.13.3 / ptyprocess 0.7.0 / structlog 24.4.0 与 requirements.txt 对齐 · UCD: N/A (ui:false) · ATS Category: strict OK · §4: greenfield — 0 violations)
+
+### Feature #18: F18 · Bk-Adapter — Agent Adapter & HIL Pipeline — PASS
+- Completed: 2026-04-24
+- TDD: green ✓ (commit `73b69de`)
+- Quality Gates: line 95.03% / branch 91.87%（≥ 90 / 80）
+- Feature-ST: 39 cases (FUNC×26 + BNDRY×7 + SEC×4 + PERF×2 · 37 auto PASS · 2 manual [MANUAL_TEST_REQUIRED])
+- Inline Check: PASS
+- Git: `26a076a` feat: feature #18 f18-bk-adapter-agent-adapter-hil-pipeline — ST cases 39 (37 auto PASS + 2 manual)
+#### Risks
+- ⚠ [Manual] ST-FUNC-018-018 (T29) — real `claude` CLI HIL round-trip 需用户 OAuth 登录 + 提供稳定触发 AskUserQuestion 的 prompt；release sign-off 前必须人工跑一次
+- ⚠ [Manual/Release-Gate] ST-PERF-018-002 (T30 = FR-013 PoC gate) — 20 × HIL round-trip ≥ 95%；若未达标按 SRS FR-013 AC-2 必须冻结 HIL FRs 并上报；release 前强制执行
+- ⚠ [Coverage] harness/app/bootstrap.py 88% line（pre-existing F01 regression；webview-thread teardown 分支仅 mock 覆盖）— 由 F17 PyInstaller smoke 承接
+- ⚠ [Stale-Scripts] 会话开始前 `scripts/{count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 继续显式排除，延续 Session 12 的处理方针，留待独立 chore commit 清理
+
