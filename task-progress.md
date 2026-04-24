@@ -232,3 +232,20 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Design: DONE (docs/features/12-f12-frontend-foundation.md)
 - current.phase: design → tdd
 
+### Session 11 — Feature #12 F12 · Frontend Foundation · TDD (2026-04-24)
+
+- target_feature: id=12, title="F12 · Frontend Foundation"
+- **Red**: 41 tests written across 18 files (3 pytest + 13 vitest + 3 Playwright queued for ST); categories=FUNC,BNDRY,UI,SEC,PERF,INTG; negative_ratio≈0.51 (21/41); real_test_count=3 F12 real; Rule 1-7 all PASS; all feature tests FAIL for right reason (module-not-found / assertion), sanity smoke PASS
+- **Green**: minimal impl landed in apps/ui/src/ (ws/, api/, store/, app/, components/, theme/, main.tsx) + harness/api/__init__.py (added /ws/{run,hil,stream,anomaly,signal} + StaticFiles('apps/ui/dist') mount) + scripts/check_{source_lang,tokens_fidelity}.sh; all_tests_pass=true; design alignment §4/§6/§8 matches, drift=none; env_guide_synced=true
+- **Refactor**: ruff + black --check + mypy + tsc --noEmit all 0 violations; stale @ts-expect-error directives (18) dropped in test files; createApiHook typing refactored to method-literal overloads (no unsoundness); extracted readApiBase/isRecord/storeHost/resolveWsBase helpers; tokens.css byte-identical verified
+- **Quality**: 
+  - Gate 0 (Real Test): PASS (3 F12 real tests)
+  - Gate 0.5 (SRS Trace): PASS, uncovered_fr_ids=[] (NFR-001→app-shell/ws/use-ws tests, NFR-010→source-lang-guard, NFR-011→app-shell/icons; T34 Playwright deferred to ST)
+  - Backend coverage: line 95.89% / branch 90.45% (thresholds 90/80 met)
+  - Frontend coverage: line 97.89% / branch 87.00% / functions 95.23% / statements 97.89% (all above thresholds)
+  - Per-F12-module: app-shell.tsx 97.64%/81.81%; tokens-inline.ts excluded (Vite/Node shim — Node fallback unreachable under Vite bundling)
+- Supplement tests: 38 + 4 = 42 frontend tests added to close branch/function gaps (total frontend vitest 83/83 green)
+- Scaffolding added: @vitest/coverage-v8@2.1.4 devDep + coverage block in vitest.config.ts + coverage.exclude for tokens-inline.ts (build-shim rationale)
+- Test results: pytest 270/270 green (was 264, +6 F12); vitest 83/83 green (was 0, new F12 suite)
+- current.phase: tdd → st
+

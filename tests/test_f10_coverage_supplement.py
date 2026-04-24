@@ -13,7 +13,6 @@ SRS trace: FR-043, FR-044, FR-045, NFR-009
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -646,7 +645,9 @@ def test_installer_pull_nonzero_exit_raises(tmp_path: Path) -> None:
 
     with patch(
         "harness.skills.installer.subprocess.run",
-        return_value=subprocess.CompletedProcess(["git"], 1, stdout="", stderr="fatal: diverged\nline2\n"),
+        return_value=subprocess.CompletedProcess(
+            ["git"], 1, stdout="", stderr="fatal: diverged\nline2\n"
+        ),
     ):
         with pytest.raises(GitSubprocessError):
             SkillsInstaller().pull(str(target), workdir=wd)
@@ -706,7 +707,11 @@ def test_api_skills_workdir_pointing_at_non_dir_returns_500(
     with TestClient(app) as client:
         resp = client.post(
             "/api/skills/install",
-            json={"kind": "clone", "source": "https://github.com/org/x.git", "target_dir": "plugins/x"},
+            json={
+                "kind": "clone",
+                "source": "https://github.com/org/x.git",
+                "target_dir": "plugins/x",
+            },
         )
     assert resp.status_code == 500
     assert "HARNESS_WORKDIR" in resp.json()["detail"]
@@ -739,9 +744,7 @@ def test_api_skills_install_git_subprocess_error_returns_409(
     assert "git" in resp.json()["detail"]
 
 
-def test_api_skills_pull_happy_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_api_skills_pull_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Covers api/skills lines 66-75 — POST /api/skills/pull happy path."""
     from harness.api import app
 

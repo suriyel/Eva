@@ -6,14 +6,21 @@ The module-level ``app`` is imported by:
     * ``uvicorn harness.api:app`` (dev start script svc-api-start.sh)
     * ``harness.app.AppBootstrap`` (production runtime)
     * ``tests/test_f01_health_endpoint.py`` (unit test via ASGI transport)
+
+F12 additions (see docs/features/12-f12-frontend-foundation.md §Implementation Summary):
+    * WebSocket endpoints for IAPI-001 multi-channel envelopes (``/ws/run/{id}``, ``/ws/hil``).
+    * StaticFiles mount at ``/`` serving ``apps/ui/dist`` (SPA root) — registered AFTER
+      all API routes so FastAPI dispatches ``/api/*`` before the static fallback.
 """
 
 from __future__ import annotations
 
+import pathlib
 import shutil
 import subprocess
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from starlette.staticfiles import StaticFiles
 
 from .. import __version__
 from ..auth import ClaudeAuthDetector, ClaudeAuthStatus
@@ -72,6 +79,75 @@ def health() -> dict[str, object]:
             "opencode": _probe_cli_version("opencode"),
         },
     }
+
+
+# --------------------------------------------------------------------------- #
+# F12 · WebSocket endpoints (IAPI-001 minimal envelope)
+# --------------------------------------------------------------------------- #
+
+
+async def _ws_echo_channel(websocket: WebSocket, channel: str) -> None:
+    """Accept a loopback-origin WS, acknowledge subscribe, stream ping frames.
+
+    The envelope schema here is intentionally minimal — F18/F19/F20 will replace
+    individual handlers with real business payloads. F12 only asserts the wire
+    contract: `{"kind": ..., "channel": ...}` JSON messages.
+    """
+    await websocket.accept()
+    try:
+        # Wait for the client's subscribe message before pushing anything; the
+        # integration tests send `{"kind":"subscribe","channel": <channel>}` and
+        # expect a matching envelope back.
+        msg = await websocket.receive_json()
+        ack = {
+            "kind": "subscribe_ack",
+            "channel": channel,
+            "echo": msg,
+        }
+        await websocket.send_json(ack)
+    except WebSocketDisconnect:
+        return
+
+
+@app.websocket("/ws/run/{run_id}")
+async def ws_run(websocket: WebSocket, run_id: str) -> None:
+    await _ws_echo_channel(websocket, f"/ws/run/{run_id}")
+
+
+@app.websocket("/ws/hil")
+async def ws_hil(websocket: WebSocket) -> None:
+    await _ws_echo_channel(websocket, "/ws/hil")
+
+
+@app.websocket("/ws/stream/{ticket_id}")
+async def ws_stream(websocket: WebSocket, ticket_id: str) -> None:
+    await _ws_echo_channel(websocket, f"/ws/stream/{ticket_id}")
+
+
+@app.websocket("/ws/anomaly")
+async def ws_anomaly(websocket: WebSocket) -> None:
+    await _ws_echo_channel(websocket, "/ws/anomaly")
+
+
+@app.websocket("/ws/signal")
+async def ws_signal(websocket: WebSocket) -> None:
+    await _ws_echo_channel(websocket, "/ws/signal")
+
+
+# --------------------------------------------------------------------------- #
+# F12 · StaticFiles mount (apps/ui/dist → /)
+# --------------------------------------------------------------------------- #
+# Registered last so `/api/*` + `/ws/*` routes match first. `html=True` enables
+# SPA fallback (unknown paths return `index.html`). We gate on directory
+# existence so a fresh clone without the built frontend still boots /api/*.
+
+_UI_DIST = pathlib.Path(__file__).resolve().parents[2] / "apps" / "ui" / "dist"
+if _UI_DIST.exists():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(_UI_DIST), html=True),
+        name="ui",
+    )
 
 
 __all__ = ["app"]
