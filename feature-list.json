@@ -125,7 +125,10 @@
       ]
     }
   ],
-  "current": null,
+  "current": {
+    "feature_id": 12,
+    "phase": "design"
+  },
   "features": [
     {
       "id": 1,
