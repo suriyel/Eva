@@ -48,13 +48,12 @@ from validate_features import validate as _validate
 
 
 _SRC_EXTS = (".py", ".js", ".ts", ".java", ".c", ".cpp", ".go", ".rs")
-_EXCLUDE_DIRS = {".git", "node_modules", "venv", ".venv",
-                 "dist", "build", "__pycache__", "target"}
+_EXCLUDE_DIRS = {".git", "node_modules", "venv", ".venv", "dist", "build", "__pycache__", "target"}
 
 _PHASE_TO_SKILL = {
     "design": "long-task-work-design",
-    "tdd":    "long-task-work-tdd",
-    "st":     "long-task-work-st",
+    "tdd": "long-task-work-tdd",
+    "st": "long-task-work-st",
 }
 _PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
 
@@ -65,12 +64,10 @@ def _select_next(features: list) -> tuple:
     active = [x for x in features if not x.get("deprecated")]
     passing = {x["id"] for x in active if x.get("status") == "passing"}
     failing = [x for x in active if x.get("status") != "passing"]
-    eligible = [x for x in failing
-                if all(d in passing for d in x.get("dependencies", []))]
+    eligible = [x for x in failing if all(d in passing for d in x.get("dependencies", []))]
     if not eligible:
         return None, [x["id"] for x in failing]
-    eligible.sort(key=lambda f: (_PRIORITY_RANK.get(f.get("priority"), 3),
-                                 f["id"]))
+    eligible.sort(key=lambda f: (_PRIORITY_RANK.get(f.get("priority"), 3), f["id"]))
     return eligible[0], []
 
 
@@ -85,9 +82,11 @@ def _is_brownfield(root: str) -> bool:
     if src <= 3:
         return False
     try:
-        n = int(subprocess.check_output(
-            ["git", "rev-list", "--count", "HEAD"],
-            cwd=root, stderr=subprocess.DEVNULL).strip())
+        n = int(
+            subprocess.check_output(
+                ["git", "rev-list", "--count", "HEAD"], cwd=root, stderr=subprocess.DEVNULL
+            ).strip()
+        )
         return n >= 5
     except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
         return False
@@ -103,8 +102,12 @@ def route(root: str = ".") -> dict:
         "feature_id": None,
         "starting_new": False,
     }
-    j = lambda *p: os.path.join(root, *p)
-    has_glob = lambda pat: bool(sorted(glob.glob(j(*pat.split("/")))))
+
+    def j(*p: str) -> str:
+        return os.path.join(root, *p)
+
+    def has_glob(pat: str) -> bool:
+        return bool(sorted(glob.glob(j(*pat.split("/")))))
 
     # 1-2. Signal files (highest priority)
     if os.path.isfile(j("bugfix-request.json")):
@@ -189,9 +192,9 @@ def route(root: str = ".") -> dict:
         return out
 
     # 9-10. Brownfield vs greenfield
-    out["next_skill"] = ("long-task-brownfield-scan"
-                        if _is_brownfield(root)
-                        else "long-task-requirements")
+    out["next_skill"] = (
+        "long-task-brownfield-scan" if _is_brownfield(root) else "long-task-requirements"
+    )
     return out
 
 
@@ -213,9 +216,11 @@ def main():
             extra += " starting_new=True"
         if r["errors"]:
             extra += f" errors={r['errors']}"
-        print(f"next={r['next_skill']} ok={r['ok']} "
-              f"migration={r['needs_migration']} "
-              f"counts={r['counts']}" + extra)
+        print(
+            f"next={r['next_skill']} ok={r['ok']} "
+            f"migration={r['needs_migration']} "
+            f"counts={r['counts']}" + extra
+        )
     sys.exit(0 if r["ok"] else 2)
 
 

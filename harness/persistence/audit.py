@@ -94,6 +94,64 @@ class AuditWriter:
                 )
                 raise IoError(f"audit append failed: {exc!r}") from exc
 
+    def append_raw(
+        self,
+        *,
+        run_id: str,
+        kind: str,
+        payload: dict[str, object] | None = None,
+        ts: str | None = None,
+    ) -> None:
+        """Synchronous append of an arbitrary event (F10 · env.setup /
+        env.teardown / skills.install events).
+
+        Bypasses the strict :class:`AuditEvent` model because F10 events do
+        not carry a ``ticket_id`` nor a state transition. Writes one JSON
+        line with keys ``{ts, kind, run_id, payload}`` to
+        ``<audit_dir>/<run_id>.jsonl``.
+        """
+
+        if ts is None:
+            from datetime import datetime, timezone
+
+            ts = datetime.now(timezone.utc).isoformat()
+
+        record = {
+            "ts": ts,
+            "kind": kind,
+            "run_id": run_id,
+            "payload": payload or {},
+        }
+        line = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+
+        target = self._audit_dir / f"{run_id}.jsonl"
+        try:
+            self._audit_dir.mkdir(parents=True, exist_ok=True)
+            fd = os.open(
+                str(target),
+                os.O_APPEND | os.O_WRONLY | os.O_CREAT,
+                0o644,
+            )
+            try:
+                remaining = line
+                while remaining:
+                    n = os.write(fd, remaining)
+                    if n <= 0:  # pragma: no cover
+                        raise OSError("os.write returned 0 bytes")
+                    remaining = remaining[n:]
+                if self._fsync_default:
+                    os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError as exc:
+            self._logger.error(
+                "audit_append_raw_failed",
+                run_id=run_id,
+                kind=kind,
+                error=repr(exc),
+            )
+            raise IoError(f"audit append_raw failed: {exc!r}") from exc
+
     async def close(self) -> None:
         """Release any retained per-run lock state (handles are per-call)."""
 

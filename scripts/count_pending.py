@@ -63,8 +63,11 @@ def count(path: str) -> dict:
 
 def format_line(counts: dict) -> str:
     cur = counts["current"]
-    cur_str = (f"current=#{cur['feature_id']}({cur['phase']})"
-               if cur and isinstance(cur, dict) else "current=none")
+    cur_str = (
+        f"current=#{cur['feature_id']}({cur['phase']})"
+        if cur and isinstance(cur, dict)
+        else "current=none"
+    )
     parts = [
         cur_str,
         f"passing={counts['passing']}",

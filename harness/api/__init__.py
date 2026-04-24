@@ -20,6 +20,11 @@ from ..auth import ClaudeAuthDetector, ClaudeAuthStatus
 
 app = FastAPI(title="Harness", version=__version__)
 
+# F10 · Skills Installer REST (IAPI-018)
+from .skills import router as _skills_router  # noqa: E402  late import to keep app ready
+
+app.include_router(_skills_router)
+
 
 def _probe_cli_version(name: str) -> str | None:
     """Run ``<name> --version`` and return stdout trimmed; None when missing."""

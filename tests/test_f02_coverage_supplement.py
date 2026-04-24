@@ -12,7 +12,6 @@ SRS trace: FR-005, FR-006, FR-007, NFR-005, NFR-006
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -341,8 +340,13 @@ async def test_fr_005_run_row_payload_invalid_json_raises_dao_error(tmp_path: Pa
         # Write raw bad payload (bypass pydantic entirely).
         await conn.execute(
             "INSERT INTO runs (id, workdir, state, started_at, payload) VALUES (?,?,?,?,?)",
-            ("run-bad-json", str(tmp_path), "starting", "2026-04-21T10:00:00.000000+00:00",
-             "{this-is-not-json"),
+            (
+                "run-bad-json",
+                str(tmp_path),
+                "starting",
+                "2026-04-21T10:00:00.000000+00:00",
+                "{this-is-not-json",
+            ),
         )
         await conn.commit()
 
@@ -364,8 +368,13 @@ async def test_fr_005_run_row_payload_null_defaults_to_empty_dict(tmp_path: Path
     try:
         await conn.execute(
             "INSERT INTO runs (id, workdir, state, started_at, payload) VALUES (?,?,?,?,?)",
-            ("run-empty-payload", str(tmp_path), "starting",
-             "2026-04-21T10:00:00.000000+00:00", ""),
+            (
+                "run-empty-payload",
+                str(tmp_path),
+                "starting",
+                "2026-04-21T10:00:00.000000+00:00",
+                "",
+            ),
         )
         await conn.commit()
 
@@ -796,8 +805,6 @@ async def test_nfr_005_recovery_scan_re_raises_dao_error_untouched(
         scanner = RecoveryScanner(conn, audit)
 
         # Patch TicketRepository.mark_interrupted to raise DaoError mid-loop.
-        original_mark = scanner._tickets.mark_interrupted
-
         async def boom_dao(ticket_id: str) -> Any:
             raise DaoError("simulated DAO failure")
 
