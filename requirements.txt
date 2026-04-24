@@ -18,6 +18,9 @@ pydantic==2.13.3
 # Persistence (F02)
 aiosqlite==0.20.0
 structlog==24.4.0
+
+# PTY back-end (F18 — Bk-Adapter; POSIX only, see harness/pty/posix.py)
+ptyprocess==0.7.0 ; sys_platform != "win32"
 pydantic_core==2.46.3
 typing_extensions==4.15.0
 typing-inspection==0.4.2

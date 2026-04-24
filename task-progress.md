@@ -300,3 +300,20 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Design: DONE (docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md)
 - current.phase: design → tdd
 
+### Session 14 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · TDD (2026-04-24)
+
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=2
+- current lock: `{feature_id:18, phase:"tdd"}` → `{feature_id:18, phase:"st"}`
+- **Red**: 34 tests written across 9 files — FUNC/happy · FUNC/error · BNDRY/edge · SEC/bndry · PERF/latency · INTG/cli · INTG/audit · INTG/fs；Rule 1-7 all green（negative_ratio=0.559, low_value_ratio=0.028, real_test_count=2：test_f18_real_cli.py + test_f18_real_fs_hooks.py）；UML 全部元素覆盖（classDiagram 9/9, sequenceDiagram 13 msgs, stateDiagram PTY + Ticket, 2 flowchart decisions）；all 34 FAILED as expected
+- **Green**: 26 impl files across harness/adapter · harness/pty · harness/stream · harness/hil（含 errors/process/protocol/protocol.py 与 platform-specific posix/windows pty + opencode hooks 子模块）；32/34 F18 tests PASS（T29/T30 `@pytest.mark.real_cli` 按 design §6 Impl Summary (6) 延后到 PoC gate，FR-013 是独立 PoC 验收项）；完整后端 302 passed + 2 deselected（无回归）；Existing Code Reuse 10 symbols 0 重实现（DispatchSpec/HilQuestion/HilOption/HilAnswer/HilInfo/AuditEvent/state_machine/AuditWriter/IsolatedPaths/EnvironmentIsolator）；requirements.txt 新增 `ptyprocess==0.7.0 ; sys_platform != "win32"`
+- **Refactor**: ruff ✓ / black ✓ (68 files) / mypy `--strict` ✓ (59 source files, 0 issues)；仅清理未用 import + black 格式化 + 修正 type-ignore 代码，无契约/功能变更；pytest 重跑 302 passed + 2 deselected（与 Green baseline 一致）；design_alignment: §4=matches, §6=matches, §8=N/A (Boundary Conditions + Existing Code Reuse 替代), drift=none
+- **Quality v1 (FAIL → 扩测)**: line=87.65% (< 90%)、branch=73.58% (< 80%)；srs_trace 13/13 全覆盖；主要差距在 PTY 层 + opencode 运行时分支；用户选择扩测（Recommended）
+- **Coverage Supplement**: 新增 2 文件 86 测试 —— `tests/test_f18_coverage_supplement.py`（80 用例，纯单元 edge 分支）+ `tests/integration/test_f18_pty_real_subprocess.py`（6 用例，用真 `/bin/cat` 子进程驱动真 PTY，`@pytest.mark.real_fs`，Rule 5a 合规无 mock primary deps）；实现文件、契约、feature-list.json **零改动**
+- **Quality v2 (PASS)**:
+  - Gate 0 Real Test: PASS（17 real tests，F18 有 2 个）
+  - Gate 0.5 SRS Trace: PASS（13/13 FR-IDs 全覆盖：FR-008/009/011/012/013/014/015/016/017/018 + NFR-014 + IFR-001/002）
+  - Gate 1 Coverage: line=**95.03%**（≥90%）、branch=**91.87%**（≥80%）
+  - Gate 2 Verify & Mark: 388 passed · 0 failed · 0 skipped · 2 deselected (T29/T30 real_cli)
+- current.phase: tdd → st
+- Next session: `long-task-work-st`（feature ST acceptance for #18）
+
