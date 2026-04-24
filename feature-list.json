@@ -125,10 +125,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 12,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -387,7 +384,7 @@
       "title": "F12 · Frontend Foundation",
       "description": "React 18 + Vite + Tailwind + shadcn/ui 母板；Cockpit Dark style tokens；Sidebar + Top header + WebSocket 客户端 + 15 个 shadcn 组件封装。",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "NFR-001",
         "NFR-010",
@@ -406,7 +403,10 @@
         "[token-fidelity] Given apps/ui/src/theme/tokens.css when diff 对比 docs/design-bundle/eava2/project/styles/tokens.css then 仅允许追加(中文排印 + prefers-reduced-motion 扩展),禁止修改已有 token 值(UCD §5 F12 实施规约)"
       ],
       "ui": true,
-      "ui_entry": "/"
+      "ui_entry": "/",
+      "git_sha": "bcd4140",
+      "st_case_path": "docs/test-cases/feature-12-f12-frontend-foundation.md",
+      "st_case_count": 23
     },
     {
       "id": 13,

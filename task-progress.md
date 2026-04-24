@@ -249,3 +249,32 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Test results: pytest 270/270 green (was 264, +6 F12); vitest 83/83 green (was 0, new F12 suite)
 - current.phase: tdd → st
 
+### Session 12 — Feature #12 F12 · Frontend Foundation · ST (2026-04-24)
+
+- target_feature: id=12, title="F12 · Frontend Foundation", ui=true, ui_entry="/"
+- srs_trace: NFR-001 (UI p95 < 500ms) · NFR-010 (仅简体中文) · NFR-011 (HIL 控件标注 — F12 承接基座义务，实际文本由 F21 渲染)
+- ATS mapping: NFR-001 `PERF,UI` · NFR-010 `FUNC,UI` (Manual: visual-judgment 允许) · NFR-011 `FUNC,UI`
+- **Env lifecycle**: SubAgent 自管理；`api` (PID 316923 port 8765) + `ui-dev` (PID 316933 port 5173) 启动 → 健康检查通过 → ST 全量执行 → 停止 + 端口释放验证
+- **ST doc 生成**: `docs/test-cases/feature-12-f12-frontend-foundation.md`（23 cases：FUNC×8 + BNDRY×3 + UI×9 + SEC×2 + PERF×1；1 manual/known-gap）
+- **Validators**: `validate_st_cases.py` VALID — 23 cases | 20 quality warnings（UI cases Layer-1/2/3 heuristics，含 Vitest-only 纯 DOM 断言，非 block，F3 同模式）；`check_ats_coverage.py` strict OK；`check_source_lang.sh` exit 0；`check_tokens_fidelity.sh` exit 0
+- **ST 执行**: 22/22 auto cases PASS（含 Vitest 14 files / 83 tests + Playwright f12-route-switch + f12-devtools-snapshot），1 manual/known-gap ST-UI-012-009 pixelmatch 延伸至 F21/F22
+- **Chrome DevTools MCP evidence**: AppShell bg=rgb(10,13,18)=#0A0D12 ✓ · Sidebar 240px@1280vw / 56px@1100vw ✓ · TopBar 56px ✓ · HIL 徽标 zero-miss ✓ · 8 lucide-react 图标 stroke-width=1.75 ✓ · Sidebar 交互 8/8 active switch（overview→hil→settings）✓ · 0 console errors
+- **AI self-fixes（SubAgent 内部）**:
+  1. `sidebar.tsx:33` — NAV_ITEM label "Skills" → "提示词 & 技能"（NFR-010 合规）
+  2. `scripts/check_source_lang.sh` + 新建 `scripts/check_source_lang.py` — 消除 112 误报，新增多行 throw / CSS nested var() / 属性白名单识别
+  3. `apps/ui/index.html` — 内联 data:image/svg+xml favicon（消除 /favicon.ico 404 console 噪音）
+  4. `apps/ui/src/main.tsx` — 补齐 8 nav id 占位路由（Sidebar 可交互 2/8 → 8/8；F12 "no FR business logic" 边界保持）
+- **Inline Check**: PASS (P2: 9/9 PUBLIC 方法签名匹配 · T2: 11 抽查 T-ID 全命中 · D3: React 18.3.1 / Vite 5.4.11 / TS 5.5.4 / Tailwind 3.4.14 / TanStack 5.59.20 / Zustand 5.0.1 / router 7.0.1 / lucide 0.441.0 全对齐 Design §3.4 · U1: tokens.css byte-identical + 硬编码色均属 Design "Existing Code Reuse" 直译非漂移 · ATS Category: strict OK · §4: greenfield — 0 violations)
+
+### Feature #12: F12 · Frontend Foundation — PASS
+- Completed: 2026-04-24
+- TDD: green ✓ (commit `21c26c8`)
+- Quality Gates: 前端 line 97.89% / branch 87.00%；后端 line 95.89% / branch 90.45%（均过 90/80 阈值）
+- Feature-ST: 23 cases (FUNC×8 + BNDRY×3 + UI×9 + SEC×2 + PERF×1 · 22 auto PASS · 1 manual/known-gap)
+- Inline Check: PASS
+- Git: `bcd4140` feat: feature #12 f12-frontend-foundation — ST cases 23 (22 auto PASS + 1 known-gap)
+#### Risks
+- ⚠ [Known-Gap] ST-UI-012-009 pixelmatch 基线 PNG (`docs/design-bundle/eava2/project/pages/overview-1280.png` / `overview-1440.png`) 尚未生成；`apps/ui/e2e/f12-visual-regression.spec.ts` 内暂以 `expect(false).toBe(true)` 占位。Feature Design Test Inventory T35/T36 之后的 note 已预申报此 gap；按 UCD §7 SOP 第 5 步 ST-evidence archive 路径，归属 F21 Fe-RunViews / F22 Fe-Config 的 ST 阶段承接（RunOverview 页面体落地后）。不 block F12 ATS UI 类别最小覆盖（ST-UI-012-001..008 通过 live DevTools MCP 断言 + Vitest DOM 断言 + tokens fidelity + source-lang guard 覆盖全 11 §VRC 元素）。
+- ⚠ [Validator-Warning] `validate_st_cases.py` 对 ST-UI-012-002..009 发 20 条 QUALITY 警告（Chrome DevTools Layer-1/2/3 启发式与 Vitest-only DOM-assertion 纯数据契约用例不完全适配）；信息级，与 F3 同模式，不 block。
+- ⚠ [Stale-Scripts] 会话开始前 `scripts/{count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 显式排除。留待后续 chore commit 处理。
+
