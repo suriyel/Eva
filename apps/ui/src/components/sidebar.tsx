@@ -30,7 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "docs", label: "文档 & ROI", icon: Icons.FileText },
   { id: "process", label: "过程文件", icon: Icons.Edit3 },
   { id: "commits", label: "提交历史", icon: Icons.GitBranch },
-  { id: "skills", label: "Skills", icon: Icons.Book },
+  { id: "skills", label: "提示词 & 技能", icon: Icons.Book },
   { id: "settings", label: "设置", icon: Icons.Settings },
 ];
 
