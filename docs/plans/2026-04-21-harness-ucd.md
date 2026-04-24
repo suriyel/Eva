@@ -102,7 +102,7 @@
 
 - 列表 / 表格默认 **compact** 模式,行高 40px(prototype 已是此规格)。
 - 用户偏好 `UI · Data Density = comfortable` 时行高 52px;仅影响列表/表格,不影响卡片/表单。
-- 实施点:F15 SystemSettings `UiTab` 暴露此开关,F12 foundation 负责全局 CSS 变量 `--row-height` 的切换。
+- 实施点:F22 SystemSettings `UiTab` 暴露此开关,F12 foundation 负责全局 CSS 变量 `--row-height` 的切换。
 
 ---
 
@@ -112,7 +112,7 @@
 
 1. **改 prototype**:在 `docs/design-bundle/eava2/project/` 内修改 `.jsx` / `.css` / `tokens.css`,在浏览器里跑 `Harness UCD.html` 确认视觉。
 2. **跑 `long-task-increment-ucd` skill**:产出 increment-request.json 或直接在 UCD.md §4 / §5 更新指针(新增页面 / 新增组件时)。
-3. **同步 design.md §4.12-§4.16**(如页面/组件 API 变了,更新 Integration Surface 表)。
+3. **同步 design.md §4.6 (F21) / §4.7 (F22) / §4.9 (F12)**(如页面/组件 API 变了,更新 Integration Surface 表)。
 4. **同步 feature-list.json**(如验收准则变了,更新 `verification_steps`)。
 
 **禁止**:
@@ -129,17 +129,17 @@
 
 | Anchor | Page | Prototype 文件 | 路由 | 归属 Feature | SRS 覆盖 |
 |---|---|---|---|---|---|
-| §4.1 | RunOverview(总览) | `pages/RunOverview.jsx` | `/` | F13 | FR-010 / FR-030 |
-| §4.2 | HILInbox(HIL 待答) | `pages/HILInbox.jsx` | `/hil` | F13 | FR-010 / FR-031 |
-| §4.3 | SystemSettings(设置) | `pages/SystemSettings.jsx` | `/settings` | F15 | FR-032 / IFR-004 / IFR-006 |
-| §4.4 | PromptsAndSkills(Skills) | `pages/PromptsAndSkills.jsx` | `/skills` | F15 | FR-033 |
-| §4.5 | TicketStream(Ticket 流) | `pages/TicketStream.jsx` | `/ticket-stream` | F14 | FR-034 / NFR-002 |
-| §4.6 | DocsAndROI(文档) | `pages/DocsAndROI.jsx` | `/docs` | F16 | FR-035 |
-| §4.7 | ProcessFiles(过程文件) | `pages/ProcessFiles.jsx` | `/process-files` | F16 | FR-038 / FR-039 |
-| §4.8 | CommitHistory(提交历史) | `pages/CommitHistory.jsx` | `/commits` | F16 | FR-041 / IFR-005 |
+| §4.1 | RunOverview(总览) | `pages/RunOverview.jsx` | `/` | F21 | FR-010 / FR-030 |
+| §4.2 | HILInbox(HIL 待答) | `pages/HILInbox.jsx` | `/hil` | F21 | FR-010 / FR-031 |
+| §4.3 | SystemSettings(设置) | `pages/SystemSettings.jsx` | `/settings` | F22 | FR-032 / IFR-004 / IFR-006 |
+| §4.4 | PromptsAndSkills(Skills) | `pages/PromptsAndSkills.jsx` | `/skills` | F22 | FR-033 |
+| §4.5 | TicketStream(Ticket 流) | `pages/TicketStream.jsx` | `/ticket-stream` | F21 | FR-034 / NFR-002 |
+| §4.6 | DocsAndROI(文档) | `pages/DocsAndROI.jsx` | `/docs` | F22 | FR-035 |
+| §4.7 | ProcessFiles(过程文件) | `pages/ProcessFiles.jsx` | `/process-files` | F22 | FR-038 / FR-039 |
+| §4.8 | CommitHistory(提交历史) | `pages/CommitHistory.jsx` | `/commits` | F22 | FR-041 / IFR-005 |
 | §4.0 | Cover(品牌封面 · 非应用内页面) | `app.jsx` `Cover` 组件 | — | — | — |
 
-**SRS FR 覆盖声明**:prototype `app.jsx` 宣称 "8 页覆盖 FR-001..050 全部交互路径"。实际映射见上表:UI 可见的 FR 由 F13-F16 承接;FR-001 ~ FR-029(后台) / FR-036 / FR-037 / FR-040 / FR-042 ~ FR-050 属非 UI 直接承接(由后端 feature F01-F11 实现、UI 作副作用消费)。
+**SRS FR 覆盖声明**:prototype `app.jsx` 宣称 "8 页覆盖 FR-001..050 全部交互路径"。实际映射见上表:UI 可见的 FR 由 F21 / F22 承接(F12 Foundation 不承接 FR);FR-001 ~ FR-029(后台) / FR-036 / FR-037 / FR-040 / FR-042 ~ FR-050 属非 UI 直接承接(由后端 feature F01 / F02 / F10 / F18 / F19 / F20 实现、UI 作副作用消费)。
 
 ---
 
@@ -168,7 +168,7 @@
 **实施规约(F12)**:
 - `tokens.css` **原样**进入 `apps/ui/src/theme/tokens.css`(不改 token 值;允许追加 §2.5 的中文排印扩展 class)
 - `components/Sidebar.jsx` / `PhaseStepper.jsx` / `TicketCard.jsx` / `PageFrame.jsx` / `Icons.jsx` **移植**到 `apps/ui/src/components/`,CDN React + 内联 style **重构**为 TypeScript + Tailwind + shadcn/ui,但视觉产物必须**像素等价**
-- 页面内的 local 组件(HILCard / EventTree / DiffViewer 等)在对应 feature(F13/F14/F16)里移植
+- 页面内的 local 组件(HILCard / EventTree / DiffViewer 等)在对应 feature(F21/F22)里移植
 - 移植正确性验证:见 §7 视觉回归 SOP
 
 ---
@@ -191,7 +191,7 @@
 
 ---
 
-## 7. 视觉回归 SOP(F12-F16 验收必跑)
+## 7. 视觉回归 SOP(F12 / F21 / F22 验收必跑)
 
 实施一个页面 / 组件后,必须执行:
 
@@ -213,3 +213,4 @@
 |---|---|---|---|
 | 2026-04-21 | v1 | 初始 UCD — 自洽 markdown 视觉规格(598 行) | long-task-ucd skill |
 | 2026-04-24 | v2 | **单一源改为 design-bundle prototype**;本文档瘦身为规则+指针;v1 的 §2 tokens / §3 组件描述 / §4 页面描述已被 `docs/design-bundle/eava2/` 取代 | 用户 + 本次会话 |
+| 2026-04-24 | v2.1 | Wave 2 refactor-only feature id 重映射(§4/§5/§7 中 F13/F14/F15/F16 → F21/F22) | long-task-increment-ucd SubAgent |
