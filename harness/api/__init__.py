@@ -32,6 +32,13 @@ from .skills import router as _skills_router  # noqa: E402  late import to keep 
 
 app.include_router(_skills_router)
 
+# F19 · Bk-Dispatch REST routers (IAPI-002 sub-routes)
+from .settings import router as _settings_router  # noqa: E402
+from .prompts import router as _prompts_router  # noqa: E402
+
+app.include_router(_settings_router)
+app.include_router(_prompts_router)
+
 
 def _probe_cli_version(name: str) -> str | None:
     """Run ``<name> --version`` and return stdout trimmed; None when missing."""

@@ -365,3 +365,13 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Design: DONE (docs/features/19-f19-bk-dispatch-model-resolver-classifie.md)
 - current.phase: design → tdd
 
+### Session 17 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · TDD (2026-04-25)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier"
+- Red: 46 tests written across 13 files (10 unit + 3 integration); categories=FUNC/happy(14)·FUNC/error(10)·BNDRY/edge(8)·SEC/fs-perm(1)·SEC/keyring(1)·SEC/ssrf(3)·SEC/secret-leak(1)·SEC/path-traversal(1)·INTG/http(3)·INTG/http-shape(1)·INTG/fs(1)·INTG/keyring(1); negative_ratio=0.543 (25/46, ≥0.40); low_value_ratio=0.000; real_test_count=3 (real HTTP loopback / real tmp_path FS / `keyring.backends.fail`); all FAILED as expected ✓
+- Green: minimal impl passes 46/46 tests in 10.58s; impl scope = `harness/dispatch/{model,classifier}/*.py` + `harness/api/{settings,prompts}.py` + `harness/api/__init__.py` router wiring; design §4 (12 public methods signature-match) / §6 (module layout + call chain) / §8 (11 pydantic schemas) — drift=none; env-guide §4 greenfield (no sync needed)
+- Refactor: no code changes required — ruff/black/mypy 0 violations on F19 scope (29 files); F19 tests 46/46 still green; design alignment re-verified (UML classDiagram 8 NEW classes · sequenceDiagram 9 messages · flowchart TD 7 decision branches all grep-verified)
+- Quality Gates: round 2 PASS — line 98.37% (≥90%) · branch 84.62% (≥80%); srs_trace all 6 covered (FR-019/020/021/022/023/IFR-004); 52 supplement tests added (T47–T98) to `tests/test_f19_coverage_supplement.py`; IFR-004 literal added to `tests/integration/test_f19_real_http.py` module/T31 docstrings
+- Final suite: 98/98 F19 tests green
+- current.phase: tdd → st
+
