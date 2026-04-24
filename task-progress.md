@@ -209,3 +209,26 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 #### Risks
 - ⚠ [ST-UI-Coverage] ST-UI-003-001 covers FR-045 UI category via REST data contract only; real DOM `显示 commit sha` end-to-end verification deferred to F22 Fe-Config ST. Feature design §Acceptance Mapping + §Design Alignment both record this cross-feature anchor; non-blocking for F10.
 - ⚠ [Validator-Warning] `validate_st_cases.py` emits 3 QUALITY warnings on ST-UI-003-001 (Chrome DevTools Layer 1/2/3 heuristics); inapplicable to `ui:false` data-contract UI case — informational only.
+
+### Session 10 — Feature #12 F12 · Frontend Foundation · Design (2026-04-24)
+
+- target_feature: id=12, title="F12 · Frontend Foundation", category=ui, ui=true, ui_entry="/"
+- dependencies: [1] (F01 passing) · required_configs: [] (Config Gate skipped — no connection strings) · constraints: [] · assumptions: []
+- srs_trace: NFR-001 (SRS line 724) · NFR-010 (SRS line 733) · NFR-011 (SRS line 734); NFR 全表 §5 行 721-740
+- design_section: §4.9 F12 · Frontend Foundation (Design 行 620-647)；Wave 2 overview note 行 291-294
+- context anchors (SubAgent 自读): §1.4 ESI 驱动 (44-45)、§3.1-3.5 架构 (83-288)、§6.2 Internal API Contracts (1087-1161)、§7 UI/UX (1411-1425)、§8.2 前端依赖 (1453-1483)、§9 Testing Strategy (1524-1550)
+- ucd_section: 1-210（全文）· 重点 §2 规则约束（35-106，含 §2.1 a11y / §2.2 动效含 prefers-reduced-motion、§2.5 中文排印增补、§2.6 状态色、§2.7 Icon / §2.8 Data Density）· §4 页面指针 (126-142) · §5 组件指针 + F12 实施规约 (146-173) · §7 视觉回归 SOP (194-206)
+- env-guide §4: greenfield empty（无存量内部库强制 / 禁用 API / 构建系统约定）
+- Internal API Contracts（F12 为 Provider）: IAPI-001 (WebSocket multi-channel → F21)、IAPI-002 (REST → F21/F22)；Requires: IAPI-001 由 F20 提供、IAPI-019 RunControl 由 F20 提供
+- current lock: `null` → `{feature_id:12, phase:"design"}` (commit `313ae55`)
+- **Feature Design**: PASS（assumption_count=0，无审批关卡）
+  - Design doc: `docs/features/12-f12-frontend-foundation.md`（443 行 / ~47 KB）
+  - Test Inventory: 41 cases · 负向比例 46.3% (19/41) ≥ 40%
+  - 类别覆盖: FUNC/happy + FUNC/error + BNDRY/edge + UI/render (13) + PERF/route-switch + INTG/websocket-rest-static + SEC/url-guard + i18n-guard
+  - Existing Code Reuse: 9 reused / 11 searched（6 prototype files 来自 docs/design-bundle/eava2/project/ + 2 F01 integration points + 1 tokens.css byte-identical clone）
+  - §4 Internal API Contracts: F12 为 IAPI-001 (WebSocket multi-channel) / IAPI-002 (REST 30 routes) 的 **Consumer**；无 Provider 合同（FE imports 为 internal）
+  - Visual Rendering Contract: 10 元素带具体 DOM 选择器（`[data-component="app-shell|sidebar|top-bar|phase-stepper|ticket-card"]` 等）；rendering tech = React 18 DOM + Tailwind + CSS vars + `@keyframes hns-pulse`；10 正向断言 + 5 交互断言；像素回归 1280×900 + 1440×840 SOP 对齐 UCD §7
+  - Interface 覆盖: 13 public API（HarnessWsClient.connect/subscribe/disconnect/heartbeat$, useWs, createApiHook, apiClient.fetch, createSlice, AppShell, PageFrame, Sidebar, PhaseStepper, TicketCard, Icons）+ 3 IAPI 集成点 trace 到 NFR-001/010/011 + 7 verification_steps
+- Design: DONE (docs/features/12-f12-frontend-foundation.md)
+- current.phase: design → tdd
+
