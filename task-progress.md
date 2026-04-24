@@ -166,3 +166,24 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Per-file coverage (F10)**: home_guard.py 100% line / 96.9% branch · registry.py 100% · api/skills.py 100% · models.py 100% · errors.py 100% · isolator.py 96.2% / 83.3% · installer.py 94.4% / 90.3%
 - **Risk log**: harness/env/isolator.py lines 140-141/174 (platform-specific stat-error fallbacks in copytree — not deterministic in pytest, file still 96%/83% above threshold); harness/skills/installer.py lines 55-56/90/137-139 (urlparse ValueError on malformed URL already blocked earlier + abs-Path double-check — 94%/90%, above threshold); drift followup: design §4.10 main-design symlink language should be reconciled via future `long-task-increment` (Session 6 already flagged)
 - current.phase: tdd → st
+
+### Session 8 — Increment Wave 2 · Feature Repackaging (2026-04-24)
+
+- **Date**: 2026-04-24
+- **Phase**: Increment (refactor-only)
+- **Scope**: feature 颗粒度偏细 → 合并后端 9 → 4（F03+F04+F05→F18 Bk-Adapter；F07+F08→F19 Bk-Dispatch；F06+F09+F11→F20 Bk-Loop）+ 前端 5 → 3（F12 保留；F13+F14→F21 Fe-RunViews；F15+F16→F22 Fe-Config）；保留 F01/F02/F10(current.phase=st)/F12/F17；不改 SRS 层 FR/NFR/IFR
+- **Changes**: Added 5 (ids 18-22), Modified 1 (id=17 deps remap), Deprecated 12 (ids 4,5,6,7,8,9,10,11,13,14,15,16)
+- **Documents updated**: SRS (+7 行 §12 Revision History only), Design (+344/-350 行 · §4 重组 17→11 节 + §6.2.1 19 IAPI owner-remap + §11.1/11.2/11.3 重排), ATS (+70/-55 行 · 约 50 处 feature id 文本 remap + §5.4 Wave 2 说明), UCD (+14/-13 行 v2.1 · 13 处 remap + §8 变更历史), long-task-guide.md (2 处 remap)
+- **feature-list.json**: 17 → 22 条目（10 active + 12 deprecated 审计），waves 追加 wave 2；required_configs.required_by 5 项全部 remap；F17 deps [11,13,14,15,16] → [3,12,18,19,20,21,22]
+- **Impact**: 0 Hard Impact · 0 Breaking Contract · 0 FR/NFR/IFR 语义变更 · 0 代码改动；19 条 IAPI 仅 Provider/Consumer feature id 重映射，签名零变化；current lock (feature_id=3, phase=st) 保留不动
+- **NFR-008 修复**：Step 3 SubAgent 发现 NFR-008（API key keyring）遗失 → 补挂到 F22 Fe-Config（SystemSettings/ApiKey tab 语义对口）
+- **HIL PoC gate (FR-013 20-round ≥95%)** owner 从 F03 迁至 F18 Bk-Adapter；F18 TDD Green 阶段必须执行该 PoC
+- **validate_features.py**: VALID (22 features, 2 passing, 8 failing, 12 deprecated, 2 waves, 7 UI-dep-on-failing warnings 预期)
+- **count_pending**: `current=#3(st) passing=2 failing=8 (total=10, deprecated=12)`
+- **Commits**:
+  - `3bebbf5` design: increment wave 2 — feature repackaging
+  - `ef1b8cf` ats: increment wave 2 — feature id remap
+  - `31fe811` ucd: increment wave 2 — feature id remap (v2.1)
+  - `f705633` feat: increment wave 2 — feature repackaging
+  - `9b2f9a1` chore: increment wave 2 — long-task-guide.md feature id remap
+- **Handoff**: current lock 保持 F10 (id=3) phase=st；下一会话 router 仍路由到 `long-task-work-st` 完成 F10 ST；F10 完成后 router 按新依赖图挑 F18 Bk-Adapter 作为下一个 dep-ready feature（deps = [F02, F10]，两者均为 passing 或即将 passing）
