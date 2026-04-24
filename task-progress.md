@@ -209,4 +209,3 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 #### Risks
 - ⚠ [ST-UI-Coverage] ST-UI-003-001 covers FR-045 UI category via REST data contract only; real DOM `显示 commit sha` end-to-end verification deferred to F22 Fe-Config ST. Feature design §Acceptance Mapping + §Design Alignment both record this cross-feature anchor; non-blocking for F10.
 - ⚠ [Validator-Warning] `validate_st_cases.py` emits 3 QUALITY warnings on ST-UI-003-001 (Chrome DevTools Layer 1/2/3 heuristics); inapplicable to `ui:false` data-contract UI case — informational only.
-- ⚠ [PERF-Assumption] `ASM-F10-COPY-PERF` (assumed authority) — `shutil.copytree` p95 < 500 ms assumed but not independently PERF-benchmarked (ATS §5 K did not mandate PERF for FR-043/044/045); fallback plan to `long-task-increment` if real-world p95 > 1 s, per Clarification Addendum #2.
