@@ -344,3 +344,24 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage] harness/app/bootstrap.py 88% line（pre-existing F01 regression；webview-thread teardown 分支仅 mock 覆盖）— 由 F17 PyInstaller smoke 承接
 - ⚠ [Stale-Scripts] 会话开始前 `scripts/{count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 继续显式排除，延续 Session 12 的处理方针，留待独立 chore commit 清理
 
+### Session 16 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · Design (2026-04-24)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier", category=core, ui=false, wave=2
+- srs_trace: FR-019/020/021/022/023 + IFR-004
+- dependencies: [1] (F01 已 passing — 复用 harness.auth.keyring_facade + harness.config + harness.api FastAPI skeleton)
+- **current lock**: `null` → `{feature_id:19, phase:"design"}` (commit `971ac02`)
+- **Context**: Consolidates 旧 F07 Model Override Resolver + 旧 F08 Classifier Service；dispatch 决策面（spawn 前 4 层 ModelResolver → spawn 后 Classifier OpenAI-compat LLM 分类 ticket）；共享 IAPI-014 keyring + ClassifierProviderPresets
+- **Config Gate**: 跳过（required_configs=[]，无连接串键）
+- **env-guide approval**: OK (v1.1, approved_date 2026-04-21T09:21:02+08:00)
+- **Feature Design**: PASS — 46 test cases across FUNC/happy(14) + FUNC/error(11) + BNDRY(7) + SEC(7) + INTG(10)；negative ratio 25/46 ≈ 54.3%（≥ 40%）；12 public methods 覆盖 FR-019..023 所有 AC + IFR-004；5 existing-code reuses（KeyringGateway / KeyringServiceError / ConfigStore / ApiKeyRef / harness.api include_router pattern）
+  - Design doc: `docs/features/19-f19-bk-dispatch-model-resolver-classifie.md` (418 lines)
+  - Contracts wired: Provides IAPI-015（→F18）、IAPI-010（→F20）、IAPI-002 subroutes `/api/settings/{model_rules,classifier,classifier/test}` + `/api/prompts/classifier`（→F22）；Requires IAPI-014（F01 keyring）+ IFR-004（外部 OpenAI-compat HTTP）
+- **5 Assumptions (approved)**:
+  1. SSRF 白名单 = preset 域 + endswith 精确子域；custom 拒私网/loopback/link-local/非 https
+  2. PromptStore v1 history 仅存 `{rev, saved_at, hash, summary}`；full body diff 延至 v1.1
+  3. RuleBackend 优先级：context_overflow → rate_limit → permission_denied → exit_code=0 → skill_error
+  4. `ClassifierHttpError` 仅内部抛，FallbackDecorator 捕获后 rule 兜底；classify 对外永不抛
+  5. `ClassifierService.classify` 内部从 PromptStore.get() 取 current prompt，调用方无需传
+- Design: DONE (docs/features/19-f19-bk-dispatch-model-resolver-classifie.md)
+- current.phase: design → tdd
+
