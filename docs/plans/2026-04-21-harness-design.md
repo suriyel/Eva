@@ -290,7 +290,9 @@ graph LR
 
 ## 4. Feature Integration Specs
 
-17 个实现特性，按照 skill 规范，每个 §4.N 仅含 Overview / Key Types / Integration Surface（**不**包含类图/时序图/流程图）。IAPI 引用指向 §6.2 契约表。
+> **Wave 2 重整（2026-04-24）**：旧 17 特性合并为 10 特性（2 passing + 1 st + 7 failing），12 个旧 ID（F03/F04/F05/F06/F07/F08/F09/F11/F13/F14/F15/F16）整体废弃并在 `feature-list.json` 保留为 `status=deprecated`（`srs_trace` 清空）；5 个新 ID（F18–F22）承载旧特性全量 FR/NFR/IFR。旧 ID 不再被 SKILL 调度，但文档中仍以 "consolidated from F0x/F0y" 方式回溯。本轮不改 SRS 层 FR/NFR/IFR 语义，仅做 feature 重包装。
+
+每个 §4.N 仅含 Overview / Key Types / Integration Surface（**不**包含类图/时序图/流程图）。IAPI 引用指向 §6.2 契约表。编号顺序：§4.1 F01 · §4.2 F02 · §4.3 F18 · §4.4 F19 · §4.5 F20 · §4.6 F21 · §4.7 F22 · §4.8 F10 · §4.9 F12 · §4.10 F17。
 
 ### 4.1 F01 · App Shell & Platform Bootstrap
 
@@ -305,12 +307,12 @@ graph LR
 - `harness.net.BindGuard` — 启动自检 127.0.0.1 bind
 
 **4.1.3 Integration Surface**
-- **Provides**：ConfigStore + Keyring 门面 → F07/F08/F10/F15
+- **Provides**：ConfigStore + Keyring 门面 → F19/F22
 - **Requires**：Self-contained
 
 | 方向 | Consumer | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F07/F08/F15 | IAPI-014 | Settings Manager ↔ keyring | `get_secret(service, user) → str \| None` |
+| Provides | F19/F22 | IAPI-014 | Settings Manager ↔ keyring | `get_secret(service, user) → str \| None` |
 
 ### 4.2 F02 · Persistence Core
 
@@ -331,180 +333,273 @@ graph LR
 
 | 方向 | Consumer | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F03/F04/F06/F09/F11 | IAPI-011 | `TicketRepository.save/get/list_by_run` | `Ticket` |
-| Provides | F04/F09 | IAPI-009 | `AuditWriter.append` | `AuditEvent` |
+| Provides | F18/F20 | IAPI-011 | `TicketRepository.save/get/list_by_run` | `Ticket` |
+| Provides | F18/F20 | IAPI-009 | `AuditWriter.append` | `AuditEvent` |
 
-### 4.3 F03 · PTY & ToolAdapter Foundation
+### 4.3 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline
 
-**4.3.1 Overview**：跨平台 PTY 包装、ToolAdapter Protocol、ClaudeCodeAdapter 的 argv 构造与 spawn，以及 **FR-013 HIL PoC**（AC：20 次 round-trip ≥95%）。满足 FR-008/013/015/016/018。
+> **Consolidates**: 旧 F03（PTY & ToolAdapter Foundation）+ 旧 F04（Stream Parser & HIL Pipeline）+ 旧 F05（OpenCode Adapter）。HIL PoC gate（FR-013 · 20 次 round-trip ≥95%）owner 已迁至本特性。
+
+**4.3.1 Overview**：跨平台 PTY 包装 + ToolAdapter Protocol（ClaudeCode / OpenCode 双实现）+ 增量 JSON-Lines 解析 + HIL question 捕获与 pty stdin 回写 + 终止横幅冲突仲裁；一个 feature 覆盖 "Agent 启动 → 流 → HIL 回写" 单向链路，使 TDD 时 mock 面最小。满足 FR-008/009/011/012/013/014/015/016/017/018 + NFR-014。提供 IFR-001（Claude Code CLI argv / flag / stream-json 解析）与 IFR-002（OpenCode CLI argv / hooks / MCP 降级）的宿主。
 
 **4.3.2 Key Types**
 - `harness.adapter.ToolAdapter` (Protocol) — `build_argv / spawn / extract_hil / parse_result / detect_anomaly / supports`
 - `harness.adapter.DispatchSpec` — pydantic（FR-007 dispatch 字段）
-- `harness.adapter.claude.ClaudeCodeAdapter` — 实现 FR-016 全 flag
-- `harness.pty.PtyProcessAdapter` (Protocol) — 跨平台统一 API
-- `harness.pty.posix.PosixPty` — 基于 ptyprocess
-- `harness.pty.windows.WindowsPty` — 基于 pywinpty ConPTY
-- `harness.pty.PtyWorker` — threading.Thread + asyncio.Queue 桥
 - `harness.adapter.CapabilityFlags` — enum
-
-**4.3.3 Integration Surface**
-- **Provides**：Protocol + PTY 生命周期 → F04/F05/F06
-- **Requires**：F07 模型覆写、F10 环境隔离
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F04/F05/F06 | IAPI-005 | `ToolAdapter.spawn(DispatchSpec) → TicketProcess` | `DispatchSpec`, `TicketProcess` |
-| Provides | F04 | IAPI-006 | `PtyWorker.byte_queue` | `asyncio.Queue[bytes]` |
-| Provides | F04 | IAPI-007 | `PtyWorker.write(answer_bytes)` | `bytes` |
-| Requires | F07 | IAPI-015 | `ModelResolver.resolve(...)` | 见 §6.2 |
-| Requires | F10 | IAPI-017 | `EnvironmentIsolator.setup_run(run_id)` | `IsolatedPaths` |
-
-### 4.4 F04 · Stream Parser & HIL Pipeline
-
-**4.4.1 Overview**：增量 JSON-Lines 解析、HIL question 捕获、pty stdin 回写、终止横幅 + HIL 冲突优先 HIL。满足 FR-009/011/014。
-
-**4.4.2 Key Types**
+- `harness.adapter.claude.ClaudeCodeAdapter` — 实现 FR-016 全 flag（含 `--settings <isolated>` 注入）
+- `harness.adapter.opencode.OpenCodeAdapter` — FR-012/017
+- `harness.adapter.opencode.HookConfigWriter` / `HookQuestionParser` / `McpDegradation` / `VersionCheck`
+- `harness.pty.PtyProcessAdapter` (Protocol) — 跨平台统一 API
+- `harness.pty.posix.PosixPty` — 基于 ptyprocess（POSIX）
+- `harness.pty.windows.WindowsPty` — 基于 pywinpty ConPTY（Windows 10 1809+）
+- `harness.pty.PtyWorker` — threading.Thread + asyncio.Queue 桥；`call_soon_threadsafe` 入队
 - `harness.stream.JsonLinesParser` — 增量 decode，容忍半行
 - `harness.stream.StreamEvent` — pydantic union（text/tool_use/tool_result/thinking/error/system）
+- `harness.stream.BannerConflictArbiter` — FR-014 终止横幅 vs HIL 冲突仲裁（HIL 优先）
 - `harness.hil.HilExtractor` — 监 `tool_use.name ∈ {AskUserQuestion, Question}`
 - `harness.hil.HilQuestion` — 标准化 schema
-- `harness.hil.HilControlDeriver` — FR-010 规则导出 kind
+- `harness.hil.HilControlDeriver` — FR-010 规则导出 kind（radio / checkbox / textarea）
 - `harness.hil.HilWriteback` — pty stdin 格式化写回
 - `harness.hil.HilEventBus` — asyncio fan-out（WebSocket + DB）
-- `harness.stream.BannerConflictArbiter` — FR-014 冲突优先 HIL
 
-**4.4.3 Integration Surface**
-- **Provides**：StreamEvent + HilEventBus → F06/F13
-- **Requires**：F03 PTY、F02 Persistence
+**4.3.3 Module Layout 建议**
+- `harness/adapter/` — Protocol / DispatchSpec / CapabilityFlags / claude / opencode 子包
+- `harness/pty/` — `posix.py` + `windows.py` + `worker.py`
+- `harness/stream/` — `parser.py` + `events.py` + `banner_arbiter.py`
+- `harness/hil/` — `extractor.py` + `question.py` + `control.py` + `writeback.py` + `event_bus.py`
+
+**4.3.4 Integration Surface**
+- **Provides**：ToolAdapter 生命周期 + StreamEvent + HilEventBus → F20（Bk-Loop）；WebSocket `/ws/hil` → F21（Fe-RunViews）
+- **Requires**：F02（Persistence）·  F10（Environment Isolation）· F19（Model Resolver）
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F06/F09 | IAPI-008 | `StreamParser.events()` async iterator | `StreamEvent` |
-| Provides | FE | IAPI-001 | WebSocket `/ws/hil` | `HilQuestion`, `HilAnswerAck` |
+| Provides | F20 | IAPI-005 | `ToolAdapter.spawn(DispatchSpec) → TicketProcess` | `DispatchSpec`, `TicketProcess` |
+| Provides | F18（内聚，跨子包） | IAPI-006 | `PtyWorker.byte_queue` → `StreamParser` | `asyncio.Queue[bytes]` |
+| Provides | F18（内聚，跨子包） | IAPI-007 | `HilWriteback → PtyWorker.write` | `bytes` |
+| Provides | F18/F20 | IAPI-008 | `StreamParser.events()` async iterator | `StreamEvent` |
+| Provides | F21 | IAPI-001 | WebSocket `/ws/hil` | `HilQuestion`, `HilAnswerAck` |
 | Provides | F02 | IAPI-009 | `AuditWriter.append` | `AuditEvent` |
-| Requires | F03 | IAPI-006/007 | PtyWorker | bytes |
-| Requires | F02 | IAPI-011 | TicketRepository | `Ticket` |
+| Requires | F19 | IAPI-015 | `ModelResolver.resolve(...)` | 见 §6.2 |
+| Requires | F10 | IAPI-017 | `EnvironmentIsolator.setup_run(run_id)` | `IsolatedPaths` |
+| Requires | F02 | IAPI-011 | `TicketRepository` | `Ticket` |
 
-### 4.5 F05 · OpenCode Adapter
+**4.3.5 HIL PoC Gate（FR-013）**
+在 F18 TDD Green 阶段必须跑一个覆盖 Claude Code CLI 的 20 次 HIL round-trip 集成测试（`AskUserQuestion` → UI 回答 → pty stdin 写回 → 下一轮 tool_use），成功率 ≥95%。不达标则阻塞 F20/F21 进入 TDD，由用户决定是否重评 SRS ASM-003。
 
-**4.5.1 Overview**：OpenCodeAdapter 实现 Protocol；hooks 配置注入；v1 MCP 完整适配降级。满足 FR-012/017。
+**4.3.6 Test Inventory Hint**
+- Protocol 合规：两个 Adapter 6 方法契约共 12 条
+- argv 构造正/负：Claude flag 全集 + OpenCode flag 全集（FR-016/017）
+- StreamParser 容错：半行 / 乱序 / extras 字段（FR-009）
+- HIL 三控件派生规则矩阵（FR-010）+ XSS freeform 反注入
+- BannerConflictArbiter fixture ≥10 条（覆盖终止横幅与 HIL 冲突）
+- HIL PoC 20-round 集成测试（FR-013）
+
+### 4.4 F19 · Bk-Dispatch — Model Resolver & Classifier
+
+> **Consolidates**: 旧 F07（Model Override Resolver）+ 旧 F08（Classifier Service）。两者都在 "dispatch 决策" 链上（resolve model → classify ticket），合并后同一 feature 独立跑 TDD 时 mock 面减半。
+
+**4.4.1 Overview**：Dispatch 前置决策服务——4 层模型优先级解析（per-ticket > per-skill > run-default > provider-default）+ ticket 结果分类（LLM backend via OpenAI-compat HTTP + rule backend 降级 + toggle off）。满足 FR-019/020/021/022/023；提供 IFR-004（OpenAI-compatible HTTP）的 httpx 客户端与 preset 管理。
+
+**4.4.2 Key Types**
+- `harness.dispatch.model.ModelResolver` — 4 层优先级链
+- `harness.dispatch.model.ModelRule` / `ModelRulesStore` / `ProvenanceTag`
+- `harness.dispatch.classifier.ClassifierService` — 门面
+- `harness.dispatch.classifier.LlmBackend` — httpx AsyncClient + `response_format=json_schema`
+- `harness.dispatch.classifier.RuleBackend` — 硬编码规则降级
+- `harness.dispatch.classifier.Verdict` — pydantic
+- `harness.dispatch.classifier.PromptStore` — classifier prompt 当前 + 历史
+- `harness.dispatch.classifier.ProviderPresets` — GLM / MiniMax / OpenAI / custom
+- `harness.dispatch.classifier.FallbackDecorator` — LLM 失败自动 rule 降级
+
+**4.4.3 Module Layout 建议**
+- `harness/dispatch/` — `model/` 子包 + `classifier/` 子包 + `__init__.py`（暴露 `ModelResolver`、`ClassifierService`）
+
+**4.4.4 Integration Surface**
+- **Provides**：模型解析 → F18（Bk-Adapter）；分类服务 → F20（Bk-Loop）；CRUD 路由 → F22（Fe-Config）
+- **Requires**：F01（ConfigStore + keyring）
+
+| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
+|---|---|---|---|---|
+| Provides | F18 | IAPI-015 | `ModelResolver.resolve` | `ResolveResult` |
+| Provides | F20 | IAPI-010 | `ClassifierService.classify(ticket) → Verdict` | `Verdict` |
+| Provides | F22 | IAPI-002 | REST `GET/PUT /api/settings/model_rules`、classifier/prompts 子路由 | `ModelRule[]`, `ClassifierConfig`, `ClassifierPrompt` |
+| Requires | IFR-004 | 外部 | `POST <base_url>/v1/chat/completions` | OpenAI-compat |
+| Requires | F01 | IAPI-014 | keyring（api_key） | — |
+
+**4.4.5 Test Inventory Hint**
+- ModelResolver 4 层优先级矩阵（per-ticket > per-skill > run-default > provider-default）
+- Classifier LlmBackend 成功 / response_format 协议漂移 / rule 降级
+- ProviderPresets × 4 preset `/test` 连通性
+- PromptStore 版本化 diff
+
+### 4.5 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess
+
+> **Consolidates**: 旧 F06（Run Orchestrator & Phase Router）+ 旧 F09（Anomaly Recovery & Watchdog）+ 旧 F11（Subprocess Integrations：git tracker + validator runner）。这是后端主回路——Orchestrator / Recovery / Subprocess 三子模块共享 RunContext 与 Ticket 状态机，合并后端到端 dry-run 可以在一个 feature 内闭环 TDD。
+
+**4.5.1 Overview**：单 Run 主循环（phase_route.py 调用、signal file 感知、pause/cancel、14-skill 覆盖、depth ≤2）+ 5 类异常识别与恢复（context_overflow、rate_limit、auth、network、crash）+ Skip/ForceAbort 人为覆写 + Watchdog（30 分钟 SIGTERM → 5s → SIGKILL）+ ticket 级 git HEAD 追踪 + validate_*.py subprocess 执行。满足 FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048 + NFR-003/004/015/016。提供 IFR-003（`scripts/phase_route.py` subprocess）与 IFR-005（git CLI）的客户端。
 
 **4.5.2 Key Types**
-- `harness.adapter.opencode.OpenCodeAdapter`
-- `harness.adapter.opencode.HookConfigWriter`
-- `harness.adapter.opencode.HookQuestionParser`
-- `harness.adapter.opencode.McpDegradation`
-- `harness.adapter.opencode.VersionCheck`
 
-**4.5.3 Integration Surface**
-- **Provides**：另一 ToolAdapter 实现 → F06
-- **Requires**：F03 PTY + Protocol；F04 HIL pipeline
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F06 | IAPI-005 | `ToolAdapter.spawn` | 同 F03 |
-| Provides | F04 | IAPI-008 | StreamEvent | 同 F04 |
-| Requires | F03 | IAPI-006/007 | PTY | — |
-
-### 4.6 F06 · Run Orchestrator & Phase Router
-
-**4.6.1 Overview**：主循环、phase_route.py 调用、signal file 感知、pause/cancel、14-skill 覆盖、depth ≤2 校验。满足 FR-001/002/003/004/047/048。
-
-**4.6.2 Key Types**
+*Orchestrator 子模块*
 - `harness.orchestrator.RunOrchestrator` — 单 Run 主状态机
 - `harness.orchestrator.TicketSupervisor` — 单 ticket asyncio.Task
 - `harness.orchestrator.PhaseRouteInvoker` — subprocess 调用 phase_route.py
 - `harness.orchestrator.PhaseRouteResult` — 松弛 JSON
-- `harness.orchestrator.SignalFileWatcher` — watchdog observer
+- `harness.orchestrator.SignalFileWatcher` — watchdog observer（signal files + docs/plans + feature-list.json）
 - `harness.orchestrator.RunControlBus` — WebSocket 指令路由
 - `harness.orchestrator.DepthGuard` — 嵌套深度 ≤2
 - `harness.orchestrator.RunLock` — filelock `.harness/run.lock`
 
-**4.6.3 Integration Surface**
-- **Provides**：Run 生命周期 + ticket dispatch → F13/F14；WebSocket RunControl → FE
-- **Requires**：F02/F03/F04/F05/F07/F08/F09/F10
+*Recovery 子模块*
+- `harness.recovery.AnomalyClassifier` — 5 类异常识别
+- `harness.recovery.RetryPolicy` — 30s/120s/300s 指数退避
+- `harness.recovery.Watchdog` — 超时 SIGTERM → SIGKILL
+- `harness.recovery.RetryCounter` — 按 skill_hint 聚合
+- `harness.recovery.EscalationEmitter` — ≥3 次升级用户
+- `harness.recovery.UserOverride` — Skip / ForceAbort
+
+*Subprocess 子模块*
+- `harness.subprocess.git.GitTracker` — ticket begin/end HEAD 追踪
+- `harness.subprocess.git.GitCommit` / `DiffLoader`
+- `harness.subprocess.validator.ValidatorRunner` — `scripts/validate_*.py` 执行
+- `harness.subprocess.validator.ValidationReport` — 统一报告 schema
+- `harness.subprocess.validator.FrontendValidator` — pydantic → TS/Zod 导出
+
+**4.5.3 Module Layout 建议**
+- `harness/orchestrator/` — 主循环 + supervisor + phase_route invoker + run lock + signal watcher
+- `harness/recovery/` — anomaly classifier + retry policy + watchdog + user override
+- `harness/subprocess/` — `git/` + `validator/` 两子包
+
+**4.5.4 Integration Surface**
+
+*Orchestrator → 外部*
+- **Provides**：Run 生命周期 REST + RunControlBus（WebSocket）→ F21（Fe-RunViews）· F22（Fe-Config）
+- **Requires**：F02 / F18 / F19 / F10
+
+*Recovery → 外部*
+- **Provides**：异常事件 → F21（Fe-RunViews `/ws/anomaly`）
+- **Requires**：F19 Classifier（验证是否 `context_overflow`）· F02
+
+*Subprocess → 外部*
+- **Provides**：git 历史 + validate 报告 → F22（Fe-Config 的 ProcessFiles + Commits tab）
+- **Requires**：IFR-005 git CLI · `scripts/validate_*.py`
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | FE | IAPI-002 | REST `POST /api/runs/start` / `/api/runs/:id/pause` / `/api/runs/:id/cancel` | `RunStartRequest`, `RunStatus` |
-| Provides | FE | IAPI-001 | WebSocket `/ws/run/:id` | `RunEvent` |
-| Provides | F09 | IAPI-004 | `TicketSupervisor.reenqueue_ticket` | `RetryRequest` |
+| Provides | F21 | IAPI-002 | REST `POST /api/runs/start` · `/api/runs/:id/pause` · `/api/runs/:id/cancel` · `POST /api/anomaly/:ticket_id/skip` · `/force-abort` | `RunStartRequest`, `RunStatus`, `RecoveryDecision` |
+| Provides | F21 | IAPI-001 | WebSocket `/ws/run/:id`、`/ws/anomaly`、`/ws/signal` | `RunEvent`, `AnomalyEvent`, `SignalFileChanged` |
+| Provides | F21 | IAPI-019 | RunControlBus REST + WS | `RunControlCommand`, `RunControlAck` |
+| Provides | F22 | IAPI-002 | REST `GET /api/git/commits` · `GET /api/git/diff/:sha` · `GET /api/files/tree` · `GET /api/files/read` | `GitCommit[]`, `DiffPayload`, `FileTree`, `FileContent` |
+| Provides | F22 | IAPI-016 | REST `POST /api/validate/:file` | `ValidationReport` |
+| Provides | F20（内聚） | IAPI-004 | `TicketSupervisor.reenqueue_ticket` ← `AnomalyRecovery.decide` | `TicketCommand`, `RecoveryDecision` |
+| Provides | F20（内聚） | IAPI-012 | `SignalFileWatcher` → `Orchestrator` | `SignalEvent` |
+| Provides | F20（内聚） | IAPI-013 | `GitTracker.begin/end(ticket)` → orchestrator | `GitContext` |
 | Requires | phase_route.py | IAPI-003 | subprocess | `PhaseRouteResult` |
-| Requires | F02-F10 多项 | 多项 | 多项 | 见各特性 |
+| Requires | F18 | IAPI-005/008 | ToolAdapter + StreamParser | `DispatchSpec`, `StreamEvent` |
+| Requires | F19 | IAPI-010 | Classifier.classify | `Verdict` |
+| Requires | F02 | IAPI-011/009 | TicketRepository + AuditWriter | `Ticket`, `AuditEvent` |
+| Requires | F10 | IAPI-017 | EnvironmentIsolator | `IsolatedPaths` |
+| Requires | IFR-005 | 外部 | git CLI subprocess | — |
+| Requires | scripts/validate_*.py | 外部 | python subprocess | 脚本协议 |
 
-### 4.7 F07 · Model Override Resolver
+**4.5.5 Test Inventory Hint**
+- Orchestrator：phase_route.py 输入/输出矩阵（正常 / missing feature / depth>2） + pause/cancel 状态合法性 + signal file event fan-out
+- Recovery：5 类异常分类器 × 3 次退避 + 升级门槛；Watchdog SIGTERM→SIGKILL 时序
+- Subprocess：GitTracker begin/end × 非 git 目录 exit=128 降级；ValidatorRunner schema 错误 / 超时
+- 端到端 dry-run：一次 `/api/runs/start` → phase_route → spawn → stream → classify → recovery → persist
 
-**4.7.1 Overview**：4 层优先级链（per-ticket > per-skill > run-default > provider-default）。满足 FR-019/020。
+### 4.6 F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream
 
-**4.7.2 Key Types**
-- `harness.model.ModelResolver`
-- `harness.model.ModelRule`
-- `harness.model.ModelRulesStore`
-- `harness.model.ProvenanceTag`
+> **Consolidates**: 旧 F13（RunOverview + HILInbox Pages）+ 旧 F14（TicketStream Page）。都消费 F20 的 run/ticket/stream 契约，合并后视觉回归 SOP 一次跑完三页。
 
-**4.7.3 Integration Surface**
-- **Provides**：规则解析 → F03/F05；CRUD → F15
-- **Requires**：F01 ConfigStore
+**4.6.1 Overview**：实现 UCD §4.1（RunOverview）·  §4.2（HILInbox）· §4.5（TicketStream）三个实时面板——phase stepper + 当前 run 控制、HIL 问题列表与 radio/checkbox/textarea 映射、ticket list + event tree + inspector 三栏配合虚拟滚动。**feature-list.json 的 `ui_entry` 为 `/`**（RunOverview 作首屏）。承接 FR-010/030/031/034 + NFR-002/011 + IFR-007。视觉真相源：`docs/design-bundle/eava2/project/pages/RunOverview.jsx` / `HILInbox.jsx` / `TicketStream.jsx`。
+
+**4.6.2 职责范围**
+- **RunOverview (`/`)**：移植 prototype；接 F20 `GET /api/runs/current` 与 `POST /api/runs/:id/{pause,cancel}`；phase stepper 数据来自 `/ws/run/:id`。
+- **HILInbox (`/hil`)**：移植 prototype（含 local `HILCard` + `RadioRow`）；HIL 问题经 `/ws/hil` 到达；三控件映射：`multiSelect=false` + `options≥2` → radio；`multiSelect=true` → checkbox；`allowFreeform=true` + `options=0` → textarea（FR-010）。
+- **TicketStream (`/ticket-stream`)**：三栏 layout；event tree 用 `@tanstack/react-virtual` 支持 10k+ 事件（滚动 ≥30fps，FR-034 PERF）；`state`/`tool`/`run_id` 筛选 + URL 参数同步；Ctrl/Cmd+F 内联搜索；新事件 WebSocket 增量追加；用户滚动时暂停自动 scroll-to-bottom。
+- **反 XSS**：HIL freeform 文本回填 DOM 使用 React `textContent` 赋值，禁止 `dangerouslySetInnerHTML`。
+
+**4.6.3 Module Layout 建议**
+- `apps/ui/src/routes/run-overview/`
+- `apps/ui/src/routes/hil-inbox/`（含 local `HILCard` / `RadioRow`）
+- `apps/ui/src/routes/ticket-stream/`（含 local `EventTree` 组件）
+
+**4.6.4 Integration Surface**
+- **Provides**：路由 `/` · `/hil` · `/ticket-stream`
+- **Requires**：F02（ticket 列表）· F12（前端基座）· F18（HIL + stream 契约）· F20（run 控制 / REST ticket 查询）
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F03/F05 | IAPI-015 | `ModelResolver.resolve` | `ResolveResult` |
-| Provides | F15 | IAPI-002 | REST `GET/PUT /api/settings/model_rules` | `ModelRule[]` |
-| Requires | F01 | IAPI-014 | ConfigStore | — |
+| Requires | F20 | IAPI-002 | `GET /api/runs/current` · `POST /api/runs/:id/pause\|cancel` · `GET /api/tickets?...` · `GET /api/tickets/:id` · `GET /api/tickets/:id/stream` | `RunStatus`, `Ticket[]`, `StreamEvent[]` |
+| Requires | F20 | IAPI-001 | WebSocket `/ws/run/:id` · `/ws/anomaly` · `/ws/signal` | `RunEvent`, `AnomalyEvent`, `SignalFileChanged` |
+| Requires | F20 | IAPI-019 | REST + WS RunControlBus | `RunControlCommand`, `RunControlAck` |
+| Requires | F18 | IAPI-001 | WebSocket `/ws/hil` · `/ws/stream/:ticket_id` + `POST /api/hil/:ticket_id/answer` | `HilQuestion`, `HilAnswer`, `StreamEvent` |
+| Requires | F12 | 内部 FE | `Sidebar` · `PhaseStepper` · `TicketCard` · `PageFrame` | — |
 
-### 4.8 F08 · Classifier Service
+**4.6.5 视觉保真义务**
+三页各自跑 UCD §7 视觉回归（像素差 < 3%）。HIL phase 色带氤氲 header、pulse 光环、状态 chip 必须与 prototype 等价（`pages/HILInbox.jsx` `HILCard` 与 `tokens.css` `.state-dot.pulse`）。TicketStream event tree 展开/收起图标、缩进层级、monospace 对齐、hover 高亮与 `pages/TicketStream.jsx` 内 local `EventTree` 等价。
 
-**4.8.1 Overview**：OpenAI-compat HTTP + 强 JSON schema；toggle off 时 rule 降级。满足 FR-021/022/023。
+**4.6.6 Test Inventory Hint**
+- RunOverview 首屏渲染（UCD §4.1）+ pause/cancel 行为 + 无 run idle 态
+- HILInbox 三控件派生规则 ×8 fixture + freeform XSS 防注入
+- TicketStream 虚拟滚动 fps benchmark + 筛选 URL 同步 + 内联搜索命中高亮
+- 视觉回归 ×3 页
+
+### 4.7 F22 · Fe-Config — SystemSettings + PromptsAndSkills + Docs + ProcessFiles + Commits
+
+> **Consolidates**: 旧 F15（SystemSettings + PromptsAndSkills）+ 旧 F16（DocsAndROI + ProcessFiles + CommitHistory）。五页共享"配置 / 文档 / 过程数据"表单形态与 tab layout，合并后 shadcn tabs 组件抽象一次。
+
+**4.7.1 Overview**：实现 UCD §4.3（SystemSettings）·  §4.4（PromptsAndSkills）· §4.6（DocsAndROI）· §4.7（ProcessFiles）· §4.8（CommitHistory）五页，入口 `/settings`（**feature-list.json 的 `ui_entry`**）。承接 FR-032/033/035/038/041 + NFR-008（API key 仅走 keyring，UI 层 masked input）+ IFR-004/005/006。视觉真相源：`pages/SystemSettings.jsx` · `PromptsAndSkills.jsx` · `DocsAndROI.jsx` · `ProcessFiles.jsx` · `CommitHistory.jsx`。
+
+**4.7.2 职责范围**
+- **SystemSettings (`/settings`)**：5 个 tab：`Models` / `ApiKey` / `Classifier` / `MCP` / `UI`。**NFR-008 落点**：`ApiKey` tab 的密钥字段用 masked input（显示 `***abc`），明文不入 DOM；提交 PUT `/api/settings/general` 只写 keyring reference（service + user），不写明文到 `config.json`。Linux 无 Secret Service daemon 降级 keyrings.alt + 顶部告警横幅（IFR-006）。
+- **PromptsAndSkills (`/skills`)**：skill tree 只读 + markdown 预览 + classifier prompt 可编辑 + Plugin 更新 modal（`POST /api/skills/install|pull`）。prompt 编辑保存时 diff 写入历史表（F19 提供）。skill tree 路径不允许 `..` 穿越。
+- **DocsAndROI (`/docs`)**：文件树（`docs/plans/*.md` + `docs/features/*.md`）+ markdown 预览 + 右侧 TOC。ROI 按钮 `disabled` 带 tooltip "v1.1 规划中"（FR-035 subset）。路径 `..` 请求一律拒绝（SEC）。
+- **ProcessFiles (`/process-files`)**：结构化编辑器，专门针对 `feature-list.json` 等"过程文件"，schema 驱动（pydantic → Zod 导出到 `apps/ui/src/lib/zod-schemas.ts`）；双层校验（前端 Zod + 后端 `POST /api/validate/:file`）；必填空字段红框 + Save 禁用。
+- **CommitHistory (`/commits`)**：commit 列表 + diff viewer。二进制文件 diff 显示占位（不崩）。非 git 目录 `exit=128` UI 横幅告警（IFR-005）。Diff 视觉用 prototype `DiffViewer`。
+
+**4.7.3 Module Layout 建议**
+- `apps/ui/src/routes/system-settings/` —— 5 tab 子组件
+- `apps/ui/src/routes/prompts-and-skills/`
+- `apps/ui/src/routes/docs-and-roi/`
+- `apps/ui/src/routes/process-files/`（含 Zod schema 导入层）
+- `apps/ui/src/routes/commit-history/`
+
+**4.7.4 Integration Surface**
+- **Provides**：路由 `/settings` · `/skills` · `/docs` · `/process-files` · `/commits`
+- **Requires**：F01（通用 settings REST）· F12（前端基座）· F19（model rules / classifier / prompts）· F20（git / validator / files REST）· F10（skills install / pull）
+
+| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
+|---|---|---|---|---|
+| Requires | F01 | IAPI-002 | `GET/PUT /api/settings/general` | `GeneralSettings` |
+| Requires | F01 | IAPI-014 | keyring（经 REST，明文不过线） | `ApiKeyRef` |
+| Requires | F19 | IAPI-002 | `GET/PUT /api/settings/model_rules` · `classifier` · `GET/PUT /api/prompts/classifier` | `ModelRule[]`, `ClassifierConfig`, `ClassifierPrompt` |
+| Requires | F10 | IAPI-018 | `GET /api/skills/tree` · `POST /api/skills/install\|pull` | `SkillTree`, `SkillsInstallRequest`, `SkillsInstallResult` |
+| Requires | F20 | IAPI-002 | `GET /api/files/tree` · `GET /api/files/read` · `GET /api/git/commits` · `GET /api/git/diff/:sha` | `FileTree`, `FileContent`, `GitCommit[]`, `DiffPayload` |
+| Requires | F20 | IAPI-016 | `POST /api/validate/:file` | `ValidationReport` |
+| Requires | F20 | IAPI-013 | `GitTracker` 经 REST 映射 | `GitContext` |
+| Requires | F12 | 内部 FE | `Sidebar` · `PageFrame` · shared primitives | — |
+
+**4.7.5 视觉保真义务**
+5 页各自跑 UCD §7 视觉回归（像素差 < 3%）。SystemSettings 5 tab 左侧 vertical tab + 右侧 `SettingsFormSection` 卡片堆叠；Skill tree 节点的 expand chevron、readonly 锁图标；DiffViewer add/del 行背景透明度、gutter 色取 `tokens.css` `--diff-*` 变量。
+
+**4.7.6 Test Inventory Hint**
+- SystemSettings ApiKey masked 输入 + 明文不入 DOM assert + keyring fallback 横幅
+- PromptsAndSkills tree 渲染 + `..` 拒绝 + prompt diff 历史写入
+- DocsAndROI 路径穿越拒绝 + ROI disabled tooltip
+- ProcessFiles Zod + 后端 validate 双层覆盖 × 5 种坏样本
+- CommitHistory 非 git 目录 + 二进制 diff 占位
+- 视觉回归 ×5 页
+
+### 4.8 F10 · Environment Isolation & Skills Installer
+
+> **Preserved from Wave 1** — 当前 `current.phase=st`，id=3 保留不变；consumer 按 Wave 2 新 ID 重映射，模块 `harness/env/` 与 `harness/skills/` 不改包名。
+
+**4.8.1 Overview**：`.harness-workdir/<run-id>/.claude/` 隔离目录生成 + symlink plugin bundle + `~/.claude/` 零写断言 + Skills 手动 git。满足 FR-043/044/045 + NFR-009。
 
 **4.8.2 Key Types**
-- `harness.classifier.ClassifierService`
-- `harness.classifier.LlmBackend`（httpx）
-- `harness.classifier.RuleBackend`
-- `harness.classifier.Verdict`
-- `harness.classifier.PromptStore`
-- `harness.classifier.ProviderPresets`（GLM/MiniMax/OpenAI/custom）
-- `harness.classifier.FallbackDecorator`
-
-**4.8.3 Integration Surface**
-- **Provides**：分类服务 → F06；prompt CRUD → F15
-- **Requires**：F01 keyring
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F06 | IAPI-010 | `ClassifierService.classify(ticket) → Verdict` | `Verdict` |
-| Provides | F15 | IAPI-002 | REST classifier/prompts 子路由 | `ClassifierConfig`, `ClassifierPrompt` |
-| Requires | IFR-004 | 外部 | `POST <base_url>/v1/chat/completions` | OpenAI-compat |
-| Requires | F01 | IAPI-014 | keyring | api_key |
-
-### 4.9 F09 · Anomaly Recovery & Watchdog
-
-**4.9.1 Overview**：5 类异常识别与恢复 + 上报门槛 + Skip / Force-Abort。满足 FR-024..029。
-
-**4.9.2 Key Types**
-- `harness.anomaly.AnomalyClassifier`
-- `harness.anomaly.RetryPolicy`
-- `harness.anomaly.Watchdog`（30 分钟 SIGTERM → 5s → SIGKILL）
-- `harness.anomaly.RetryCounter`（按 skill_hint 聚合）
-- `harness.anomaly.EscalationEmitter`
-- `harness.anomaly.UserOverride`（Skip/ForceAbort）
-
-**4.9.3 Integration Surface**
-- **Provides**：恢复决策 → F06；异常事件 → F14
-- **Requires**：F02、F08
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F06 | IAPI-004 | `AnomalyRecovery.decide(ticket)` | `RecoveryDecision` |
-| Provides | FE | IAPI-001 | WebSocket `/ws/anomaly` | `AnomalyEvent` |
-| Requires | F08 | IAPI-010 | Classifier.classify | `Verdict` |
-| Requires | F02 | IAPI-011 | TicketRepository | `Ticket` |
-
-### 4.10 F10 · Environment Isolation & Skills Installer
-
-**4.10.1 Overview**：`.harness-workdir/<run-id>/.claude/` 隔离目录生成 + symlink plugin bundle + `~/.claude/` 零写断言 + Skills 手动 git。满足 FR-043/044/045 + NFR-009。
-
-**4.10.2 Key Types**
 - `harness.env.EnvironmentIsolator`
 - `harness.env.IsolatedPaths`（cwd / plugin_dir / settings_path / mcp_config_path）
 - `harness.env.HomeMtimeGuard`
@@ -512,45 +607,21 @@ graph LR
 - `harness.skills.SkillsInstaller`
 - `harness.skills.PluginRegistry`
 
-**4.10.3 Integration Surface**
-- **Provides**：隔离路径 → F03/F05/F06；安装 API → F15
+**4.8.3 Integration Surface**
+- **Provides**：隔离路径 → F18（Bk-Adapter）· F20（Bk-Loop）；安装 API → F22（Fe-Config）
 - **Requires**：git CLI
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F03/F05/F06 | IAPI-017 | `EnvironmentIsolator.setup_run(run_id)` | `IsolatedPaths` |
-| Provides | F15 | IAPI-018 | REST `POST /api/skills/install` / `/pull` | `SkillsInstallRequest` |
+| Provides | F18/F20 | IAPI-017 | `EnvironmentIsolator.setup_run(run_id)` | `IsolatedPaths` |
+| Provides | F22 | IAPI-018 | REST `POST /api/skills/install` / `/pull` | `SkillsInstallRequest` |
 | Requires | IFR-005 | 外部 | git subprocess | — |
 
-### 4.11 F11 · Subprocess Integrations (Git Tracker + Validator Runner)
+### 4.9 F12 · Frontend Foundation
 
-**4.11.1 Overview**：ticket 级 git HEAD 追踪 + validate_*.py subprocess 执行。满足 FR-039/040/042。
+**4.9.1 Overview**：React 18 + Vite + TypeScript + TailwindCSS + shadcn/ui 前端基座。**视觉真相源**: `docs/design-bundle/eava2/project/`(由 Claude Design 导出的可运行 prototype);**视觉规则源**:UCD §2(a11y / 动效 / 中文排印 / 响应式 / 状态色)。本节**只描述架构与集成契约**,不复述视觉细节(UCD §6 引用禁令)。
 
-**4.11.2 Key Types**
-- `harness.git.GitTracker`
-- `harness.git.GitCommit`
-- `harness.git.DiffLoader`
-- `harness.validator.ValidatorRunner`
-- `harness.validator.ValidationReport`
-- `harness.validator.FrontendValidator`（pydantic → TS/Zod 导出）
-
-**4.11.3 Integration Surface**
-- **Provides**：git 历史 + 校验报告 → F16；head 追踪 → F06
-- **Requires**：Self-contained
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F06 | IAPI-013 | `GitTracker.begin/end(ticket)` | `GitContext` |
-| Provides | F16 | IAPI-002 | REST `GET /api/git/commits`, `GET /api/git/diff/:sha` | `GitCommit[]`, `DiffPayload` |
-| Provides | F16 | IAPI-016 | REST `POST /api/validate/:file` | `ValidationReport` |
-| Requires | IFR-005 | 外部 | git subprocess | — |
-| Requires | scripts/validate_*.py | 外部 | python subprocess | 脚本协议 |
-
-### 4.12 F12 · Frontend Foundation
-
-**4.12.1 Overview**：React 18 + Vite + TypeScript + TailwindCSS + shadcn/ui 前端基座。**视觉真相源**: `docs/design-bundle/eava2/project/`(由 Claude Design 导出的可运行 prototype);**视觉规则源**:UCD §2(a11y / 动效 / 中文排印 / 响应式 / 状态色)。本节**只描述架构与集成契约**,不复述视觉细节(UCD §6 引用禁令)。
-
-**4.12.2 职责范围**
+**4.9.2 职责范围**
 - **基座**:AppShell + 路由 + WebSocket 客户端(重连 + 多 channel 订阅) + REST client(TanStack Query hook 工厂) + Zustand store slices。
 - **主题**:把 `design-bundle/eava2/project/styles/tokens.css` **原样**移入 `apps/ui/src/theme/tokens.css`;追加 UCD §2.5 中文排印扩展 class 与 §2.2 `prefers-reduced-motion` 降级分支;不新增 token,不改 token 值。
 - **shared primitives 移植**(由 prototype `components/*.jsx` 的 CDN React + 内联 style **重构**为 TS + Tailwind + shadcn/ui,视觉产物**像素等价**):
@@ -559,133 +630,61 @@ graph LR
   - `components/PhaseStepper.jsx` → `apps/ui/src/components/phase-stepper.tsx`
   - `components/TicketCard.jsx` → `apps/ui/src/components/ticket-card.tsx`
   - `components/PageFrame.jsx` → `apps/ui/src/components/page-frame.tsx`
-- **无业务逻辑**:不实现任何 FR(F13-F16 才实现具体页面业务)。
+- **无业务逻辑**:不实现任何 FR(F21/F22 才实现具体页面业务)。
 
-**4.12.3 Integration Surface**
-- **Provides**:基座组件 / hook / client / tokens → F13-F16
-- **Requires**:F01 提供的 REST + WebSocket endpoint
+**4.9.3 Integration Surface**
+- **Provides**:基座组件 / hook / client / tokens → F21（Fe-RunViews）· F22（Fe-Config）
+- **Requires**:F01 提供的 REST + WebSocket endpoint；消费的后端 WebSocket/REST 由 F18/F19/F20 提供
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
-| Provides | F13-F16 | 内部 FE import | — | — |
-| Requires | F06/F04/F09 | IAPI-001 | WebSocket | — |
-| Requires | 后端各特性 | IAPI-002 | REST | — |
+| Provides | F21/F22 | 内部 FE import | — | — |
+| Requires | F18/F20 | IAPI-001 | WebSocket | — |
+| Requires | F19/F20 | IAPI-002 | REST | — |
 
-**4.12.4 视觉保真义务**
+**4.9.4 视觉保真义务**
 所有 shared primitives 的移植产物必须通过 UCD §7 视觉回归 SOP(像素差 < 3%)。token 值来自 `design-bundle/eava2/project/styles/tokens.css`,禁止在 `apps/ui/src/theme/tokens.css` 中覆写或偏移。
 
-### 4.13 F13 · RunOverview + HILInbox Pages
+### 4.10 F17 · PyInstaller Packaging
 
-**4.13.1 Overview**:实现 UCD §4.1(RunOverview)与 §4.2(HILInbox)两页,承接 SRS FR-010 / FR-030 / FR-031 + IFR-007。视觉真相源: `design-bundle/eava2/project/pages/RunOverview.jsx` 与 `pages/HILInbox.jsx`;**禁止复述** `HILCard` / `RadioRow` 的 DOM 结构、色号、尺寸到本文档。
+**4.10.1 Overview**：三平台（Linux x86_64 / macOS arm64+x86_64 / Windows x86_64）单文件打包；React dist 嵌入；ptyprocess/pywinpty 条件包含。满足 FR-049 + NFR-012/013。
 
-**4.13.2 职责范围**
-- **RunOverview** (`/`):移植 `pages/RunOverview.jsx` 到 `apps/ui/src/routes/run-overview/`,接 F06 `GET /api/runs/current` 与 `POST /api/runs/:id/{pause,cancel}`;phase stepper 数据来自 WebSocket phase 推进事件(IAPI-001)。
-- **HILInbox** (`/hil`):移植 `pages/HILInbox.jsx`(含 local `HILCard` + `RadioRow` 组件)。HIL 问题经 `/ws/hil` 到达;三种控件映射规则:`multiSelect=false` + `options≥2` → radio;`multiSelect=true` → checkbox;`allowFreeform=true` + `options=0` → textarea(锚 FR-010)。
-- **反 XSS**:HIL freeform 文本回填 DOM 使用 React `textContent` 赋值,禁止 `dangerouslySetInnerHTML`。
-
-**4.13.3 Integration Surface**
-- **Provides**:路由 `/` 与 `/hil`(feature-list.json `ui_entry` 现为 `/hil`,保留)
-- **Requires**:F06 / F04 / F12
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Requires | F06 | IAPI-002 | `GET /api/runs/current`, `POST /api/runs/:id/pause\|cancel` | `RunStatus` |
-| Requires | F04 | IAPI-001 | WebSocket `/ws/hil` + `POST /api/hil/:ticket_id/answer` | `HilQuestion`, `HilAnswer` |
-| Requires | F12 | 内部 FE | `Sidebar` / `PhaseStepper` / `TicketCard` / `PageFrame` | — |
-
-**4.13.4 视觉保真义务**
-RunOverview 与 HILInbox 两页各自跑 UCD §7 视觉回归(像素差 < 3%);HIL phase 色带氤氲 header、pulse 光环、状态 chip 必须与 prototype 等价(实现点见 `pages/HILInbox.jsx` `HILCard` 与 `tokens.css` `.state-dot.pulse`)。
-
-### 4.14 F14 · TicketStream Page
-
-**4.14.1 Overview**:实现 UCD §4.5(TicketStream)页,承接 SRS FR-034 + NFR-002。视觉真相源: `design-bundle/eava2/project/pages/TicketStream.jsx`(三栏 · ticket list + event tree + inspector)。
-
-**4.14.2 职责范围**
-- **三栏布局**:左 ticket 列表 + 中 stream-json event tree + 右 inspector(当前选中事件详情)。
-- **虚拟滚动**:event tree 使用 `@tanstack/react-virtual` 支持 10k+ 事件,滚动帧率 ≥ 30fps(FR-034 PERF)。
-- **筛选**:ticket list 支持 `state` / `tool` / `run_id` 筛选(FR-034);URL 参数同步。
-- **内联搜索**:Ctrl/Cmd+F 触发 event tree 内检索(FR-034)。
-- **实时追加**:新事件从 WebSocket 到达,追加到 event tree,列表 scroll to bottom(用户在滚动时暂停自动 scroll,UX 尊重用户)。
-
-**4.14.3 Integration Surface**
-- **Provides**:路由 `/ticket-stream`
-- **Requires**:F02 / F04 / F12
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Requires | F02 | IAPI-002 | `GET /api/tickets?run_id=&state=&tool=` | `Ticket[]` |
-| Requires | F04 | IAPI-001 | WebSocket `/ws/stream/:ticket_id` | `StreamEvent` |
-| Requires | F12 | 内部 FE | `Sidebar` / `TicketCard` / `PageFrame` | — |
-
-**4.14.4 视觉保真义务**
-跑 UCD §7 视觉回归。event tree 的展开/收起图标、缩进层级、monospace 对齐、hover 高亮必须与 prototype 等价(`pages/TicketStream.jsx` 内 local `EventTree` 组件为真相源)。
-
-### 4.15 F15 · SystemSettings + PromptsAndSkills Pages
-
-**4.15.1 Overview**:实现 UCD §4.3(SystemSettings)与 §4.4(PromptsAndSkills)两页,承接 SRS FR-032 / FR-033 + IFR-004 / IFR-006。视觉真相源: `pages/SystemSettings.jsx` 与 `pages/PromptsAndSkills.jsx`。
-
-**4.15.2 职责范围**
-- **SystemSettings** (`/settings`) 5 个 tab:`Models` / `ApiKey` / `Classifier` / `MCP` / `UI`。API key 字段用 masked input(显示 `***abc`),明文不入 DOM;存入 keyring(IFR-006 Linux 无 daemon 降级 keyrings.alt + 顶部告警横幅)。
-- **PromptsAndSkills** (`/skills`):skill tree 只读 + markdown 预览 + classifier prompt 可编辑 + Plugin 更新 modal(`POST /api/skills/install|pull`)。prompt 编辑保存时追加历史(F08 提供)。
-- **安全**:skill tree 路径不允许 `..` 穿越;classifier prompt 编辑的 diff 写入历史表(F08)。
-
-**4.15.3 Integration Surface**
-- **Provides**:路由 `/settings`、`/skills`
-- **Requires**:F01 / F07 / F08 / F10 / F12
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Requires | F01 | IAPI-002 | `GET/PUT /api/settings/general` | `GeneralSettings` |
-| Requires | F07 | IAPI-002 | `GET/PUT /api/settings/model_rules` | `ModelRule[]` |
-| Requires | F08 | IAPI-002 | `GET/PUT /api/settings/classifier`, `GET/PUT /api/prompts/classifier` | `ClassifierConfig`, `ClassifierPrompt` |
-| Requires | F10 | IAPI-018 | `GET /api/skills/tree`, `POST /api/skills/install\|pull` | `SkillTree`, `SkillsInstallRequest` |
-| Requires | F12 | 内部 FE | `Sidebar` / `PageFrame` / shared primitives | — |
-
-**4.15.4 视觉保真义务**
-跑 UCD §7 视觉回归。5 tab 左侧 vertical tab + 右侧 `SettingsFormSection` 卡片堆叠(prototype `pages/SystemSettings.jsx`);Skill tree 节点的 expand chevron、readonly 锁图标(prototype `pages/PromptsAndSkills.jsx`)必须等价。
-
-### 4.16 F16 · DocsAndROI + ProcessFiles + CommitHistory Pages
-
-**4.16.1 Overview**:实现 UCD §4.6(DocsAndROI)· §4.7(ProcessFiles)· §4.8(CommitHistory)三页,承接 SRS FR-035 / FR-038 / FR-041 + IFR-005。视觉真相源: `pages/DocsAndROI.jsx` · `pages/ProcessFiles.jsx` · `pages/CommitHistory.jsx`。
-
-**4.16.2 职责范围**
-- **DocsAndROI** (`/docs`):文件树(`docs/plans/*.md` + `docs/features/*.md`) + markdown 预览 + 右侧 TOC。ROI 按钮 `disabled` 带 tooltip "v1.1 规划中"(SRS FR-035 subset)。路径带 `..` 请求一律拒绝(SEC)。
-- **ProcessFiles** (`/process-files`):结构化编辑器,专门针对 `feature-list.json` 等"过程文件",schema 驱动(pydantic → Zod 导出到 `apps/ui/src/lib/zod-schemas.ts`);双层校验(前端 Zod + 后端 `POST /api/validate/:file`);必填空字段红框 + Save 禁用。
-- **CommitHistory** (`/commits`):commit 列表 + diff viewer。二进制文件 diff 显示占位(不崩)。非 git 目录调用 git CLI `exit=128` 时 UI 横幅告警(IFR-005)。Diff 视觉用 prototype `DiffViewer`(半透明 add/del 背景,避免刺眼红绿块)。
-
-**4.16.3 Integration Surface**
-- **Provides**:路由 `/docs`、`/process-files`、`/commits`
-- **Requires**:F11 / F02 / F10 / F12
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Requires | F11 | IAPI-002 | `GET /api/files/tree`, `GET /api/files/read` | `FileTree`, `FileContent` |
-| Requires | F11 | IAPI-016 | `POST /api/validate/:file` | `ValidationReport` |
-| Requires | F11 | IAPI-002 | `GET /api/git/commits`, `GET /api/git/diff/:sha` | `GitCommit[]`, `DiffPayload` |
-| Requires | F12 | 内部 FE | `Sidebar` / `PageFrame` / shared primitives | — |
-
-**4.16.4 视觉保真义务**
-三页各自跑 UCD §7 视觉回归。DiffViewer 的 add/del 行背景透明度、gutter 色必须取 `tokens.css` `--diff-*` 变量,不得调色。
-
-### 4.17 F17 · PyInstaller Packaging
-
-**4.17.1 Overview**：三平台（Linux x86_64 / macOS arm64+x86_64 / Windows x86_64）单文件打包；React dist 嵌入；ptyprocess/pywinpty 条件包含。满足 FR-049 + NFR-012/013。
-
-**4.17.2 Key Types**
+**4.10.2 Key Types**
 - `packaging/harness.spec`
 - `packaging/build.py`
 - `packaging/plugins_bundle.py`
 - `packaging/platform_conditional.py`
 - `.github/workflows/release.yml`
 
-**4.17.3 Integration Surface**
+**4.10.3 Integration Surface**
 - **Provides**：发布产物
-- **Requires**：F01-F16 全就绪
+- **Requires**：F10 · F12 · F18 · F19 · F20 · F21 · F22 全就绪（Wave 2 映射；原 F11/F13/F14/F15/F16 已并入 F20/F21/F22，依赖集合等价）
 
 | 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
 |---|---|---|---|---|
 | Provides | 终端用户 | — | 二进制可执行 | N/A |
-| Requires | F01-F16 | — | 全特性完成 | N/A |
+| Requires | F10, F12, F18, F19, F20, F21, F22 | — | 全特性完成 | N/A |
+
+---
+
+### 4.11 Deprecated Feature IDs（Wave 2 · 2026-04-24）
+
+以下 12 个旧 ID 已整体合并到 F18–F22，`feature-list.json` 保留 `status=deprecated` 条目但 `srs_trace` 清空；文档引用请迁移到新 ID。
+
+| Old ID | Old Title | Merged Into |
+|---|---|---|
+| F03 | PTY & ToolAdapter Foundation | **F18** Bk-Adapter |
+| F04 | Stream Parser & HIL Pipeline | **F18** Bk-Adapter |
+| F05 | OpenCode Adapter | **F18** Bk-Adapter |
+| F06 | Run Orchestrator & Phase Router | **F20** Bk-Loop |
+| F07 | Model Override Resolver | **F19** Bk-Dispatch |
+| F08 | Classifier Service | **F19** Bk-Dispatch |
+| F09 | Anomaly Recovery & Watchdog | **F20** Bk-Loop |
+| F11 | Subprocess Integrations (git + validators) | **F20** Bk-Loop |
+| F13 | RunOverview + HILInbox Pages | **F21** Fe-RunViews |
+| F14 | TicketStream Page | **F21** Fe-RunViews |
+| F15 | SystemSettings + PromptsAndSkills Pages | **F22** Fe-Config |
+| F16 | DocsAndROI + ProcessFiles + CommitHistory Pages | **F22** Fe-Config |
 
 ---
 
@@ -1091,27 +1090,29 @@ Hook 输出：OpenCode stdout `{"kind":"hook","channel":"harness-hil","payload":
 
 #### 6.2.1 契约总表
 
+> **Wave 2 OWNER-REMAP（2026-04-24）**：19 条 IAPI 签名与语义 **0 变更**；仅 Provider/Consumer 的 feature id 按 Wave 2 重包装重映射。没有 Breaking Contract，没有新契约。
+
 | Contract ID | Provider | Consumer(s) | Endpoint / Method | Request | Response | Errors |
 |---|---|---|---|---|---|---|
-| **IAPI-001** | FastAPI Gateway | React UI | WebSocket multi-channel | `SubscribeMsg` | `WsEvent` union | close 1008/1011 |
-| **IAPI-002** | FastAPI Gateway | React UI | REST（详 §6.2.2） | 各 route | 各 route | 400/404/409/500 |
-| **IAPI-003** | Orchestrator | `scripts/phase_route.py` | `subprocess.exec([...])` | — | stdout `PhaseRouteResult` JSON | exit≠0 → `PhaseRouteError` |
-| **IAPI-004** | Orchestrator | TicketSupervisor | in-proc asyncio | `TicketCommand` | `TicketOutcome` async | `TicketError` |
-| **IAPI-005** | Supervisor | ToolAdapter | Python Protocol | `DispatchSpec` | `TicketProcess` | `SpawnError`, `AdapterError` |
-| **IAPI-006** | ToolAdapter | PtyWorker | Protocol | `DispatchSpec` | `PtyHandle { byte_queue, pid, write }` | `PtyError` |
-| **IAPI-007** | HilWriteback | PtyWorker | method | `bytes` | None | `PtyClosedError` |
-| **IAPI-008** | StreamParser | Orchestrator/HilEventBus/WS | async iterator | — | `StreamEvent` union | — |
-| **IAPI-009** | AuditWriter | StreamParser/Anomaly/Supervisor | method | `AuditEvent` | None | `IoError`（降级 stderr） |
-| **IAPI-010** | Classifier | Orchestrator/Anomaly | async method | `ClassifyRequest` | `Verdict` | `ClassifierHttpError`（rule 降级后抛） |
-| **IAPI-011** | TicketRepository | 所有后端 | DAO | `Ticket \| partial` | `Ticket \| None \| list[Ticket]` | `DaoError` |
-| **IAPI-012** | FileWatcher | Orchestrator | asyncio.Queue | — | `SignalEvent` | — |
-| **IAPI-013** | GitTracker | Orchestrator/UI | method | `run_id \| ticket_id` | `GitContext \| GitCommit[] \| DiffPayload` | `GitError` |
-| **IAPI-014** | Settings+KeyringGateway | app-wide | method | `(service, user)` | `str \| None` | `KeyringError` |
-| **IAPI-015** | ModelResolver | ToolAdapter | method | `ModelOverrideContext` | `ResolveResult` | — |
-| **IAPI-016** | ValidatorRunner | UI | REST `POST /api/validate/:file` | `ValidateRequest` | `ValidationReport` | 400/500 |
-| **IAPI-017** | EnvironmentIsolator | Adapter/Orchestrator | method | `run_id` | `IsolatedPaths` | `EnvError` |
-| **IAPI-018** | SkillsInstaller | UI | REST `POST /api/skills/{install\|pull}` | `SkillsInstallRequest` | `SkillsInstallResult` | 400/409/500 |
-| **IAPI-019** | RunControlBus | UI | REST + WS | `RunControlCommand` | `RunControlAck` | 404/409 |
+| **IAPI-001** | F12 | F21 | WebSocket multi-channel | `SubscribeMsg` | `WsEvent` union | close 1008/1011 |
+| **IAPI-002** | F12 | F21, F22 | REST（详 §6.2.2） | 各 route | 各 route | 400/404/409/500 |
+| **IAPI-003** | F20 | `scripts/phase_route.py` | `subprocess.exec([...])` | — | stdout `PhaseRouteResult` JSON | exit≠0 → `PhaseRouteError` |
+| **IAPI-004** | F20 | F20（internal: Orchestrator↔TicketSupervisor） | in-proc asyncio | `TicketCommand` | `TicketOutcome` async | `TicketError` |
+| **IAPI-005** | F18 | F18, F20 | Python Protocol | `DispatchSpec` | `TicketProcess` | `SpawnError`, `AdapterError` |
+| **IAPI-006** | F18 | F18（internal: Adapter↔PtyWorker） | Protocol | `DispatchSpec` | `PtyHandle { byte_queue, pid, write }` | `PtyError` |
+| **IAPI-007** | F18 | F18（internal: HilWriteback↔PtyWorker） | method | `bytes` | None | `PtyClosedError` |
+| **IAPI-008** | F18 | F18, F20 | async iterator | — | `StreamEvent` union | — |
+| **IAPI-009** | F02 | F18, F20 | method | `AuditEvent` | None | `IoError`（降级 stderr） |
+| **IAPI-010** | F19 | F20 | async method | `ClassifyRequest` | `Verdict` | `ClassifierHttpError`（rule 降级后抛） |
+| **IAPI-011** | F02 | F18, F20 | DAO | `Ticket \| partial` | `Ticket \| None \| list[Ticket]` | `DaoError` |
+| **IAPI-012** | F20 | F20（internal: FileWatcher↔Orchestrator） | asyncio.Queue | — | `SignalEvent` | — |
+| **IAPI-013** | F20 | F20, F22 | method | `run_id \| ticket_id` | `GitContext \| GitCommit[] \| DiffPayload` | `GitError` |
+| **IAPI-014** | F01 | F19, F22 | method | `(service, user)` | `str \| None` | `KeyringError` |
+| **IAPI-015** | F19 | F18 | method | `ModelOverrideContext` | `ResolveResult` | — |
+| **IAPI-016** | F20 | F22 | REST `POST /api/validate/:file` | `ValidateRequest` | `ValidationReport` | 400/500 |
+| **IAPI-017** | F10 | F18, F20 | method | `run_id` | `IsolatedPaths` | `EnvError` |
+| **IAPI-018** | F10 | F22 | REST `POST /api/skills/{install\|pull}` | `SkillsInstallRequest` | `SkillsInstallResult` | 400/409/500 |
+| **IAPI-019** | F20 | F21 | REST + WS | `RunControlCommand` | `RunControlAck` | 404/409 |
 
 #### 6.2.2 REST 路由表（IAPI-002 展开）
 
@@ -1574,121 +1575,114 @@ Harness 是**桌面应用**，无服务端部署。
 
 ### 11.1 Milestones
 
+> Wave 2（2026-04-24）：Scope 按新 feature id 重写；M1/M2/M3 的 Exit Criteria 语义不变。
+
 | Milestone | Target | Scope | Exit Criteria |
 |---|---|---|---|
-| **M1 Foundation** | S1-S3 | F01/F02/F03/F04/F10 | F03 HIL PoC 通过（≥95%）；端到端 spawn 一张 claude ticket 并持久化（无 UI） |
-| **M2 Core Loop** | S4-S7 | F05/F06/F07/F08/F09/F11 | 端到端 dry-run：`/api/runs/start` → phase_route → spawn → stream → classify → persist（API-only） |
-| **M3 UI & Integration** | S8-S12 | F12/F13/F14/F15/F16 | 浏览器跑通一次完整 run；HIL round-trip UI 点击回答成功 |
+| **M1 Foundation** | S1-S3 | F01 / F02 / F10 / F18（含 HIL PoC） | F18 HIL PoC 通过（≥95%，FR-013）；端到端 spawn 一张 claude ticket 并持久化（无 UI） |
+| **M2 Core Loop** | S4-S7 | F19 / F20 | 端到端 dry-run：`/api/runs/start` → phase_route → spawn → stream → classify → recovery → persist（API-only） |
+| **M3 UI & Integration** | S8-S12 | F12 / F21 / F22 | 浏览器跑通一次完整 run；HIL round-trip UI 点击回答成功；五 config 页配置变更生效 |
 | **M4 Polish & Release** | S13-S14 | F17 + NFR 审计 | 三平台 PyInstaller 二进制在干净 VM 成功；NFR-001/005/007/008/009 审计通过 |
 
 ### 11.2 Task Decomposition & Priority
 
-每一行将成为 `feature-list.json` 的一个特性。
+每一行将成为 `feature-list.json` 的一个特性。Wave 2（2026-04-24）后总数 10 活跃条目（2 passing · 1 st · 7 failing）+ 12 deprecated 条目（附脚注）。
 
-| Priority | Feature | Mapped FRs | Dependencies | Milestone | UI | Rationale |
+| Priority | Feature | Mapped FRs / NFRs | Dependencies | Milestone | UI | Rationale |
 |---|---|---|---|---|---|---|
 | P0 | **F01 · App Shell & Platform Bootstrap** | FR-046, FR-050 | — | M1 | no | 所有后端的出厂前提；NFR-007/008 基线 |
 | P0 | **F02 · Persistence Core** | FR-005, FR-006, FR-007 | F01 | M1 | no | 所有 ticket 生命周期依赖 |
-| P0 | **F10 · Environment Isolation & Skills Installer** | FR-043, FR-044, FR-045 | F01 | M1 | no | F03 需 IsolatedPaths；NFR-009 实施点 |
-| P0 | **F03 · PTY & ToolAdapter Foundation** | FR-008, FR-013, FR-015, FR-016, FR-018 | F02, F10 | M1 | no | 含 HIL PoC gating（不过则冻结 v1） |
-| P0 | **F04 · Stream Parser & HIL Pipeline** | FR-009, FR-011, FR-014 | F02, F03 | M1 | no | HIL 核心回路 |
-| P1 | **F05 · OpenCode Adapter** | FR-012, FR-017 | F03, F04 | M2 | no | 双工具并行；hooks 独立 |
-| P1 | **F07 · Model Override Resolver** | FR-019, FR-020 | F01 | M2 | no | F03 构造 DispatchSpec 时调 |
-| P1 | **F08 · Classifier Service** | FR-021, FR-022, FR-023 | F01 | M2 | no | F09 统一走；可 toggle off |
-| P1 | **F09 · Anomaly Recovery & Watchdog** | FR-024, FR-025, FR-026, FR-027, FR-028, FR-029 | F02, F08 | M2 | no | NFR-003/004 实施点 |
-| P1 | **F11 · Subprocess Integrations (git + validators)** | FR-039, FR-040, FR-042 | F01, F02 | M2 | no | F16 三页面依赖 |
-| P1 | **F06 · Run Orchestrator & Phase Router** | FR-001, FR-002, FR-003, FR-004, FR-047, FR-048 | F02, F03, F04, F05, F07, F08, F09, F10 | M2 | no | 主控；收敛所有前置 |
-| P1 | **F12 · Frontend Foundation** | UCD §3.1-3.14 + 间接 FR-010/030-035/038/041 | F01 | M3 | yes | 所有页面母板 |
-| P1 | **F13 · RunOverview + HILInbox Pages** | FR-010, FR-030, FR-031 | F04, F06, F12 | M3 | yes | 首屏 + HIL 核心闭环 |
-| P2 | **F14 · TicketStream Page** | FR-034 | F02, F04, F12 | M3 | yes | 排障入口；虚拟滚动 |
-| P2 | **F15 · SystemSettings + PromptsAndSkills Pages** | FR-032, FR-033 | F01, F07, F08, F10, F12 | M3 | yes | 配置 + skill 树 |
-| P2 | **F16 · DocsAndROI + ProcessFiles + CommitHistory Pages** | FR-035, FR-038, FR-041 | F02, F11, F12 | M3 | yes | 文档 + 过程文件 + diff |
-| P3 | **F17 · PyInstaller Packaging** | FR-049 | F01..F16 | M4 | no | 最末；NFR-012/013 验证 |
+| P0 | **F10 · Environment Isolation & Skills Installer** | FR-043, FR-044, FR-045 + NFR-009 | F01 | M1 | no | F18 需 IsolatedPaths；`current.phase=st` 进行中 |
+| P0 | **F18 · Bk-Adapter — Agent Adapter & HIL Pipeline** | FR-008, FR-009, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018 + NFR-014 + IFR-001/002 | F02, F10 | M1 | no | 含 HIL PoC gating（FR-013 · 不过则冻结 v1） |
+| P1 | **F19 · Bk-Dispatch — Model Resolver & Classifier** | FR-019, FR-020, FR-021, FR-022, FR-023 + IFR-004 | F01 | M2 | no | Dispatch 前置决策；toggle off rule 降级 |
+| P1 | **F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess** | FR-001, FR-002, FR-003, FR-004, FR-024, FR-025, FR-026, FR-027, FR-028, FR-029, FR-039, FR-040, FR-042, FR-047, FR-048 + NFR-003, NFR-004, NFR-015, NFR-016 + IFR-003 | F02, F10, F18, F19 | M2 | no | 主控后端回路；端到端 dry-run 收敛点 |
+| P1 | **F12 · Frontend Foundation** | UCD §3.1-3.14 + 间接 FR-010/030-035/038/041 | F01 | M3 | yes | 所有 UI 页面母板 |
+| P1 | **F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream** | FR-010, FR-030, FR-031, FR-034 + NFR-002, NFR-011 + IFR-007 | F02, F12, F18, F20 | M3 | yes | `ui_entry=/` · 首屏 + HIL + 流可视化 |
+| P2 | **F22 · Fe-Config — SystemSettings + PromptsAndSkills + Docs + ProcessFiles + Commits** | FR-032, FR-033, FR-035, FR-038, FR-041 + NFR-008 + IFR-004/005/006 | F01, F10, F12, F19, F20 | M3 | yes | `ui_entry=/settings` · 5 页 tab + 过程文件 + diff |
+| P3 | **F17 · PyInstaller Packaging** | FR-049 + NFR-012/013 | F10, F12, F18, F19, F20, F21, F22 | M4 | no | 最末；三平台单文件（依赖 Wave 2 重映射） |
+
+**Deprecated（Wave 2 合并，保留条目 status=deprecated 但 srs_trace 清空）**：
+
+| Old ID | Old Title | Merged Into |
+|---|---|---|
+| F03 | PTY & ToolAdapter Foundation | F18 |
+| F04 | Stream Parser & HIL Pipeline | F18 |
+| F05 | OpenCode Adapter | F18 |
+| F06 | Run Orchestrator & Phase Router | F20 |
+| F07 | Model Override Resolver | F19 |
+| F08 | Classifier Service | F19 |
+| F09 | Anomaly Recovery & Watchdog | F20 |
+| F11 | Subprocess Integrations (git + validators) | F20 |
+| F13 | RunOverview + HILInbox Pages | F21 |
+| F14 | TicketStream Page | F21 |
+| F15 | SystemSettings + PromptsAndSkills Pages | F22 |
+| F16 | DocsAndROI + ProcessFiles + CommitHistory Pages | F22 |
 
 ### 11.3 Dependency Chain
+
+Wave 2（2026-04-24）重画：节点 10 · 边 20。依赖集合与 Wave 1 的 17-feature 图等价（consumer/provider 按合并后 id 去重）。
 
 ```mermaid
 graph LR
     F01[F01 App Shell<br/>P0 · M1]
     F02[F02 Persistence<br/>P0 · M1]
-    F10[F10 Env Isolation<br/>P0 · M1]
-    F03[F03 PTY + Adapter<br/>P0 · M1<br/>⚠ HIL PoC gate]
-    F04[F04 Stream + HIL<br/>P0 · M1]
+    F10[F10 Env Isolation<br/>P0 · M1 · st]
+    F18[F18 Bk-Adapter<br/>P0 · M1<br/>⚠ HIL PoC gate]
 
-    F07[F07 Model Resolver<br/>P1 · M2]
-    F08[F08 Classifier<br/>P1 · M2]
-    F05[F05 OpenCode Adapter<br/>P1 · M2]
-    F09[F09 Anomaly Recovery<br/>P1 · M2]
-    F11[F11 Git+Validator<br/>P1 · M2]
-    F06[F06 Orchestrator<br/>P1 · M2]
+    F19[F19 Bk-Dispatch<br/>P1 · M2]
+    F20[F20 Bk-Loop<br/>P1 · M2]
 
     F12[F12 FE Foundation<br/>P1 · M3]
-    F13[F13 RunOverview+HIL<br/>P1 · M3 · UI]
-    F14[F14 TicketStream<br/>P2 · M3 · UI]
-    F15[F15 Settings+Skills<br/>P2 · M3 · UI]
-    F16[F16 Docs+Files+Commits<br/>P2 · M3 · UI]
+    F21[F21 Fe-RunViews<br/>P1 · M3 · UI]
+    F22[F22 Fe-Config<br/>P2 · M3 · UI]
 
     F17[F17 PyInstaller<br/>P3 · M4]
 
     F01 --> F02
     F01 --> F10
-    F01 --> F07
-    F01 --> F08
-    F01 --> F11
     F01 --> F12
-    F02 --> F03
-    F10 --> F03
-    F02 --> F04
-    F03 --> F04
-    F03 --> F05
-    F04 --> F05
-    F02 --> F09
-    F08 --> F09
-    F02 --> F11
-    F02 --> F06
-    F03 --> F06
-    F04 --> F06
-    F05 --> F06
-    F07 --> F06
-    F08 --> F06
-    F09 --> F06
-    F10 --> F06
+    F01 --> F19
+    F02 --> F18
+    F10 --> F18
+    F19 --> F18
+    F02 --> F20
+    F10 --> F20
+    F18 --> F20
+    F19 --> F20
 
     %% Backend → Frontend edges（强制标出）
-    F12 --> F13
-    F12 --> F14
-    F12 --> F15
-    F12 --> F16
-    F06 --> F13
-    F04 --> F13
-    F04 --> F14
-    F02 --> F14
-    F07 --> F15
-    F08 --> F15
-    F10 --> F15
-    F11 --> F16
-    F02 --> F16
+    F12 --> F21
+    F12 --> F22
+    F18 --> F21
+    F20 --> F21
+    F02 --> F21
+    F19 --> F22
+    F20 --> F22
+    F10 --> F22
 
-    F13 --> F17
-    F14 --> F17
-    F15 --> F17
-    F16 --> F17
+    F10 --> F17
+    F12 --> F17
+    F18 --> F17
+    F19 --> F17
+    F20 --> F17
+    F21 --> F17
+    F22 --> F17
 
     classDef p0 fill:#7f1d1d,color:#fff,stroke:#f85149
     classDef p1 fill:#0e4429,color:#fff,stroke:#3fb950
     classDef p2 fill:#1f2937,color:#fff,stroke:#58a6ff
     classDef p3 fill:#111827,color:#8b949e,stroke:#6e7681
     classDef ui fill:#312e81,color:#fff,stroke:#a78bfa
-    class F01,F02,F03,F04,F10 p0
-    class F05,F06,F07,F08,F09,F11,F12,F13 p1
-    class F14,F15,F16 p2
+    class F01,F02,F10,F18 p0
+    class F12,F19,F20,F21 p1
+    class F22 p2
     class F17 p3
-    class F13,F14,F15,F16 ui
+    class F21,F22 ui
 ```
 
-**关键路径**（最长前序链）：F01 → F02/F10 → F03 → F04 → F06 → F13 → F17（**7 跳**；任一断裂阻塞交付）。
+**关键路径**（最长前序链）：F01 → F02/F10 → F18 → F20 → F21 → F17（**6 跳**；任一断裂阻塞交付）。
 
-**HIL PoC gate**：F03 出厂前必须 20 次 HIL round-trip ≥ 95% 成功率（FR-013）；若不达标，冻结 F04–F17 并让用户重评 SRS ASM-003。
+**HIL PoC gate**：F18 出厂前必须 20 次 HIL round-trip ≥ 95% 成功率（FR-013）；若不达标，冻结 F19/F20/F21/F22/F17 并让用户重评 SRS ASM-003。
 
 ### 11.4 Risk & Mitigation
 
