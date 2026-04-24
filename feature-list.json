@@ -125,10 +125,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 19,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -584,7 +581,7 @@
       "title": "F19 · Bk-Dispatch — Model Resolver & Classifier",
       "description": "合并原 F07 Model Override Resolver / F08 Classifier Service；承担 dispatch 决策面：spawn 前 ModelResolver 三层优先级解析 → spawn 后 Classifier OpenAI-compat LLM 分类 ticket 结果；共享 IAPI-014 keyring 门面 + ClassifierProviderPresets 配置",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-019",
         "FR-020",
@@ -606,7 +603,10 @@
         "Given LLM 返非法 JSON when 分类 then 降级 rule + audit warning（FR-023）",
         "Given base_url 非白名单域 when 保存 then 拒绝（FR-021 SSRF 防护）"
       ],
-      "ui": false
+      "ui": false,
+      "git_sha": "c4bc3cb",
+      "st_case_path": "docs/test-cases/feature-19-f19-bk-dispatch-model-resolver-classifie.md",
+      "st_case_count": 61
     },
     {
       "id": 20,

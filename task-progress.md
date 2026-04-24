@@ -375,3 +375,25 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Final suite: 98/98 F19 tests green
 - current.phase: tdd → st
 
+### Session 18 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · ST (2026-04-25)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier", category=core, ui=false, wave=2
+- srs_trace: FR-019/020/021/022/023 + IFR-004
+- ATS mapping: FR-019 `FUNC,BNDRY,UI`（UI 由 F22 SystemSettings 模型规则表承担）· FR-020 `FUNC,BNDRY` · FR-021 `FUNC,BNDRY,SEC,UI`（UI 由 F22 SystemSettings Classifier 卡片承担）· FR-022 `FUNC,BNDRY` · FR-023 `FUNC,BNDRY,SEC` · IFR-004 `FUNC,BNDRY,SEC,PERF`
+- **Env lifecycle**: No server processes — environment activation only（env-guide §1 纯 library / TestClient 模式；REST 路由经 `FastAPI TestClient` 直接装载 `harness.api:app`，无需启动 `api`/`ui-dev` dev server；F19 后端独立单元）
+- **ST doc 生成**: `docs/test-cases/feature-19-f19-bk-dispatch-model-resolver-classifie.md`（61 cases：FUNC×46 + BNDRY×7 + SEC×7 + PERF×1，UI 0；负向占比 ~52% ≥ 40%；映射 Test Inventory T01–T46，部分 cases 聚合多个底层 pytest 函数到单一黑盒视角）
+- **Validators**: `validate_st_cases.py --feature 19` → `VALID — 61 test case(s)` · `check_ats_coverage.py --feature 19` → `ATS COVERAGE OK — checked feature #19`（UI 类别按 dispatcher 预批准豁免：UI 由 F22 承担，对齐 F18 先例）
+- **ST 执行**: `pytest tests/test_f19_*.py tests/integration/test_f19_*.py -q` → `98 passed in 10.86s`（98 个底层 pytest 函数 → 61 ST rows 全 PASS · 0 manual · environment_cleaned=true）
+- **Inline Check**: PASS (P2: 12/12 PUBLIC 方法签名匹配（ModelResolver.resolve · ModelRulesStore.load/save · ClassifierService.classify/test_connection · LlmBackend.invoke · RuleBackend.decide · FallbackDecorator.invoke · PromptStore.get/put · ProviderPresets.resolve/validate_base_url）· T2: 14 F19 测试文件 98 functions all green · D3: httpx 0.28.1 / fastapi 0.136.0 / pydantic 2.13.3 / keyring 25.7.0 / pytest 8.4.2 / respx 0.23.1 与 env-guide §3 工具版本表对齐 · UCD: N/A (ui:false) · ATS Category: OK · §4: greenfield — 0 violations)
+
+### Feature #19: F19 · Bk-Dispatch — Model Resolver & Classifier — PASS
+- Completed: 2026-04-25
+- TDD: green ✓ (commit `a84a96f`)
+- Quality Gates: line 98.37% / branch 84.62%（≥ 90 / 80）
+- Feature-ST: 61 cases (FUNC×46 + BNDRY×7 + SEC×7 + PERF×1 · 61 auto PASS · 0 manual)
+- Inline Check: PASS
+- Git: `c4bc3cb` feat: feature #19 f19-bk-dispatch-model-resolver-classifier — ST cases 61 (61 auto PASS)
+#### Risks
+- ⚠ [Coverage] branch 84.62% — 4.62 pp 缓冲，ProviderPresets / FallbackDecorator audit 分支边界改动易触底；后续若改动 fallback 路径需重跑 quality gate
+- ⚠ [Stale-Scripts] 会话开始前 `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 继续显式排除，延续 Session 12/15 的处理方针，留待独立 chore commit 清理
+
