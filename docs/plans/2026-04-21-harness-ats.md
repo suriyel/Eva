@@ -3,10 +3,10 @@
 **SRS 参考**: docs/plans/2026-04-21-harness-srs.md
 **设计文档参考**: docs/plans/2026-04-21-harness-design.md
 **UCD 参考**: docs/plans/2026-04-21-harness-ucd.md
-**日期**: 2026-04-21
-**状态**: Approved（Reviewer Round 1 CONDITIONAL_PASS → 7 项修复 → Round 2 PASS）
+**日期**: 2026-04-21（Wave 2 feature 重包装 feature id 重映射：2026-04-24）
+**状态**: Approved（Reviewer Round 1 CONDITIONAL_PASS → 7 项修复 → Round 2 PASS；Wave 2 refactor-only remap 免重跑）
 **模板版本**: 1.0
-**Scale**: 中型（48 active FR + 17 NFR + 7 IFR；17 features）→ 完整 ATS 五节
+**Scale**: 中型（48 active FR + 17 NFR + 7 IFR；10 features：F01/F02/F10/F12/F17 保留 + F18–F22 新）→ 完整 ATS 五节
 
 ---
 
@@ -20,7 +20,7 @@
 
 - 每个 active FR 至少覆盖 FUNC + BNDRY 两类
 - 处理用户输入 / 认证 / 外部数据的 FR 必须覆盖 SEC
-- `ui:true` 的特性（F12–F16）必须覆盖 UI
+- `ui:true` 的特性（F12, F21, F22）必须覆盖 UI
 - 每条 NFR 带可度量阈值 + 指定工具 + 量化 pass 标准
 - 跨特性集成路径必须在 System ST 阶段验证（含 happy / error / 一致性）
 - Feature-ST 测试用例类别由本 ATS §2 的 `必须类别` 列决定，不可临时增删
@@ -272,23 +272,23 @@
 
 | NFR ID | 测试方法 | 工具 | 通过标准 | 负载参数 | 关联 Feature |
 |---|---|---|---|---|---|
-| NFR-001 | UI 操作响应抽样 | Playwright + DevTools MCP `performance_start_trace` | p95 < 500ms（ticket 提交 / 页面切换 / 表单提交）| 100 次交互 / 持续 60s / 10 Hz 采样 | F12, F13, F14, F15, F16 |
-| NFR-002 | Stream-json 事件到达延迟 | asyncio `time.perf_counter_ns` + event timestamp diff | p95 < 2s（从 pty 读到字节到 UI WebSocket 收到）| 100 events burst + 10k events 长跑 | F04, F14 |
-| NFR-003 | context_overflow 重试上限 | mock claude stderr 注入 | 第 4 次必 escalate 且不 spawn 新 ticket；retry_count 标 3 | 连续 4 次同 skill 的 context_overflow | F09 |
-| NFR-004 | rate_limit 退避时延 | mock HTTP 429 + 计时 | 第 1 次延迟 30s±3s；第 2 次 120s±6s；第 3 次 300s±15s；第 4 次 escalate | 4 次 429 响应 | F09 |
-| NFR-005 | 崩溃后 interrupted 可见 | `os.kill(SIGKILL)` + 重启 | 重启后 `state in ('running','classifying','hil_waiting')` 的 ticket 全标 `interrupted` | 杀进程中断 5 条 ticket（混合态）| F02, F06 |
+| NFR-001 | UI 操作响应抽样 | Playwright + DevTools MCP `performance_start_trace` | p95 < 500ms（ticket 提交 / 页面切换 / 表单提交）| 100 次交互 / 持续 60s / 10 Hz 采样 | F12, F21, F22 |
+| NFR-002 | Stream-json 事件到达延迟 | asyncio `time.perf_counter_ns` + event timestamp diff | p95 < 2s（从 pty 读到字节到 UI WebSocket 收到）| 100 events burst + 10k events 长跑 | F18, F21 |
+| NFR-003 | context_overflow 重试上限 | mock claude stderr 注入 | 第 4 次必 escalate 且不 spawn 新 ticket；retry_count 标 3 | 连续 4 次同 skill 的 context_overflow | F20 |
+| NFR-004 | rate_limit 退避时延 | mock HTTP 429 + 计时 | 第 1 次延迟 30s±3s；第 2 次 120s±6s；第 3 次 300s±15s；第 4 次 escalate | 4 次 429 响应 | F20 |
+| NFR-005 | 崩溃后 interrupted 可见 | `os.kill(SIGKILL)` + 重启 | 重启后 `state in ('running','classifying','hil_waiting')` 的 ticket 全标 `interrupted` | 杀进程中断 5 条 ticket（混合态）| F02, F20 |
 | NFR-006 | workdir 写入隔离 | `lsof` + 路径 diff + filesystem audit | 仅 `.harness/` 与 `.harness-workdir/` 子树有写；其他路径 byte-level 0 变更 | 10 ticket full run 期间 + 崩溃注入 | F10 |
 | NFR-007 | bind 127.0.0.1 | `ss -tnlp` 解析 + 外网 socket 连接尝试 | 启动后端口仅 127.0.0.1 bind；从 LAN 连接拒绝（connection refused）| 启动后 5s 内扫描 + 跨网段 telnet | F01 |
-| NFR-008 | API key 仅 keyring | 递归 `grep -rE "<api_key_bytes>"` + `keyring list` | 0 match 明文；keyring 对应 service/user entry 存在 | 保存 3 个 API key（GLM / OpenAI / custom）| F01, F08 |
+| NFR-008 | API key 仅 keyring | 递归 `grep -rE "<api_key_bytes>"` + `keyring list` | 0 match 明文；keyring 对应 service/user entry 存在 | 保存 3 个 API key（GLM / OpenAI / custom）| F01, F19 |
 | NFR-009 | 不写 `~/.claude` | run 前后 `stat -c '%Y' ~/.claude/**/*` 全量比对 | 所有文件 mtime 完全相等（零变更）| 完整 run ≥ 10 ticket + 含 HIL round-trip | F10 |
-| NFR-010 | UI 仅简体中文 | 源代码 grep + 视觉评审 | 源码除变量名/import/技术术语外无英文业务字符串；视觉评审 8 页面无英文 | 全源码扫描 + 8 页面各 1 次 | F12-F16（Manual: visual-judgment 视觉评审）|
-| NFR-011 | HIL 控件标注 | DOM 断言 `[data-test-hil-kind]` attr + 文本标签 | single → "单选" / multi → "多选" / free → "自由文本" 三种 attr 全出现 | 3 类控件各一例 HIL ticket | F13 |
+| NFR-010 | UI 仅简体中文 | 源代码 grep + 视觉评审 | 源码除变量名/import/技术术语外无英文业务字符串；视觉评审 8 页面无英文 | 全源码扫描 + 8 页面各 1 次 | F12, F21, F22（Manual: visual-judgment 视觉评审）|
+| NFR-011 | HIL 控件标注 | DOM 断言 `[data-test-hil-kind]` attr + 文本标签 | single → "单选" / multi → "多选" / free → "自由文本" 三种 attr 全出现 | 3 类控件各一例 HIL ticket | F21 |
 | NFR-012 | 三平台支持 | CI matrix smoke + `playwright test --project=chromium` | 三平台二进制启动 UI 并响应 `/api/health` 200 | 每平台 1 次 CI job | F17 |
 | NFR-013 | 不依赖预装 Python | 干净 VM Docker 镜像（无 python3）+ Windows 无 VS C++ runtime | 二进制 `./harness` 启动成功 | 每平台 1 次干净 VM | F17 |
-| NFR-014 | Adapter Protocol mypy 严格 | `mypy --strict harness/adapter/` | 退出码 0；无 `error` 级 diagnostic | 全 adapter 包源码 | F03, F05 |
-| NFR-015 | phase_route 松弛解析 | pytest fixture 注入缺字段 / 新增字段 JSON | 无 exception 抛出；默认值补齐后 `PhaseRouteResult` 可读 | 10 种 fixture | F06 |
-| NFR-016 | 单 workdir 单 run 互斥 | 并发启 2 run 同 workdir | 第二个 filelock `Timeout` + 显式错误 "已有 run 在运行" | 2 run 并发 | F06 |
-| NFR-017 | 历史 20 run 保留 | 21 次 run 后查主列表 + 归档 | 主列表 20 条（最新）；归档入口含第 1 条 + 原样保留 | 21 个小 run | F02, F06 |
+| NFR-014 | Adapter Protocol mypy 严格 | `mypy --strict harness/adapter/` | 退出码 0；无 `error` 级 diagnostic | 全 adapter 包源码 | F18 |
+| NFR-015 | phase_route 松弛解析 | pytest fixture 注入缺字段 / 新增字段 JSON | 无 exception 抛出；默认值补齐后 `PhaseRouteResult` 可读 | 10 种 fixture | F20 |
+| NFR-016 | 单 workdir 单 run 互斥 | 并发启 2 run 同 workdir | 第二个 filelock `Timeout` + 显式错误 "已有 run 在运行" | 2 run 并发 | F20 |
+| NFR-017 | 历史 20 run 保留 | 21 次 run 后查主列表 + 归档 | 主列表 20 条（最新）；归档入口含第 1 条 + 原样保留 | 21 个小 run | F02, F20 |
 
 ---
 
@@ -300,40 +300,40 @@
 
 | 场景 ID | 场景描述 | 涉及 Features | 数据流路径（Contract IDs） | 验证要点 | ST 阶段 |
 |---|---|---|---|---|---|
-| **INT-001** | **HIL full round-trip**：Claude skill 触发 AskUserQuestion → UI 渲染控件 → 用户提交答案 → pty 续跑 | F03, F04, F13, F06, F02 | CLI stream → IAPI-006 byte_queue → StreamParser → IAPI-008 StreamEvent → HilEventBus → IAPI-001 `/ws/hil` push → UI → `POST /api/hil/:ticket_id/answer` (IAPI-002) → HilWriteback → IAPI-007 pty stdin → CLI 续跑 → IAPI-009 AuditWriter | 整链 p95 < 3s；同 pid 续跑；ticket.hil.answers 持久化；FR-013 PoC 门（≥95% 成功率 / 20 轮）| System ST |
-| **INT-002** | **Run Start 流**：用户点 Start → workdir 校验 → phase_route → 第一张 ticket spawn | F01, F06, F10, F03 | `POST /api/runs/start` (IAPI-002) → BindGuard 通过 → RunLock acquire → IAPI-017 EnvironmentIsolator.setup_run → IAPI-003 phase_route JSON → IAPI-004 TicketCommand → IAPI-005 ToolAdapter.spawn → IAPI-006 DispatchSpec → PTY spawn | 5s 内 UI 进 running；隔离目录生成；argv 含全部 FR-016 flag；head_start 记录 git sha | System ST |
-| **INT-003** | **非 git repo Start 错误**：用户指定非 git 目录 → 拒启动并提示 | F01, F06 | `POST /api/runs/start` → `git status --porcelain` exit=128 → Gateway 返 400 → UI Modal 展示错误 | error_code 正确；filelock 未被占用；UI error Modal 可读 | Feature ST |
-| **INT-004** | **Anomaly context_overflow 自愈链**：stderr 匹配 → Classifier RETRY → 新 ticket 继承 skill_hint → 3 次后 escalate | F08, F09, F06, F03 | StreamParser → Classifier (IAPI-010) Verdict=RETRY → IAPI-004 Supervisor.reenqueue_ticket → 新 DispatchSpec 含 skill_hint → spawn → 第 4 次同 skill stderr 匹配 → EscalationEmitter → IAPI-001 `/ws/anomaly` escalated 事件 | retry_count 累加 1/2/3；第 4 次 `RecoveryDecision.kind="escalate"`；run 状态 paused；UI 显示上报 | System ST |
-| **INT-005** | **Classifier LLM 失败降级**：LLM 返回非法 JSON → 降级 rule → audit warning → ticket 仍继续 | F08, F09, F06 | Classifier.classify → HTTP 200 but JSON 不合 schema → FallbackDecorator 捕获 → RuleBackend.classify → Verdict(backend="rule") → audit warning event → Orchestrator 按 verdict 继续 | ticket.classification.backend == "rule"；audit JSONL 含 `classifier_fallback`；UI 无异常提示（降级透明）| Feature ST |
-| **INT-006** | **Signal file → hotfix 分支**：外部写入 bugfix-request.json → watcher 触发 → 下一次 phase_route 选 long-task-hotfix | F10（FileWatcher）, F06, F02 | watchdog observer → IAPI-012 SignalEvent → Orchestrator queue → 当前 ticket 终态后 → IAPI-003 phase_route → next_skill=long-task-hotfix → IAPI-004 spawn ticket | 2s 内 UI 可见 `SignalFileChanged` 推送；hotfix ticket 被 dispatch；signal file 由 skill 自行删除 | System ST |
-| **INT-007** | **并发 run 互斥**（NFR-016）：两个 UI 窗口同时启同 workdir → 第二个被 filelock 拒 | F06, F01 | UI#1 `POST /api/runs/start` → RunLock acquire 成功；UI#2 → RunLock 被占 → Gateway 返 409 + `reason="已有 run 在运行"` | error_code=ALREADY_RUNNING；UI#2 Modal 正确展示；UI#1 不受影响 | Feature ST |
-| **INT-008** | **崩溃 + 重启恢复**（NFR-005）：`kill -9` Harness 主进程 → 重启 → 未完成 ticket 全标 interrupted | F02, F06, F01 | `kill -9 <pid>` → 进程死 → `harness.app.AppBootstrap` 重启 → `TicketRepository.list_by_run` WHERE `state IN (running, classifying, hil_waiting)` → 全部 UPDATE state=interrupted + AuditEvent `interrupted` | SQLite WAL journal 恢复；所有未完成 ticket 可见；run 状态=failed；UI 显示 `⚠ 因异常中断而保留 N 张 ticket` | System ST |
-| **INT-009** | **Skills install via git URL**：用户 UI 填 git URL + 点 Clone → `git clone` → plugin 目录就绪 | F10, F15, F01 | `POST /api/skills/install` (IAPI-018) → SkillsInstaller.clone → git subprocess (IFR-005) → PluginRegistry 读 plugin.json 版本 → 返回 SkillsInstallResult → UI 显示 sha | URL 白名单拒 `file://`；target_dir 防逃逸；pull 后 `plugins/longtaskforagent/.claude-plugin/plugin.json` 存在；UI commit sha 显示 | Feature ST |
-| **INT-010** | **ProcessFiles 编辑 + 后端校验**：UI 改 feature-list.json → onChange 前端 schema 校验 → 点"后端校验" → subprocess → issues 面板 | F11, F16 | UI `PUT /api/files/...` → FrontendValidator（Zod）实时 → 用户点 "后端校验" → `POST /api/validate/feature-list.json` (IAPI-016) → ValidatorRunner subprocess `validate_features.py` → ValidationReport → UI issues 列表 | onChange 必填空红 + Save 禁用；跨字段校验（例如 deprecated=true 但缺 reason）报错；subprocess exit≠0 不被吞 | Feature ST |
-| **INT-011** | **CommitHistory + Diff 查看**：ticket 完成 3 commit → UI 刷新列表 → 选 commit → 右侧显示 diff | F11, F16, F02 | ticket 结束 → GitTracker.end (IAPI-013) → TicketRepository.save (IAPI-011) → UI `GET /api/git/commits?run_id=X` → 列表 → 选 commit → `GET /api/git/diff/:sha` → DiffPayload → react-diff-view 渲染 | commits 长度正确；feature_id ↔ git_sha 关联；diff 含 +/- 行号；>500 行分页 | Feature ST |
-| **INT-012** | **API key keyring 往返 + masked UI**（NFR-008）：保存 classifier API key → 关机重启 → 读 keyring → UI 显示 masked | F01, F08, F15 | `PUT /api/settings/classifier` (IAPI-002) 含 api_key → KeyringGateway.set_password (IAPI-014) → 重启 → GET → UI masked `••••••••1234` | config.json 递归 grep 0 明文 match；keyring list 含 `harness-classifier-glm`；masked UI DOM 断言无明文；test 连接按钮工作 | System ST |
-| **INT-013** | **OpenCode MCP 降级**：用户 DispatchSpec 带 mcp_config → OpenCode ticket 降级运行 + UI 提示 | F05, F13 | Orchestrator → OpenCodeAdapter.build_argv → 检测 mcp_config → McpDegradation 路径 → ticket 继续 spawn（不带 mcp）+ 推 UI `/ws/anomaly` 或 toast `"OpenCode MCP 延后 v1.1"` | ticket 仍 completed；UI toast 展示；argv 不含 mcp 相关 flag | Feature ST |
-| **INT-014** | **Stream event fan-out + WebSocket 断线续连**：100 个 stream event 连续到达 → DB persist + WS push；UI 中途断 WS → 重连后 state 对齐 | F04, F02, F12 | PTY byte_queue (IAPI-006) → StreamParser.events() (IAPI-008) → 并行 fan-out: AuditWriter (IAPI-009) + TicketRepository.save (IAPI-011) + WebSocket broadcast (IAPI-001) → UI 断 WS 60s → 重连 → TanStack Query refetch `GET /api/tickets/:id/stream?offset=` 补齐 | 100 event DB 全中；UI 断连期间 DB 持续写；重连后 offset 补齐无丢事件；无重复 | System ST |
-| **INT-015** | **Path traversal 攻击拒绝**（SEC）：恶意 workdir 含 `../../etc` → 启动拒；signal file 指向外部路径 → watcher 忽略 | F01, F06, F10 | `POST /api/runs/start { workdir: "/home/user/../../etc" }` → 路径 resolve 后断言 → 400 Bad Request；FileWatcher 订阅路径限 `<workdir>/**` 前缀 | error_code=PATH_REJECTED；审计记录访问企图；无任何文件被读 | Feature ST |
-| **INT-016** | **SSRF classifier base_url 防护**（SEC）：用户填 `http://169.254.169.254/...` → 保存被拒 | F08, F15 | UI `PUT /api/settings/classifier` → 后端 `ClassifierConfig` validator 检测 base_url → 解析到私有网段 IP → 400 + `detail="base_url resolves to private network"` | 私有 IP 网段全拒；允许明确 whitelist（本地 llama.cpp）时有显式 toggle；响应不泄漏解析过程 | Feature ST |
-| **INT-017** | **14-skill 完整 run**（FR-047）：新建空项目 → 端到端跑完 Requirements → UCD → Design → ATS → Init → Work（N 个 feature）→ ST → Finalize | F01-F17 全栈 | Start → phase_route loop × N → 全 skill dispatch 轨迹记录 | dispatch 过的 skill 集合 ⊇ 14 必要子集；整 run 能达 ST Go verdict；cost 汇总正确 | System ST（关键冒烟）|
+| **INT-001** | **HIL full round-trip**：Claude skill 触发 AskUserQuestion → UI 渲染控件 → 用户提交答案 → pty 续跑 | F18, F21, F20, F02 | CLI stream → IAPI-006 byte_queue → StreamParser → IAPI-008 StreamEvent → HilEventBus → IAPI-001 `/ws/hil` push → UI → `POST /api/hil/:ticket_id/answer` (IAPI-002) → HilWriteback → IAPI-007 pty stdin → CLI 续跑 → IAPI-009 AuditWriter | 整链 p95 < 3s；同 pid 续跑；ticket.hil.answers 持久化；FR-013 PoC 门（≥95% 成功率 / 20 轮）| System ST |
+| **INT-002** | **Run Start 流**：用户点 Start → workdir 校验 → phase_route → 第一张 ticket spawn | F01, F20, F10, F18 | `POST /api/runs/start` (IAPI-002) → BindGuard 通过 → RunLock acquire → IAPI-017 EnvironmentIsolator.setup_run → IAPI-003 phase_route JSON → IAPI-004 TicketCommand → IAPI-005 ToolAdapter.spawn → IAPI-006 DispatchSpec → PTY spawn | 5s 内 UI 进 running；隔离目录生成；argv 含全部 FR-016 flag；head_start 记录 git sha | System ST |
+| **INT-003** | **非 git repo Start 错误**：用户指定非 git 目录 → 拒启动并提示 | F01, F20 | `POST /api/runs/start` → `git status --porcelain` exit=128 → Gateway 返 400 → UI Modal 展示错误 | error_code 正确；filelock 未被占用；UI error Modal 可读 | Feature ST |
+| **INT-004** | **Anomaly context_overflow 自愈链**：stderr 匹配 → Classifier RETRY → 新 ticket 继承 skill_hint → 3 次后 escalate | F19, F20, F18 | StreamParser → Classifier (IAPI-010) Verdict=RETRY → IAPI-004 Supervisor.reenqueue_ticket → 新 DispatchSpec 含 skill_hint → spawn → 第 4 次同 skill stderr 匹配 → EscalationEmitter → IAPI-001 `/ws/anomaly` escalated 事件 | retry_count 累加 1/2/3；第 4 次 `RecoveryDecision.kind="escalate"`；run 状态 paused；UI 显示上报 | System ST |
+| **INT-005** | **Classifier LLM 失败降级**：LLM 返回非法 JSON → 降级 rule → audit warning → ticket 仍继续 | F19, F20 | Classifier.classify → HTTP 200 but JSON 不合 schema → FallbackDecorator 捕获 → RuleBackend.classify → Verdict(backend="rule") → audit warning event → Orchestrator 按 verdict 继续 | ticket.classification.backend == "rule"；audit JSONL 含 `classifier_fallback`；UI 无异常提示（降级透明）| Feature ST |
+| **INT-006** | **Signal file → hotfix 分支**：外部写入 bugfix-request.json → watcher 触发 → 下一次 phase_route 选 long-task-hotfix | F10（FileWatcher）, F20, F02 | watchdog observer → IAPI-012 SignalEvent → Orchestrator queue → 当前 ticket 终态后 → IAPI-003 phase_route → next_skill=long-task-hotfix → IAPI-004 spawn ticket | 2s 内 UI 可见 `SignalFileChanged` 推送；hotfix ticket 被 dispatch；signal file 由 skill 自行删除 | System ST |
+| **INT-007** | **并发 run 互斥**（NFR-016）：两个 UI 窗口同时启同 workdir → 第二个被 filelock 拒 | F20, F01 | UI#1 `POST /api/runs/start` → RunLock acquire 成功；UI#2 → RunLock 被占 → Gateway 返 409 + `reason="已有 run 在运行"` | error_code=ALREADY_RUNNING；UI#2 Modal 正确展示；UI#1 不受影响 | Feature ST |
+| **INT-008** | **崩溃 + 重启恢复**（NFR-005）：`kill -9` Harness 主进程 → 重启 → 未完成 ticket 全标 interrupted | F02, F20, F01 | `kill -9 <pid>` → 进程死 → `harness.app.AppBootstrap` 重启 → `TicketRepository.list_by_run` WHERE `state IN (running, classifying, hil_waiting)` → 全部 UPDATE state=interrupted + AuditEvent `interrupted` | SQLite WAL journal 恢复；所有未完成 ticket 可见；run 状态=failed；UI 显示 `⚠ 因异常中断而保留 N 张 ticket` | System ST |
+| **INT-009** | **Skills install via git URL**：用户 UI 填 git URL + 点 Clone → `git clone` → plugin 目录就绪 | F10, F22, F01 | `POST /api/skills/install` (IAPI-018) → SkillsInstaller.clone → git subprocess (IFR-005) → PluginRegistry 读 plugin.json 版本 → 返回 SkillsInstallResult → UI 显示 sha | URL 白名单拒 `file://`；target_dir 防逃逸；pull 后 `plugins/longtaskforagent/.claude-plugin/plugin.json` 存在；UI commit sha 显示 | Feature ST |
+| **INT-010** | **ProcessFiles 编辑 + 后端校验**：UI 改 feature-list.json → onChange 前端 schema 校验 → 点"后端校验" → subprocess → issues 面板 | F20, F22 | UI `PUT /api/files/...` → FrontendValidator（Zod）实时 → 用户点 "后端校验" → `POST /api/validate/feature-list.json` (IAPI-016) → ValidatorRunner subprocess `validate_features.py` → ValidationReport → UI issues 列表 | onChange 必填空红 + Save 禁用；跨字段校验（例如 deprecated=true 但缺 reason）报错；subprocess exit≠0 不被吞 | Feature ST |
+| **INT-011** | **CommitHistory + Diff 查看**：ticket 完成 3 commit → UI 刷新列表 → 选 commit → 右侧显示 diff | F20, F22, F02 | ticket 结束 → GitTracker.end (IAPI-013) → TicketRepository.save (IAPI-011) → UI `GET /api/git/commits?run_id=X` → 列表 → 选 commit → `GET /api/git/diff/:sha` → DiffPayload → react-diff-view 渲染 | commits 长度正确；feature_id ↔ git_sha 关联；diff 含 +/- 行号；>500 行分页 | Feature ST |
+| **INT-012** | **API key keyring 往返 + masked UI**（NFR-008）：保存 classifier API key → 关机重启 → 读 keyring → UI 显示 masked | F01, F19, F22 | `PUT /api/settings/classifier` (IAPI-002) 含 api_key → KeyringGateway.set_password (IAPI-014) → 重启 → GET → UI masked `••••••••1234` | config.json 递归 grep 0 明文 match；keyring list 含 `harness-classifier-glm`；masked UI DOM 断言无明文；test 连接按钮工作 | System ST |
+| **INT-013** | **OpenCode MCP 降级**：用户 DispatchSpec 带 mcp_config → OpenCode ticket 降级运行 + UI 提示 | F18, F21 | Orchestrator → OpenCodeAdapter.build_argv → 检测 mcp_config → McpDegradation 路径 → ticket 继续 spawn（不带 mcp）+ 推 UI `/ws/anomaly` 或 toast `"OpenCode MCP 延后 v1.1"` | ticket 仍 completed；UI toast 展示；argv 不含 mcp 相关 flag | Feature ST |
+| **INT-014** | **Stream event fan-out + WebSocket 断线续连**：100 个 stream event 连续到达 → DB persist + WS push；UI 中途断 WS → 重连后 state 对齐 | F18, F02, F12 | PTY byte_queue (IAPI-006) → StreamParser.events() (IAPI-008) → 并行 fan-out: AuditWriter (IAPI-009) + TicketRepository.save (IAPI-011) + WebSocket broadcast (IAPI-001) → UI 断 WS 60s → 重连 → TanStack Query refetch `GET /api/tickets/:id/stream?offset=` 补齐 | 100 event DB 全中；UI 断连期间 DB 持续写；重连后 offset 补齐无丢事件；无重复 | System ST |
+| **INT-015** | **Path traversal 攻击拒绝**（SEC）：恶意 workdir 含 `../../etc` → 启动拒；signal file 指向外部路径 → watcher 忽略 | F01, F20, F10 | `POST /api/runs/start { workdir: "/home/user/../../etc" }` → 路径 resolve 后断言 → 400 Bad Request；FileWatcher 订阅路径限 `<workdir>/**` 前缀 | error_code=PATH_REJECTED；审计记录访问企图；无任何文件被读 | Feature ST |
+| **INT-016** | **SSRF classifier base_url 防护**（SEC）：用户填 `http://169.254.169.254/...` → 保存被拒 | F19, F22 | UI `PUT /api/settings/classifier` → 后端 `ClassifierConfig` validator 检测 base_url → 解析到私有网段 IP → 400 + `detail="base_url resolves to private network"` | 私有 IP 网段全拒；允许明确 whitelist（本地 llama.cpp）时有显式 toggle；响应不泄漏解析过程 | Feature ST |
+| **INT-017** | **14-skill 完整 run**（FR-047）：新建空项目 → 端到端跑完 Requirements → UCD → Design → ATS → Init → Work（N 个 feature）→ ST → Finalize | F01, F02, F10, F12, F17, F18, F19, F20, F21, F22 全栈 | Start → phase_route loop × N → 全 skill dispatch 轨迹记录 | dispatch 过的 skill 集合 ⊇ 14 必要子集；整 run 能达 ST Go verdict；cost 汇总正确 | System ST（关键冒烟）|
 | **INT-018** | **三平台 PyInstaller 冷启动**（NFR-012/013）：Linux/macOS/Windows 干净 VM 各启一次 | F17 | CI matrix 3 job → `./harness` 启动 → `curl http://127.0.0.1:<port>/api/health` → 200 + bind=127.0.0.1 | 每平台启动 < 10s；UI 正常渲染；`/api/health` 报告正确版本与 claude_auth 状态 | System ST |
-| **INT-019** | **Classifier prompt 版本追加**（FR-033 v1）：编辑 classifier prompt 保存 → 历史追加一条 | F08, F15 | UI `PUT /api/prompts/classifier { content: "new" }` → PromptStore 追加 → history[N+1] 包含 hash + summary | 保存前 N 条；保存后 N+1 条；summary 首 80 字截断；v1.1 的 diff/revert 交互 disabled | Feature ST |
-| **INT-020** | **Ticket 历史保留 20 run**（NFR-017）：连续跑 21 个 run → 主列表 20 / 归档含第 1 条 | F02, F06 | run ×21 完成 → RunRepository.list 主列表返回 20 条最新 → archived list 接口返回第 1 条 | 主列表精确 20；归档第 1 条原样（无压缩 / 脱敏）；sqlite 存储未膨胀 | Feature ST |
-| **INT-021** | **并发写一致性**（IAPI-011）：StreamParser 写 state + Anomaly 写 retry_count 同瞬间触发 | F02, F04, F09 | TicketRepository.save 并发 2 次 → SQLite WAL + busy_timeout 5000ms 串行化 | 最终 ticket.payload 完整无字段覆盖丢失；全字段读回正确 | Feature ST |
-| **INT-022** | **Model 4 层优先级全矩阵**：per-ticket / per-skill / run-default 任意组合 | F07, F03 | IAPI-015 ModelResolver.resolve → DispatchSpec.model + provenance | 8 种典型组合（2^3 - 1 非空 + 全空）argv `--model` 行为均符预期；provenance 追溯正确 | Feature ST |
-| **INT-023** | **Pause / Cancel 指令**（IAPI-019）：running 时 Pause → 当前 ticket 结束后不再 spawn；Cancel → 立即 abort | F06, F13 | UI `POST /api/runs/:id/pause` → RunControlBus → Orchestrator 主循环下一迭代检测标志 → 不调 phase_route；`/cancel` → 向当前 Supervisor 发 TicketCommand(cancel) → pty SIGTERM | Pause 当前 ticket 仍 completes；Cancel 后 state=cancelled；UI 对应横幅；Resume 按钮 disabled | Feature ST |
-| **INT-024** | **ticket 级 git 记录 + feature_id 关联**（IAPI-013）：feature completion ticket 结束时自动绑 feature_id + git_sha | F11, F02, F06 | TicketSupervisor 结束前 → GitTracker.end → head_after + commits + feature_id 合入 ticket.git | TicketRepository 读出 feature_id 非空且 git_sha == head_after；`GET /api/git/commits?feature_id=X` 过滤正确 | Feature ST |
-| **Err-A** | phase_route.py stdout 非 JSON | F06 | IAPI-003 subprocess exit=0 但 stdout="traceback..." → PhaseRouteInvoker parse 失败 → 暂停 run + audit event `phase_route_parse_error` | run 状态 paused；UI 显示 stderr tail；不崩溃 | Feature ST |
-| **Err-B** | ToolAdapter.spawn 失败（CLI 缺失）| F03, F06 | `which claude` → None → ClaudeCodeAdapter.spawn 抛 `SpawnError("Claude CLI not found")` → Supervisor 捕获 → ticket failed + anomaly=skill_error | 提示清晰；run 暂停不循环 | Feature ST |
-| **Err-C** | pty 子进程异常 exit | F03, F04 | pty child SIGSEGV → ptyprocess read 返回 EOF → PtyWorker 关 queue → StreamParser 产 ErrorEvent → ticket failed | stream archive 含到 EOF 为止的字节；audit 记 `pty_unexpected_exit` | Feature ST |
-| **Err-D** | 非法 JSONL 混入 stream | F04 | stream 含 `"{invalid json"` → JsonLinesParser 捕 `json.JSONDecodeError` → audit warning + 跳过该行 + 继续 | 后续合法 JSONL 继续解析；ticket 不因此 failed；audit 记 parser warning | Feature ST |
-| **Err-E** | JSONL audit 磁盘满 | F02, F04 | AuditWriter.append → OSError(ENOSPC) → 降级 `structlog.error` 写 stderr + UI toast；SQLite 仍写 | ticket 不因此 failed；UI 告警磁盘；主流程继续 | Feature ST |
+| **INT-019** | **Classifier prompt 版本追加**（FR-033 v1）：编辑 classifier prompt 保存 → 历史追加一条 | F19, F22 | UI `PUT /api/prompts/classifier { content: "new" }` → PromptStore 追加 → history[N+1] 包含 hash + summary | 保存前 N 条；保存后 N+1 条；summary 首 80 字截断；v1.1 的 diff/revert 交互 disabled | Feature ST |
+| **INT-020** | **Ticket 历史保留 20 run**（NFR-017）：连续跑 21 个 run → 主列表 20 / 归档含第 1 条 | F02, F20 | run ×21 完成 → RunRepository.list 主列表返回 20 条最新 → archived list 接口返回第 1 条 | 主列表精确 20；归档第 1 条原样（无压缩 / 脱敏）；sqlite 存储未膨胀 | Feature ST |
+| **INT-021** | **并发写一致性**（IAPI-011）：StreamParser 写 state + Anomaly 写 retry_count 同瞬间触发 | F02, F18, F20 | TicketRepository.save 并发 2 次 → SQLite WAL + busy_timeout 5000ms 串行化 | 最终 ticket.payload 完整无字段覆盖丢失；全字段读回正确 | Feature ST |
+| **INT-022** | **Model 4 层优先级全矩阵**：per-ticket / per-skill / run-default 任意组合 | F19, F18 | IAPI-015 ModelResolver.resolve → DispatchSpec.model + provenance | 8 种典型组合（2^3 - 1 非空 + 全空）argv `--model` 行为均符预期；provenance 追溯正确 | Feature ST |
+| **INT-023** | **Pause / Cancel 指令**（IAPI-019）：running 时 Pause → 当前 ticket 结束后不再 spawn；Cancel → 立即 abort | F20, F21 | UI `POST /api/runs/:id/pause` → RunControlBus → Orchestrator 主循环下一迭代检测标志 → 不调 phase_route；`/cancel` → 向当前 Supervisor 发 TicketCommand(cancel) → pty SIGTERM | Pause 当前 ticket 仍 completes；Cancel 后 state=cancelled；UI 对应横幅；Resume 按钮 disabled | Feature ST |
+| **INT-024** | **ticket 级 git 记录 + feature_id 关联**（IAPI-013）：feature completion ticket 结束时自动绑 feature_id + git_sha | F20, F02 | TicketSupervisor 结束前 → GitTracker.end → head_after + commits + feature_id 合入 ticket.git | TicketRepository 读出 feature_id 非空且 git_sha == head_after；`GET /api/git/commits?feature_id=X` 过滤正确 | Feature ST |
+| **Err-A** | phase_route.py stdout 非 JSON | F20 | IAPI-003 subprocess exit=0 但 stdout="traceback..." → PhaseRouteInvoker parse 失败 → 暂停 run + audit event `phase_route_parse_error` | run 状态 paused；UI 显示 stderr tail；不崩溃 | Feature ST |
+| **Err-B** | ToolAdapter.spawn 失败（CLI 缺失）| F18, F20 | `which claude` → None → ClaudeCodeAdapter.spawn 抛 `SpawnError("Claude CLI not found")` → Supervisor 捕获 → ticket failed + anomaly=skill_error | 提示清晰；run 暂停不循环 | Feature ST |
+| **Err-C** | pty 子进程异常 exit | F18 | pty child SIGSEGV → ptyprocess read 返回 EOF → PtyWorker 关 queue → StreamParser 产 ErrorEvent → ticket failed | stream archive 含到 EOF 为止的字节；audit 记 `pty_unexpected_exit` | Feature ST |
+| **Err-D** | 非法 JSONL 混入 stream | F18 | stream 含 `"{invalid json"` → JsonLinesParser 捕 `json.JSONDecodeError` → audit warning + 跳过该行 + 继续 | 后续合法 JSONL 继续解析；ticket 不因此 failed；audit 记 parser warning | Feature ST |
+| **Err-E** | JSONL audit 磁盘满 | F02, F18 | AuditWriter.append → OSError(ENOSPC) → 降级 `structlog.error` 写 stderr + UI toast；SQLite 仍写 | ticket 不因此 failed；UI 告警磁盘；主流程继续 | Feature ST |
 | **Err-F** | 信号文件连续高频变更 | F10 | watchdog 连续 50 次 modified within 1s → debounce 500ms → 仅 2-3 次 SignalEvent 入队 | UI 不卡；Orchestrator 不被刷爆 | Feature ST |
 | **Err-H** | Linux 无 Secret Service 降级 | F01 | keyring backend = `keyrings.alt.file.PlaintextKeyring` → 保存 API key → UI 顶部黄色警告条 `"未检测到 Secret Service，凭证以明文存储，建议安装 gnome-keyring"` | UI 警告可见；明文文件路径可查；功能仍可用 | Feature ST |
-| **Err-I** | Validator subprocess 崩溃 | F11, F16 | `POST /api/validate/feature-list.json` → subprocess exit=1 stderr="traceback..." → ValidationReport ok=false + issues 含 stderr tail | UI 显示脚本崩溃；不吞错 | Feature ST |
-| **Err-J** | Claude CLI 存在但未 auth（区别 Err-B）| F03, F06 | `which claude` → 二进制路径存在 → ClaudeCodeAdapter.spawn 成功 → pty 子进程运行短暂 → stderr 含 `not authenticated` / `please run claude auth login` 类字符串 → exit 非零 → classifier 判 `skill_error` → ticket aborted | 与 Err-B 区分：Err-B spawn 失败；Err-J spawn 成功但认证失败；UI 提示清晰区分 | Feature ST |
-| **INT-025** | Classifier test-connection 错误路径（FR-032 补齐）| F08, F15 | UI `POST /api/settings/classifier/test` → httpx 请求 → 401 Unauthorized → Gateway 返 400 + 错误 detail / connection-refused → Gateway 返 502 Bad Gateway + detail / DNS 失败 → 500 | 三种错误码 UI 横幅正确展示；保存动作因 test 失败不阻塞（仅警告）；IFR-004 protocol 错误分支覆盖 | Feature ST |
+| **Err-I** | Validator subprocess 崩溃 | F20, F22 | `POST /api/validate/feature-list.json` → subprocess exit=1 stderr="traceback..." → ValidationReport ok=false + issues 含 stderr tail | UI 显示脚本崩溃；不吞错 | Feature ST |
+| **Err-J** | Claude CLI 存在但未 auth（区别 Err-B）| F18, F20 | `which claude` → 二进制路径存在 → ClaudeCodeAdapter.spawn 成功 → pty 子进程运行短暂 → stderr 含 `not authenticated` / `please run claude auth login` 类字符串 → exit 非零 → classifier 判 `skill_error` → ticket aborted | 与 Err-B 区分：Err-B spawn 失败；Err-J spawn 成功但认证失败；UI 提示清晰区分 | Feature ST |
+| **INT-025** | Classifier test-connection 错误路径（FR-032 补齐）| F19, F22 | UI `POST /api/settings/classifier/test` → httpx 请求 → 401 Unauthorized → Gateway 返 400 + 错误 detail / connection-refused → Gateway 返 502 Bad Gateway + detail / DNS 失败 → 500 | 三种错误码 UI 横幅正确展示；保存动作因 test 失败不阻塞（仅警告）；IFR-004 protocol 错误分支覆盖 | Feature ST |
 
 ### 5.2 IAPI 覆盖自检
 
@@ -372,6 +372,19 @@
 - PERF: 4 / 34（INT-001 时延、INT-014 fan-out、INT-017 整 run 时长、INT-018 冷启动）
 - UI: 8 / 34
 
+### 5.4 Wave 2 Feature 重组对 ATS 覆盖的影响（2026-04-24）
+
+Wave 2 重包装将 12 个旧 feature（F03/F04/F05/F06/F07/F08/F09/F11/F13/F14/F15/F16）合并为 5 个新 feature（F18 Bk-Adapter / F19 Bk-Dispatch / F20 Bk-Loop / F21 Fe-RunViews / F22 Fe-Config），保留 5 个 feature（F01/F02/F10/F12/F17）。对 ATS 覆盖的影响：
+
+- **需求 → 测试场景映射**：48 active FR + 17 NFR + 7 IFR = 72 行，保持 1:1，**0 新增 / 0 修改语义 / 0 弃用**。
+- **类别占比（FUNC/BNDRY/SEC/PERF/UI）**：全表数字不变（FUNC 100%、BNDRY 99%、SEC 47%、PERF 18%、UI 28%、Manual 3%）。
+- **Feature ID 文本引用**：§1.2 / §2.4（无 feature 列，无影响）/ §4 NFR Matrix / §5.1 集成场景 / §5.2 IAPI 覆盖自检 / §6.1 风险矩阵 / 附录评审摘要的 feature id 按 Wave 2 映射重写；合计约 40 处文本替换。
+- **§4 NFR Matrix 关联 Feature 列**：17 条 NFR 的关联 feature id 重映射（F03/F05 → F18；F04 → F18；F06/F09 → F20；F08 → F19；F13/F14 → F21；F15/F16 → F22），测试方法 / 通过标准 / 负载参数 **0 变更**。
+- **§5.1 跨 Feature 集成场景**：25 个 INT + 9 个 Err = 34 个场景，场景逻辑 / 数据流路径 (Contract IDs) / 验证要点全部保留；仅涉及 feature id 标记（F0x/F1x → F18–F22）的文本替换。
+- **§5.2 IAPI 覆盖自检**：19 条 IAPI 签名与语义 **0 变更**（Design §6.2.1 Wave 2 OWNER-REMAP）；对应测试场景清单不变。
+
+结论：ATS 仍是 feature-list.json Wave 2 版本的权威测试源；无需 ats-reviewer 重跑（测试场景与验收标准未动）。
+
 ---
 
 ## 6. 风险驱动测试优先级
@@ -380,16 +393,16 @@
 
 | 风险区域 | 风险级别 | 影响范围 | 测试深度 | 依据 |
 |---|---|---|---|---|
-| HIL pty 穿透（Claude `AskUserQuestion` round-trip） | Critical | F03, F04, F13（关键路径节点） | 深度 | SRS ASM-003 需 PoC 验证；F03 HIL PoC gate（≥95%）不过则冻结 v1 |
-| stream-json schema 跨 Claude 版本漂移 | High | F04 所有消费者 | 深度 | Design Risk；宽松 Pydantic 容忍未知字段；CLI 版本在 `/api/health` 暴露 |
-| Cross-platform pty（Windows ConPTY） | High | F03 | 深度 | pywinpty 基于 ConPTY 需 Win10 1809+；CI matrix 验证 |
+| HIL pty 穿透（Claude `AskUserQuestion` round-trip） | Critical | F18, F21（关键路径节点） | 深度 | SRS ASM-003 需 PoC 验证；F18 HIL PoC gate（≥95%）不过则冻结 v1 |
+| stream-json schema 跨 Claude 版本漂移 | High | F18 所有消费者 | 深度 | Design Risk；宽松 Pydantic 容忍未知字段；CLI 版本在 `/api/health` 暴露 |
+| Cross-platform pty（Windows ConPTY） | High | F18 | 深度 | pywinpty 基于 ConPTY 需 Win10 1809+；CI matrix 验证 |
 | PyInstaller + pywebview 三平台打包 | High | F17 | 深度 | NFR-012/013；干净 VM smoke；libwebkit2gtk 版本约束 |
-| Classifier LLM 供应商协议漂移 | Medium | F08 | 标准 | response_format=json_schema 支持度差异；rule 降级兜底 |
+| Classifier LLM 供应商协议漂移 | Medium | F19 | 标准 | response_format=json_schema 支持度差异；rule 降级兜底 |
 | SQLite 并发写 + WAL 恢复 | Medium | F02 | 标准 | busy_timeout=5000ms；NFR-005 崩溃恢复关键 |
 | pywebview WebKit2GTK Linux 版本敏感 | Medium | F01, F17 | 标准 | 打包要求 libwebkit2gtk-4.1（Ubuntu 22.04+） |
-| FR-014 终止横幅 + HIL 冲突仲裁 | Medium | F04 | 标准 | BannerConflictArbiter ≥10 fixture 单测 |
-| 14-skill 完整 run 端到端 | High | F01-F17 全栈 | 标准 | System ST 冒烟 |
-| Path traversal / SSRF（安全输入） | High | F01, F08, F10 | 标准 | 6 个 SEC 场景 + §3.3 策略 |
+| FR-014 终止横幅 + HIL 冲突仲裁 | Medium | F18 | 标准 | BannerConflictArbiter ≥10 fixture 单测 |
+| 14-skill 完整 run 端到端 | High | F01, F02, F10, F12, F17, F18, F19, F20, F21, F22 全栈 | 标准 | System ST 冒烟 |
+| Path traversal / SSRF（安全输入） | High | F01, F19, F10 | 标准 | 6 个 SEC 场景 + §3.3 策略 |
 | Deferred FR（ROI / classifier diff）| Low | — | 轻量 | v1.1；v1 仅 UI placeholder + 文字提示 |
 
 ### 6.2 测试深度定义
@@ -407,6 +420,8 @@
 **评审者**: long-task:ats-reviewer SubAgent（独立）
 **评审日期**: 2026-04-21
 **评审模式**: 两轮审阅（Round 1 初审 + Round 2 修复验证）
+
+> **Wave 2 Remap (2026-04-24)**: 本审核报告引用的 feature id（F03–F16）属于 Wave 1 命名；Wave 2 重包装已将旧 feature 合并/重命名为 F18–F22（参见 Design §6.2.1 Wave 2 OWNER-REMAP）。由于本轮 increment 仅为 refactor-only 重包装（0 FR/NFR/IFR 语义变更、0 mapping 新增/删除），Round 1/Round 2 评审的所有结论（缺陷修复、最终裁决 PASS）继续有效；下文保留原 Wave 1 feature 号便于追溯评审当时的上下文。
 
 ### 最终裁决: PASS
 
@@ -446,7 +461,7 @@
 §4 矩阵 17 条 NFR 均具工具 + 量化阈值 + 负载参数；Manual 标注 2/72=3%，远低于 20% 上限。
 
 #### R6 跨特性集成: PASS
-§5.1 列出 34 个集成场景，引用 F01-F17 + IAPI-001..019；§5.2 IAPI 覆盖自检确认每个 IAPI 至少 1 happy + 关键 error。
+§5.1 列出 34 个集成场景，引用 F01-F22（preserved: F01/F02/F10/F12/F17；new: F18-F22）+ IAPI-001..019；§5.2 IAPI 覆盖自检确认每个 IAPI 至少 1 happy + 关键 error。
 
 #### R8 交叉校验: PASS（Round 1 有 1 Major CROSS-REF CONFLICT，已裁决修复）
 - **Major**：NFR-017 归档语义 ATS §2.2 与 ATS §4 / INT-020 / SRS 三方矛盾 → 用户裁决 A → 统一为"主列表 20 条最新 + 归档入口含第 1 条最老溢出"
