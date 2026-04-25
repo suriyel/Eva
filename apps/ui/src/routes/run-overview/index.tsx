@@ -178,7 +178,7 @@ export function RunOverviewPage(): React.ReactElement {
             padding: "8px 16px",
             borderRadius: 6,
             background: "var(--accent)",
-            color: "#06101E",
+            color: "var(--fg-on-accent)",
             fontSize: 13,
             fontWeight: 600,
             border: "none",

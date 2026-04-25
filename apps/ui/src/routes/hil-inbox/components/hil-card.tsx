@@ -86,14 +86,14 @@ function RadioRow({ option, checked, kind, onClick }: RadioRowProps): React.Reac
       >
         {checked &&
           (kind === "checkbox" ? (
-            <Icons.Check size={10} style={{ color: "#06101E", strokeWidth: 3 }} />
+            <Icons.Check size={10} style={{ color: "var(--fg-on-accent)", strokeWidth: 3 }} />
           ) : (
             <div
               style={{
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                background: "#06101E",
+                background: "var(--fg-on-accent)",
               }}
             />
           ))}
@@ -319,7 +319,7 @@ export function HILCard(props: HilCardProps): React.ReactElement {
             padding: "6px 12px",
             borderRadius: 6,
             background: submitting || answered ? "var(--border-subtle)" : "var(--accent)",
-            color: "#06101E",
+            color: "var(--fg-on-accent)",
             fontSize: 13,
             fontWeight: 600,
             border: "none",
