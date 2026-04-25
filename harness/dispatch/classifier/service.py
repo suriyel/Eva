@@ -56,13 +56,19 @@ class ClassifierService:
 
     # ------------------------------------------------------------------ helpers
     def _resolve_preset(self, provider: str, base_url: str, model_name: str) -> ProviderPreset:
-        """Build a ProviderPreset using the requested provider + effective base_url."""
+        """Build a ProviderPreset using the requested provider + effective base_url.
+
+        Wave 3: preserves ``supports_strict_schema`` capability bit from the
+        canonical builtin preset (MiniMax=False, others=True).
+        """
         if provider == "custom":
+            base = self._presets.resolve("custom")
             return ProviderPreset(
                 name="custom",
                 base_url=base_url,
                 default_model=model_name,
                 api_key_user_slot="custom",
+                supports_strict_schema=base.supports_strict_schema,
             )
         base = self._presets.resolve(provider)
         # Keep the preset's canonical base_url unless the caller explicitly overrides.
@@ -73,7 +79,19 @@ class ClassifierService:
             base_url=effective_base,
             default_model=effective_model,
             api_key_user_slot=base.api_key_user_slot,
+            supports_strict_schema=base.supports_strict_schema,
         )
+
+    def _effective_strict(self, preset: ProviderPreset) -> bool:
+        """Compute effective_strict per FR-021 AC-6 (Wave 3 merge rule).
+
+        ``strict_schema_override`` if explicitly ``True``/``False``; else fall
+        through to ``preset.supports_strict_schema``.
+        """
+        override = self._config.strict_schema_override
+        if override is not None:
+            return override
+        return preset.supports_strict_schema
 
     def _audit(self, event: dict[str, Any]) -> None:
         if self._audit_sink is not None:
@@ -113,7 +131,12 @@ class ClassifierService:
             )
             return self._rule.decide(req)
 
-        primary = LlmBackend(preset=preset, keyring=self._keyring)
+        effective_strict = self._effective_strict(preset)
+        primary = LlmBackend(
+            preset=preset,
+            keyring=self._keyring,
+            effective_strict=effective_strict,
+        )
         decorator = FallbackDecorator(
             primary=primary,
             fallback=self._rule,

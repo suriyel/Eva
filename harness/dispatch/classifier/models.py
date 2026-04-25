@@ -56,6 +56,12 @@ class ClassifierConfig(BaseModel):
 
     NFR-008: ``extra="forbid"`` prevents plaintext ``api_key`` from being
     smuggled in via PUT (T26).
+
+    Wave 3 (FR-021 AC-6): ``strict_schema_override`` is an optional three-state
+    flag (``None`` / ``True`` / ``False``). ``None`` means "fall back to
+    ``preset.supports_strict_schema``"; explicit ``True`` or ``False`` overrides
+    the preset capability bit. Additive field — backward compatible with
+    pre-Wave-3 payloads (defaults to ``None`` when absent).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +71,7 @@ class ClassifierConfig(BaseModel):
     base_url: str
     model_name: str
     api_key_ref: dict[str, str] | None = None
+    strict_schema_override: bool | None = None
 
 
 class TestConnectionRequest(BaseModel):
@@ -110,12 +117,21 @@ class ClassifierPrompt(BaseModel):
 # ProviderPreset
 # ---------------------------------------------------------------------------
 class ProviderPreset(BaseModel):
+    """OpenAI-compat provider preset tuple.
+
+    Wave 3 (FR-021 AC-4/5): ``supports_strict_schema`` capability bit —
+    defaults to ``True`` for backward compatibility (GLM / OpenAI / custom);
+    MiniMax preset overrides to ``False`` because its OpenAI-compat endpoint
+    does not reliably honour ``response_format=json_schema`` strict mode.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     name: ProviderLiteral
     base_url: str
     default_model: str
     api_key_user_slot: str
+    supports_strict_schema: bool = True
 
 
 __all__ = [

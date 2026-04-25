@@ -1113,7 +1113,10 @@ async def test_t79_llm_backend_raises_protocol_error_when_assistant_is_array(
         with pytest.raises(ClassifierProtocolError) as exc_info:
             await backend.invoke(req, prompt="p")
 
-    assert exc_info.value.cause == "schema_mismatch"
+    # Wave 3 (§3a): tolerant extractor scans for a balanced JSON OBJECT.
+    # A top-level array has no balanced ``{...}`` match → cause is
+    # ``json_parse_error`` (extractor miss), not ``schema_mismatch``.
+    assert exc_info.value.cause == "json_parse_error"
 
 
 # ---------------------------------------------------------------------------

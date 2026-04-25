@@ -35,6 +35,10 @@ _PRESETS: dict[str, ProviderPreset] = {
         base_url="https://api.minimax.chat/v1/",
         default_model="MiniMax-M2.7-highspeed",
         api_key_user_slot="minimax",
+        # Wave 3 (FR-021 AC-4): MiniMax OpenAI-compat endpoint does NOT reliably
+        # honour response_format=json_schema strict mode — capability bit OFF
+        # so ClassifierService drops to prompt-only JSON suffix + tolerant parse.
+        supports_strict_schema=False,
     ),
     "openai": ProviderPreset(
         name="openai",

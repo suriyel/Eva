@@ -447,3 +447,38 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Wave 3 一致性修订（+20/-7 行）：(1) §SRS Requirement 同步 FR-021 AC-4/5/6 + FR-023 EARS strict-off/tolerant-parse + AC-3..7 + IFR-004 AC-mod；(2) 类别占比统计 21/52→26/52=50%（FUNC 29 · BNDRY 8 · SEC 7 · INTG 8）；(3) Verification Checklist AC 追溯 13 旧+6 新 → 12 旧+8 新+1 IFR-mod+1 ASM；(4) T47 扩展 (a) 4 preset capability 位默认值 + (b) 5 组合 effective_strict 真值表断言，闭合 FR-021 AC-6 grey area
 - Approval 关卡: user selected "Approve & 推进 design→tdd"
 - current.phase: design → tdd
+
+### Session 22 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · TDD (Wave 3 · 2026-04-25)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier", category=core, ui=false, wave=3
+- Trigger: Session 21 推进至 `current.phase=tdd`；router 命中 `long-task-work-tdd`，starting_new=false（Wave 3 增量重做 TDD R-G-R）
+- Anchors: SRS FR-021 AC-4/5/6 (capability bit + override merge) · FR-023 AC-3..7 (strict-off body + tolerant parse) · IFR-004 AC-mod · ASM-008 / Design §4.4.2 / §6.1.4 §3a (effective_strict) / §6.2.2 / §6.2.4 / Feature §IC §IS §3a §BC §Reuse §Tests T47..T52 §Checklist
+- Feature design doc: `docs/features/19-f19-bk-dispatch-model-resolver-classifie.md`（§7 T47..T52 Wave 3 行）
+- env-guide approval: PASS（approved §3/§4 sections valid · 2026-04-21）
+- Bootstrap: pure-Python / pytest / coverage · 无服务依赖（F19 keyring + HTTP 单测内 fakes）· "纯 CLI / library 模式" per env-guide §1 L126
+- **Red — DISPATCH** `long-task-tdd-red` SubAgent
+  - status=pass · 19 个新失败测试（2 个新文件）：tests/test_f19_wave3_strict_schema_capability.py · tests/test_f19_wave3_llm_strict_off.py
+  - Rule 1 categories=FUNC=9 · BNDRY=6 · SEC=0 (pre-Wave-3 已覆盖) · INTG=2 · FUNC-error=2
+  - Rule 2 negative_ratio=0.47（9/19）
+  - Rule 3 low_value_ratio=0.04 · Rule 4 wrong_impl_challenge=pass · Rule 6 all_failed=true · Rule 7 N/A（ui=false）
+- **Green — DISPATCH** `long-task-tdd-green` SubAgent
+  - status=pass · all_tests_pass=true · wave3=19/19 · regression=479/479
+  - impl_files: harness/dispatch/classifier/{models.py · provider_presets.py · llm_backend.py · service.py}
+  - drift-protocol: tests/test_f19_coverage_supplement.py T79 更新为期望 `cause='json_parse_error'`（array-only assistant content：tolerant 提取器扫的是平衡 `{...}` object，array 没有 → json_parse_error，与 §3a step ②/③ 一致）
+  - design_alignment §4=matches · §6=matches · §8=matches · drift=resolved · env_guide_synced=true（无新依赖）
+- **Refactor — DISPATCH** `long-task-tdd-refactor` SubAgent（首次因 Monitor/run_in_background 卡住未返契约 → rerun foreground 完成）
+  - status=pass · static_tool=ruff+mypy · F19-scoped static_violations=0
+  - mypy: 0 violations across 75 source files · ruff: F19 范围 0；3 个 pre-existing 在 `scripts/phase_route.py` (E731 ×2) + `scripts/validate_features.py` (F401)，dirty-bag carry-over（feature #3 commit 6a6f03b）
+  - tests_still_pass=true wave3=19/19 regression=479/479 · design_alignment_final §4/§6/§8=matches · drift=none
+  - 无新结构性编辑 — Green 已幂等（`_extract_json` / `_JSON_ONLY_SUFFIX` 单一来源；`_effective_strict()` 单调用点；capability bit 在 builtin/custom 分支对称传播）
+- **Quality Gates — DISPATCH** `long-task-quality` SubAgent
+  - status=pass · coverage_line=96.32% (gate ≥ 90) · coverage_branch=81.45% (gate ≥ 80)
+  - srs_trace covered=[FR-019, FR-020, FR-021, FR-022, FR-023, IFR-004] uncovered=[]
+  - tests_run=479 · passed=479 · failed=0（30 deselected：real_external_llm/real_http/real_fs/real_keyring/real_cli）
+  - Real-test sub-run: 3/3 PASS（test_f19_real_fs / real_http / real_keyring；real_external_llm 离线 deselected）
+- current.phase: tdd → st
+- Validate: `validate_features.py: VALID — 22 features (5 passing, 5 failing, 12 deprecated) | current=#19(st) | Waves: 3 | Assumptions: 8`（3 个 cross-feature warning 为预期）
+
+#### Session 22 Findings
+- ⚠ [Coverage] **branch buffer 收窄**：Wave 3 前 84.62% → Wave 3 后 81.45%（缓冲 4.62 pp → 1.45 pp）；line 同步 98.37% → 96.32%。仍均超阈，但若后续在 `harness/dispatch/classifier/llm_backend.py:123-127, 148-151, 157` 增加分支而无配对测试可能触底。主要未覆盖分支位于 strict-on 旧路径的回退处理（仅在 real_external_llm smoke 触达，本次 deselect）。
+- ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` dirty 改动延续 Session 12/15/17/18/19/20 carry-over，本次 commit 继续显式排除，待独立 chore commit 清理（不阻塞）。
