@@ -521,3 +521,31 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage] branch 81.45% — 缓冲 1.45 pp（Wave 3 前 84.62% → Wave 3 后 81.45%）。strict-on 旧路径回退分支主要未覆盖；后续在 `harness/dispatch/classifier/llm_backend.py:123-127, 148-151, 157` 增加分支需配对测试避免触底
 - ⚠ [Provider-Compat] MiniMax `response_format=json_schema strict` HTTP 400 拒收已通过 `supports_strict_schema=False` + tolerant parse + JSON-only suffix 规避；但 OpenAI-compat provider 协议漂移持续存在风险（GLM/OpenAI/custom 仍走 strict-on，若后续 provider 端协议变更需 re-smoke + 必要时再增 capability 位）
 - ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` dirty 改动延续 Session 12/15/17/18/19/20/22 carry-over，本次 commit 继续显式排除，待独立 chore commit 清理（不阻塞）
+
+### Session 24 — Feature #20 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess · Design (Wave 2 · 2026-04-25)
+
+- target_feature: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=2
+- Trigger: phase_route.py → next_skill=long-task-work-design, feature_id=20, starting_new=true (deps 2/3/18/19 全部 passing)
+- Anchors:
+  - Design §1 (lines 14-57) + §2.1 选定方案 asyncio (60-68) + §4.5 F20 (436-511) + §6.1 External Interfaces (937-1102) + §6.2 Internal API Contracts (1103+)
+  - SRS FR-001/002/003/004 (L136/146/156/165) · FR-024/025/026/027/028/029 (L371/380/389/399/408/417) · FR-039/040/042/047/048 (L520/529/549/597/606) · NFR-003/004/015/016 (table rows L739-752) · IFR-003 (table row L773)
+  - env-guide §4 (lines 259-292) — 存量代码库约束（greenfield placeholder）
+  - ucd: ui:false → 跳过 UCD 引用
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Config Gate: 跳过 — required_configs HARNESS_WORKDIR (workdir 路径) + PluginLongTaskForAgent (file) 不含连接串键 (URL/URI/DSN/CONNECTION/HOST/PORT/ENDPOINT)
+- **Feature-Design — DISPATCH** `long-task-feature-design` SubAgent
+  - status=pass · test_inventory_count=50 · negative_ratio=46% (23/50) · interface_methods=22 · existing_code_reuse=16 · assumption_count=9（低影响）
+  - Provider: IAPI-001 / IAPI-002 / IAPI-004 / IAPI-012 / IAPI-013 / IAPI-016 / IAPI-019；Consumer: IAPI-003 / IAPI-005 / IAPI-008 / IAPI-009 / IAPI-010 / IAPI-011 / IAPI-017
+  - UML 元素覆盖：seq 16/16 + state(runs) 9/9 + state(anomaly) 8/8 + flow 5/5 + class 15/15 = 53/53
+  - Assumptions（user-approved 2026-04-25）：
+    1. FR-001 "5s 进 running" = 软目标（state=starting 立即返回；state=running 由首张 ticket spawn 转换）
+    2. NFR-003/004 retry_count 0 起递增 → 命中 3 次后第 4 次为 escalate（与 ATS L159/160 对齐）
+    3. GitCommit schema = `{sha, author, subject, committed_at, files_changed, feature_id?}`
+    4. FR-048 SignalFileWatcher.debounce_ms=200（端到端 ≤2s）
+    5. FR-027 watchdog 默认 1800.0s（v1 写死；v1.1 deferred 用户配置入口）
+    6. ValidatorRunner 协议 = `--json <path>` + stdout `{ok, issues}`；缺 `--json` 走 wrapper
+    7. EscalationEmitter 双广播 `/ws/anomaly` 主推 + `/ws/run/:id` 同步 RunPhaseChanged
+    8. FR-003 信号优先级 bugfix > increment（透传 `phase_route.py:109-115` 既有判定）
+    9. NFR-016 filelock acquire timeout=0.5s（失败抛 `RunStartError(reason="already_running")` → 409）
+- Design: DONE (`docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md`)
+- current.phase: design → tdd
