@@ -1,22 +1,25 @@
 /**
- * Vite entry — mount AppShell into #root. Routes are a minimal placeholder set
- * for F12; F21/F22 will register real page components.
+ * Vite entry — mount AppShell into #root.
+ * F21 替换 / · /hil · /stream(改为 /ticket-stream) 三条占位路由为真实页面。
  */
 import * as React from "react";
 import ReactDOM from "react-dom/client";
 import { AppShell, type RouteSpec } from "./app/app-shell";
+import { RunOverviewPage } from "./routes/run-overview";
+import { HilInboxPage } from "./routes/hil-inbox";
+import { TicketStreamPage } from "./routes/ticket-stream";
 import "./theme/tokens.css";
 
-// F12 预留全部 8 个导航占位路由；F21 / F22 feature 会逐项替换 element 为真实页面。
-// 保留占位路由的理由：Sidebar 的 8 项（UCD §3.8）全部可点击，避免"display-only"缺陷；
-// 占位 element 为一个主内容容器 div，满足 AppShell children slot 契约，无业务逻辑。
 const placeholder = (
   <div data-component="route-placeholder" style={{ padding: 24, color: "var(--fg-dim)" }} />
 );
 const defaultRoutes: RouteSpec[] = [
-  { path: "/", nav: "overview", title: "总览", element: placeholder },
-  { path: "/hil", nav: "hil", title: "HIL 待答", element: placeholder },
-  { path: "/stream", nav: "stream", title: "Ticket 流", element: placeholder },
+  { path: "/", nav: "overview", title: "总览", element: <RunOverviewPage /> },
+  { path: "/hil", nav: "hil", title: "HIL 待答", element: <HilInboxPage /> },
+  { path: "/ticket-stream", nav: "stream", title: "Ticket 流", element: <TicketStreamPage /> },
+  // F21 设计 §4.6.2 路由表为 `/ticket-stream`；保留 `/stream` 作为 Sidebar.NAV_ITEMS
+  // 的 nav id 同义路径，避免 F12 Sidebar 的 active 高亮回退到 overview。
+  { path: "/stream", nav: "stream", title: "Ticket 流", element: <TicketStreamPage /> },
   { path: "/docs", nav: "docs", title: "文档 & ROI", element: placeholder },
   { path: "/process", nav: "process", title: "过程文件", element: placeholder },
   { path: "/commits", nav: "commits", title: "提交历史", element: placeholder },

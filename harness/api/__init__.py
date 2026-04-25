@@ -18,6 +18,7 @@ from __future__ import annotations
 import pathlib
 import shutil
 import subprocess
+from collections.abc import Mapping
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from starlette.staticfiles import StaticFiles
@@ -93,12 +94,22 @@ def health() -> dict[str, object]:
 # --------------------------------------------------------------------------- #
 
 
-async def _ws_echo_channel(websocket: WebSocket, channel: str) -> None:
-    """Accept a loopback-origin WS, acknowledge subscribe, stream ping frames.
+async def _ws_echo_channel(
+    websocket: WebSocket,
+    channel: str,
+    initial_envelope: Mapping[str, object] | None = None,
+) -> None:
+    """Accept a loopback-origin WS, acknowledge subscribe, optionally push initial envelope.
 
     The envelope schema here is intentionally minimal — F18/F19/F20 will replace
     individual handlers with real business payloads. F12 only asserts the wire
     contract: `{"kind": ..., "channel": ...}` JSON messages.
+
+    F21 (RunOverview/HILInbox/TicketStream) requires a typed envelope per channel
+    so the React reducers / hook subscribers can run their happy paths against a
+    real ASGI server. Until F18/F20 supply real broadcast hubs, ``initial_envelope``
+    is sent immediately after the client's subscribe — preserving the F12 wire
+    contract (kind + channel) while exposing a F21-aligned ``kind`` value.
     """
     await websocket.accept()
     try:
@@ -106,29 +117,58 @@ async def _ws_echo_channel(websocket: WebSocket, channel: str) -> None:
         # integration tests send `{"kind":"subscribe","channel": <channel>}` and
         # expect a matching envelope back.
         msg = await websocket.receive_json()
-        ack = {
-            "kind": "subscribe_ack",
-            "channel": channel,
-            "echo": msg,
-        }
-        await websocket.send_json(ack)
+        if initial_envelope is not None:
+            envelope = {**initial_envelope, "channel": channel}
+        else:
+            envelope = {
+                "kind": "subscribe_ack",
+                "channel": channel,
+                "echo": msg,
+            }
+        await websocket.send_json(envelope)
     except WebSocketDisconnect:
         return
 
 
+# F21 IAPI-001 envelopes — minimal payloads sufficient for HilInboxPage /
+# TicketStreamPage / RunOverviewPage initial render under the wire contract.
+_F21_HIL_BOOTSTRAP = {
+    "kind": "hil_question_opened",
+    "payload": {
+        "ticket_id": "t-bootstrap",
+        "questions": [],
+    },
+}
+_F21_STREAM_BOOTSTRAP = {
+    "kind": "stream_event",
+    "payload": {
+        "seq": 0,
+        "kind": "text",
+        "payload": {"text": ""},
+    },
+}
+_F21_RUN_BOOTSTRAP = {
+    "kind": "run_phase_changed",
+    "payload": {
+        "phase": "design",
+        "subprogress": None,
+    },
+}
+
+
 @app.websocket("/ws/run/{run_id}")
 async def ws_run(websocket: WebSocket, run_id: str) -> None:
-    await _ws_echo_channel(websocket, f"/ws/run/{run_id}")
+    await _ws_echo_channel(websocket, f"/ws/run/{run_id}", _F21_RUN_BOOTSTRAP)
 
 
 @app.websocket("/ws/hil")
 async def ws_hil(websocket: WebSocket) -> None:
-    await _ws_echo_channel(websocket, "/ws/hil")
+    await _ws_echo_channel(websocket, "/ws/hil", _F21_HIL_BOOTSTRAP)
 
 
 @app.websocket("/ws/stream/{ticket_id}")
 async def ws_stream(websocket: WebSocket, ticket_id: str) -> None:
-    await _ws_echo_channel(websocket, f"/ws/stream/{ticket_id}")
+    await _ws_echo_channel(websocket, f"/ws/stream/{ticket_id}", _F21_STREAM_BOOTSTRAP)
 
 
 @app.websocket("/ws/anomaly")

@@ -615,3 +615,14 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - UML: 2 sequenceDiagram (HIL submit · TicketStream load) + 1 stateDiagram-v2 (HILCard answer-flow) + 1 flowchart TD (deriveHilControl 4-decision)
 - Design: DONE (docs/features/21-f21-fe-runviews-runoverview-hilinbox-tic.md)
 - current.phase: design → tdd
+- **TDD R-G-R — DISPATCH** 三个独立 SubAgent
+  - Red: 11 测试文件 / 64 用例 (10 vitest + 1 pytest real_http) 全 FAIL · 11 categories (FUNC/happy/error · BNDRY/edge · SEC/xss · UI/render · INTG/api/ws/recon/real_http · PERF/scroll/latency) · negative_ratio=43.75% · low_value=0% · real_test_count=3 · UML coverage 4/4 (HIL submit seq + TicketStream load seq + HILCard stateDiagram-v2 + deriveHilControl flowchart)
+  - Green: 15 impl 文件全部对齐 §4 14 公共符号 / §6 模块布局 + 11 existing-code reuse / §8 数据模型；UI vitest 144/144 + backend 549 UT + 10 real_http 全过；drift=none；附带（a）F12 `apps/ui/src/ws/client.ts` 心跳双调度 bugfix（保 F12 既有断言）（b）`harness/api/__init__.py` 补 F21-aligned bootstrap envelopes（保 F12 wire contract）（c）HILCard T16/T44 happy-dom CSSOM 补丁
+  - Refactor: 提炼 `resolveApiBaseUrl` 消除 4 处重复 + `RunControlErrorCode` type alias；mypy `dict→Mapping[str, object]` 修复；black/ruff 0 violations；tsc 0 violations；UI 144/144 + 521 UT + 3 real_http 重跑无回归
+- **Quality Gates — DISPATCH** `long-task-quality` SubAgent
+  - Gate 0 Real Test PASS · Gate 0.5 SRS trace 7/7 covered (FR-010/030/031/034 + NFR-002/011 + IFR-007) · uncovered_fr_ids=[]
+  - Coverage: line=94.96% (≥90%) / branch=82.93% (≥80%) / functions=92.17%；vitest 27 文件 / 177 用例（含为达标新增的 5 个测试文件：use-auto-scroll / use-inline-search / event-tree + reducer/hil-card 扩展）
+  - Risks: event-tree.tsx happy-dom 下 useVirtualizer 主路径不可达（fallback 已覆盖；生产虚拟化逻辑由 ST/E2E 验证）
+- TDD: green ✓ (R-G-R complete)
+- Quality: line=94.96%, branch=82.93%, srs_trace_coverage=OK
+- current.phase: tdd → st

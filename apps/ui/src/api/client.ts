@@ -46,7 +46,17 @@ function readApiBase(obj: unknown): string | null {
   return typeof raw === "string" && raw.length > 0 ? raw : null;
 }
 
-function resolveBaseUrl(): string {
+/**
+ * Resolve the REST API base URL.
+ *
+ * Priority: `globalThis.__HARNESS_API_BASE__` → `window.__HARNESS_API_BASE__`
+ * → Vite `import.meta.env.VITE_API_BASE` → empty string (same-origin).
+ *
+ * Exported for direct `fetch()` callers (F21 routes) that bypass `apiClient`
+ * for low-level streaming / control-flow paths but still need to resolve
+ * the loopback host consistently.
+ */
+export function resolveApiBaseUrl(): string {
   const fromGlobal = readApiBase(globalThis);
   if (fromGlobal) return fromGlobal;
   if (typeof window !== "undefined") {
@@ -92,7 +102,7 @@ function extractErrorCode(detail: unknown): string | null {
 
 export const apiClient = {
   async fetch<Resp = unknown>(method: string, path: string, body?: unknown): Promise<Resp> {
-    const base = resolveBaseUrl();
+    const base = resolveApiBaseUrl();
     const url = `${base}${path}`;
     let resp: Response;
     try {

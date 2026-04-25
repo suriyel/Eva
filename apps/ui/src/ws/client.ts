@@ -276,15 +276,19 @@ export class HarnessWsClient {
     this._heartbeatTimer = setTimeout(() => {
       this._heartbeatTimer = null;
       for (const l of this._heartbeatListeners) l("missed");
-      // heartbeat miss → enter reconnecting
+      // heartbeat miss → enter reconnecting via socket.close → onclose → _scheduleReconnect
+      // (single-path; avoids double-schedule which prematurely advances backoff).
+      // If socket.close throws synchronously (server-side already gone), fall back to
+      // direct _scheduleReconnect so state still transitions per IFR-007.
+      let closeOk = true;
       if (this._socket) {
         try {
           this._socket.close(4001);
         } catch {
-          /* ignore */
+          closeOk = false;
         }
       }
-      if (!this._userClosed) {
+      if (!this._userClosed && (!this._socket || !closeOk)) {
         this._scheduleReconnect();
       }
     }, HEARTBEAT_TIMEOUT_MS);
