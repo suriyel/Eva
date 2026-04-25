@@ -743,3 +743,21 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - TDD: green ✓ (R-G-R complete) · 测试总数 51 + 35 inproc + 5 F12/F21 ws update = 91 fresh tests (R30 anchor 既有不计)
 - Quality: line=90.24%, branch≈85.7%, srs_trace_coverage=OK (uncovered_fr_ids=[])
 - current.phase: tdd → st
+
+---
+
+### Session 30 — Feature #23 Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend · ST (Wave 3 · 2026-04-26)
+
+- target_feature: id=23, title="Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend", category=bugfix, ui=false, wave=3
+- Trigger: phase_route.py → next_skill=long-task-work-st, feature_id=23, starting_new=false
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Bootstrap: env-guide.md 可用；Feature-ST SubAgent 自管 `api` (uvicorn @ 8765) 服务生命周期
+- **Feature-ST — DISPATCH** `long-task-feature-st` SubAgent
+  - status=pass · 47 ST cases (36 FUNC / 7 BNDRY / 2 SEC / 2 PERF · negative=20/47=42.6% ≥40%) · 0 manual / 0 blocked
+  - validate_st_cases.py exit 0 `VALID — 47 test case(s)` · check_ats_coverage.py exit 0 strict mode
+  - Service start: PID 474534 → uvicorn @ 127.0.0.1:8765；`/api/health` 200（含 `claude_auth.authenticated:true`、`bind:127.0.0.1`、`cli_versions.claude:2.1.119`）
+  - Execution: `pytest tests/integration/test_f23_real_rest_routes.py test_f23_real_uvicorn_handshake.py test_f23_real_lifespan_wiring.py test_f23_inproc_coverage.py test_f20_real_rest_ws.py -v` → 87 passed, 0 failed in 47.25s（47 ST-mapped + 40 quality 补充；F20 不回归 R30 PASS）
+  - R47 PERF 单独验证：30 次 `/ws/anomaly` broadcast→receive 真 uvicorn loopback p95 < 100ms（IFR-007 PERF / ATS L185）
+  - Cleanup: `kill 474534` + `lsof -ti :8765 | xargs -r kill -9` 兜底；`lsof -i :8765` 0 lines；PID 文件已删
+- Inline Check: PASS (P2: 19/19 contract methods + `RunControlBus.broadcast_stream_event` 新增 + 12 routers `app.include_router()`, T2: 47/47 ST cases validated · 88 tests collectable, D3: `uvicorn[standard]==0.44.0` → `websockets==16.0` + `wsproto==1.3.2` importable, U1: N/A (ui:false), ATS Category: PASS strict, §4: 0 violations · greenfield placeholders)
+- Persist: commit `9b1e8f2` (`fix: ... (#20)`) → RELEASE_NOTES ### Fixed 追加 [Critical] 条目 → feature-list.json #23 status: failing→passing · git_sha=9b1e8f2 · st_case_path · st_case_count=47 · current=null → validate_features.py VALID (9 passing, 2 failing, 12 deprecated)
