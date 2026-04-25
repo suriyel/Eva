@@ -2,31 +2,42 @@
 
 **Feature ID**: 19
 **关联需求**: FR-019, FR-020, FR-021, FR-022, FR-023, IFR-004（ATS L87-91 + L182；必须类别 FUNC / BNDRY / SEC / PERF；UI 类别由 F22 Fe-Config 单独承担）
-**日期**: 2026-04-25
+**日期**: 2026-04-25（Wave 3 增量更新）
 **测试标准**: ISO/IEC/IEEE 29119-3
 **模板版本**: 1.0
 
 > **说明**：
-> - 本文档为黑盒 ST 验收测试用例。预期结果仅从 SRS 验收准则（FR-019/020/021/022/023 + IFR-004）、ATS L87-91 / L182 类别约束、Feature Design Test Inventory T01–T46、可观察接口（`harness.dispatch.model.ModelResolver` / `harness.dispatch.classifier.ClassifierService` / `harness.dispatch.classifier.LlmBackend` / `harness.dispatch.classifier.RuleBackend` / `harness.dispatch.classifier.ProviderPresets` / `harness.dispatch.classifier.PromptStore` / `harness.dispatch.model.ModelRulesStore` 公开 API、FastAPI `TestClient` 经 `/api/settings/model_rules` · `/api/settings/classifier` · `/api/settings/classifier/test` · `/api/prompts/classifier` 路由、POSIX `os.stat().st_mode` 权限位、respx HTTP mock 请求 / 响应观测、`keyring.backends.fail` 注入观测）推导，不阅读实现源码。
+> - 本文档为黑盒 ST 验收测试用例。预期结果仅从 SRS 验收准则（FR-019/020/021/022/023 + IFR-004 + Wave 3 新增 AC：FR-021 AC-4/5/6、FR-023 AC-3/4/5/6/7、IFR-004 AC-mod、ASM-008）、ATS L87-91 / L182 类别约束、Feature Design Test Inventory T01–T52、可观察接口（`harness.dispatch.model.ModelResolver` / `harness.dispatch.classifier.ClassifierService` / `harness.dispatch.classifier.LlmBackend` / `harness.dispatch.classifier.RuleBackend` / `harness.dispatch.classifier.ProviderPresets` / `harness.dispatch.classifier.PromptStore` / `harness.dispatch.model.ModelRulesStore` 公开 API、FastAPI `TestClient` 经 `/api/settings/model_rules` · `/api/settings/classifier` · `/api/settings/classifier/test` · `/api/prompts/classifier` 路由、POSIX `os.stat().st_mode` 权限位、respx HTTP mock 请求 / 响应观测、`keyring.backends.fail` 注入观测、real_external_llm smoke 真网 round-trip）推导，不阅读实现源码。
+> - **Wave 3 增量背景**（2026-04-25）：MiniMax OpenAI-compat strict-schema bypass + preset capability 位 + tolerant parse；Wave 3 新增 6 条 ST 用例（ST-FUNC-019-047..051 + ST-FUNC-019-052）覆盖 8 条新 AC + 1 IFR-004-mod + 1 ASM-008；现有 ST-FUNC-019-001..046 用例措辞**不变**。
 > - **Specification resolutions applied from Feature Design Clarification Addendum**：5 条已批准 assumption（SSRF 白名单具体范围 / PromptStore history 粒度 / RuleBackend 判定优先级 / `ClassifierHttpError` 冒泡边界 / `classify` 内部 PromptStore.get 自取），见 `docs/features/19-f19-bk-dispatch-model-resolver-classifie.md` §Clarification Addendum；本文档预期结果均按已批准处置撰写。
 > - **`feature.ui == false` → 本特性无 UI 类别用例**。ATS L87 / L89 在 FR-019 / FR-021 行列出 UI 仅是为了对齐 F22 Fe-Config 的 SystemSettings 模型规则表 CRUD + Classifier 卡片渲染——这两项 UI 表面由 F22 独立 ST 承担，本特性覆盖的是后端 Resolver / Classifier / 路由契约表面。
 > - 本特性以 **"Backend library + REST routes via FastAPI TestClient — no live api uvicorn server required"** 模式运行（env-guide §1.6 纯 CLI / library 模式 —— `pytest tests/test_f19_*.py tests/integration/test_f19_*.py`）。环境仅需 §2 `.venv` 激活；REST 路由 ST 用例使用 `fastapi.testclient.TestClient` 直接装载 `harness.api:app` 并通过 `monkeypatch.setenv("HARNESS_HOME", tmp_path)` 隔离持久化路径。
-> - **手动测试**：本特性全部 61 条用例均自动化执行，无 `已自动化: No` 项；FR-019 / FR-021 涉及的 UI CRUD 体验由 F22 Fe-Config ST 承担。
+> - **手动测试**：本特性全部 67 条用例均自动化执行，无 `已自动化: No` 项；FR-019 / FR-021 涉及的 UI CRUD 体验由 F22 Fe-Config ST 承担。Wave 3 新增 ST-FUNC-019-052（real_external_llm smoke）通过 `@pytest.mark.real_external_llm` 标注；keyring 无 entry 时 pytest 自动 skip（在 ST 自动化语义下视为非阻塞 PASS）。
 
 ---
 
 ## 摘要
 
-| 类别 | 用例数 |
-|------|--------|
-| functional | 46 |
-| boundary | 7 |
-| ui | 0 |
-| security | 7 |
-| performance | 1 |
-| **合计** | **61** |
+| 类别 | 用例数 | Wave 2 基线 | Wave 3 增量 |
+|------|--------|-------------|-------------|
+| functional | 52 | 46 | +6（T47/T48/T49/T50/T51/T52） |
+| boundary | 7 | 7 | 0 |
+| ui | 0 | 0 | 0 |
+| security | 7 | 7 | 0 |
+| performance | 1 | 1 | 0 |
+| **合计** | **67** | **61** | **+6** |
 
-> **类别占比核验**（黑盒负向覆盖 ≥ 40%）：FUNC/error（含合集错误路径）≥ 18 + BNDRY 7 + SEC 7 = **≥ 32 / 61 ≈ 52% > 40%**。
+> **类别归属约定**：design Test Inventory 标 T52（real_external_llm smoke）为 INTG/http；ST 用例 ID 规范允许 CATEGORY ∈ {FUNC, BNDRY, UI, SEC, PERF}（见 `scripts/validate_st_cases.py` CASE_ID_PATTERN），与既有 ST-FUNC-019-020（T35 real_fs）/ ST-FUNC-019-021（T36 real_keyring）/ ST-PERF-019-001（T31 real_http timeout）一致，T52 归 functional 类别（black-box behavior 验证），具体判定脚注见用例 ST-FUNC-019-052 元数据。
+
+> **类别占比核验**（黑盒负向覆盖 ≥ 40%）：FUNC/error（含合集错误路径 + Wave 3 T51）≥ 19 + BNDRY 7 + SEC 7 = **≥ 33 / 67 ≈ 49% > 40%**。
+>
+> **Wave 3 增量映射**（编号紧接 Wave 2 末尾）：
+> - ST-FUNC-019-047 → T47（ProviderPreset.supports_strict_schema 默认值矩阵 + ClassifierConfig.strict_schema_override 三态 + effective_strict 5 行真值表）
+> - ST-FUNC-019-048 → T48（strict-off body 不含 response_format + system message 末尾 `_JSON_ONLY_SUFFIX` + URL/method/Authorization 与 strict-on 一致）
+> - ST-FUNC-019-049 → T49（tolerant parse 剥离 `<think>...</think>` 前缀后解析合法 JSON）
+> - ST-FUNC-019-050 → T50（tolerant parse 多段 JSON 时取首个语法平衡对象）
+> - ST-FUNC-019-051 → T51（tolerant parse 无 JSON 抛 `ClassifierProtocolError(cause='json_parse_error')` → FallbackDecorator 兜底 rule + audit `classifier_fallback`）
+> - ST-FUNC-019-052 → T52（real_external_llm smoke：MiniMax 真网 round-trip，验证 strict-off 路径 + ASM-008）
 
 ---
 
@@ -2694,6 +2705,298 @@ ST-FUNC-019-046
 
 ---
 
+<!-- ============================================================ -->
+<!-- Wave 3 增量（2026-04-25）：MiniMax OpenAI-compat strict-schema -->
+<!-- bypass + preset capability 位 + tolerant parse                -->
+<!-- 新增 6 条 ST 用例，覆盖 8 条新 AC + 1 IFR-mod + 1 ASM         -->
+<!-- ============================================================ -->
+
+### 用例编号
+
+ST-FUNC-019-047
+
+### 关联需求
+
+FR-021 AC-4/5/6 · §IC `ProviderPresets.resolve` + effective_strict 计算 · `ProviderPreset.supports_strict_schema` · `ClassifierConfig.strict_schema_override` · Feature Design Test Inventory T47 · Wave 3 增量
+
+### 测试目标
+
+验证（a）4 个内置 ProviderPreset 的 `supports_strict_schema` 能力位默认值正确（GLM/OpenAI/custom=True、MiniMax=False）；（b）`ClassifierConfig.strict_schema_override` 接受 True/False/None 三态且默认 None；（c）`effective_strict = override if override is not None else preset.supports_strict_schema` 合并逻辑在 5 行真值表上行为正确（None 沿用 preset、True/False 显式覆写优先于 preset）。
+
+### 前置条件
+
+- `.venv` 激活；`harness.dispatch.classifier.ProviderPresets` / `ProviderPreset` / `ClassifierConfig` 可导入
+- 不依赖磁盘 / 网络
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `presets = ProviderPresets()`；分别 `presets.resolve("glm" / "openai" / "custom" / "minimax")` | 4 个 ProviderPreset 对象返回；每个具备 `supports_strict_schema` 字段 |
+| 2 | 断言 `glm.supports_strict_schema is True` / `openai.supports_strict_schema is True` / `custom.supports_strict_schema is True` / `minimax.supports_strict_schema is False` | 4 行全部 True |
+| 3 | 构造 `ClassifierConfig(enabled=True, provider="minimax", base_url="https://api.minimax.chat/v1/", model_name="MiniMax-M2.7-highspeed")`；不传 `strict_schema_override` | 字段默认值为 `None` |
+| 4 | 上同 base 三次构造，分别传 `strict_schema_override=True / False / None` | 字段保留传入值；None / True / False 三态被接受 |
+| 5 | 对 5 组合 `(provider, override) ∈ {("glm",None),("glm",False),("glm",True),("minimax",None),("minimax",True)}` 求 `effective_strict` | 分别为 True / False / True / False / True |
+
+### 验证点
+
+- ProviderPreset 数据类含 `supports_strict_schema: bool` 字段
+- 4 个内置 preset 的能力位默认值与 design §6.1.4 表一致（MiniMax=False 是 Wave 3 关键差异）
+- ClassifierConfig.strict_schema_override 三态合法（不报 extra_forbidden / type error）
+- effective_strict 合并语义：None 沿用 preset；True/False 覆写优先于 preset
+
+### 后置检查
+
+- 内存对象，无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f19_wave3_strict_schema_capability.py::test_t47a_provider_preset_model_declares_supports_strict_schema_field`、`::test_t47b_glm_preset_supports_strict_schema_is_true`、`::test_t47c_openai_preset_supports_strict_schema_is_true`、`::test_t47d_custom_preset_supports_strict_schema_is_true`、`::test_t47e_minimax_preset_supports_strict_schema_is_false`、`::test_t47f_classifier_config_strict_schema_override_defaults_to_none`、`::test_t47g_classifier_config_strict_schema_override_accepts_bool_tri_state`、`::test_t47_effective_strict_truth_table[glm_none_preset_wins_true]`、`::test_t47_effective_strict_truth_table[glm_false_override_coerces_off]`、`::test_t47_effective_strict_truth_table[glm_true_override_stays_on]`、`::test_t47_effective_strict_truth_table[minimax_none_preset_wins_false]`、`::test_t47_effective_strict_truth_table[minimax_true_override_forces_on]`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-019-048
+
+### 关联需求
+
+FR-023 AC-3 · IFR-004 AC-mod · §IC `LlmBackend.invoke` 双路径 body 构造 · Feature Design Test Inventory T48 · Wave 3 增量
+
+### 测试目标
+
+验证 `effective_strict=False` 时 `LlmBackend.invoke` 构造的 HTTP request：(a) body **不含** `response_format` 字段；(b) system message `content` 末尾追加固定 `_JSON_ONLY_SUFFIX` 常量（prompt-only JSON 约束）；(c) URL / method / Authorization header 与 strict-on 路径完全一致（IFR-004 AC-mod 协议根不变）。
+
+### 前置条件
+
+- `.venv` 激活；respx 可用以捕获请求 body
+- `harness.dispatch.classifier.LlmBackend` / `_JSON_ONLY_SUFFIX` 可导入
+- keyring fixture 注入合法 api_key
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 构造 `LlmBackend`，注入 `effective_strict=False`；respx mock POST 任意 chat completions 端点返回合法 JSON envelope | mock 安装成功 |
+| 2 | `await backend.invoke(req, prompt="<system prompt>")`；从 respx 捕获请求 | request 解析为 dict |
+| 3 | 断言 `"response_format" not in body` | True（strict-off 不发送 schema 字段） |
+| 4 | 取 system message `content`，断言 `content.endswith(_JSON_ONLY_SUFFIX)` | True |
+| 5 | 比对 strict-on（`effective_strict=True`）路径的请求：URL、HTTP method、`Authorization: Bearer <key>` header 是否与 strict-off 路径一致 | URL/method/Auth 完全相同 |
+
+### 验证点
+
+- strict-off 分支彻底跳过 `response_format` 键发送（避免触发 MiniMax 协议错误）
+- system message 末尾 JSON-only suffix 由实现端拼接，调用方 prompt 未变
+- IFR-004 协议根（URL/method/Authorization）未因 strict-off 而漂移
+
+### 后置检查
+
+- respx 路由复位
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f19_wave3_llm_strict_off.py::test_t48a_strict_off_body_omits_response_format_key`、`::test_t48b_strict_off_system_message_ends_with_json_only_suffix`、`::test_t48c_strict_off_url_method_auth_identical_to_strict_on`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-019-049
+
+### 关联需求
+
+FR-023 AC-4/5 · §IC `LlmBackend._extract_json` tolerant parse · Feature Design Test Inventory T49 · Wave 3 增量
+
+### 测试目标
+
+验证 LLM 响应 content 形如 `"<think>step 1...</think>\n{合法JSON}"` 时，tolerant extractor 剥离 `<think>...</think>` 包裹的推理段后成功解析剩余 JSON 为 `Verdict`，且 `backend == "llm"`（无降级）。
+
+### 前置条件
+
+- `.venv` 激活；respx 可用
+- `LlmBackend` 在 `effective_strict=False` 下运行（tolerant parse 路径）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | respx mock POST 返回 chat envelope，其 `choices[0].message.content == "<think>step 1...</think>\n{\"verdict\":\"COMPLETED\",\"reason\":\"ok\",\"anomaly\":null,\"hil_source\":null}"` | mock 就绪 |
+| 2 | 调用 `backend.invoke(req, prompt)` | 不抛 |
+| 3 | 断言返回 `Verdict(verdict="COMPLETED", backend="llm")`（reason、anomaly、hil_source 与 JSON 一致） | True |
+
+### 验证点
+
+- `<think>` 标签 + 包裹内容被 tolerant extractor 完全剥离
+- 剩余 JSON 解析成功；不触发 ClassifierProtocolError 误降级
+- backend 字段保持 "llm"（FR-023 AC-4 strict-off 合法 JSON 走 LLM 路径）
+
+### 后置检查
+
+- respx 路由复位
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f19_wave3_llm_strict_off.py::test_t49a_tolerant_extract_strips_think_prefix_and_parses_json`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-019-050
+
+### 关联需求
+
+FR-023 AC-5 · §IC `LlmBackend._extract_json` 多段 JSON 首对象语义 · Feature Design Test Inventory T50 · Wave 3 增量
+
+### 测试目标
+
+验证 LLM 响应 content 含**多段** JSON 对象（混在自然语言间）时，tolerant extractor 取**首个**语法平衡 JSON 对象解析，忽略后续段；返回的 Verdict 反映首段。
+
+### 前置条件
+
+- `.venv` 激活；respx 可用
+- `LlmBackend` 在 strict-off 路径
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | respx mock content = `"前言文本{\"verdict\":\"CONTINUE\",\"reason\":\"a\",\"anomaly\":null,\"hil_source\":null}后续 {\"other\":\"junk\"}"` | mock 就绪 |
+| 2 | 调用 `backend.invoke(req, prompt)` | 不抛 |
+| 3 | 断言 `verdict == "CONTINUE"`（取首段对象，第二段 `{other:junk}` 被忽略） | True |
+| 4 | 断言 `backend == "llm"` | True |
+
+### 验证点
+
+- 语法平衡（balanced braces）扫描算法在首个完整 `{...}` 处停止
+- 不会拼接 / 误读第二段 JSON 导致 schema 校验失败
+- 与 T49 共同覆盖 FR-023 AC-5 的两类输入：噪声前缀（`<think>`）+ 多对象拼接
+
+### 后置检查
+
+- respx 路由复位
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f19_wave3_llm_strict_off.py::test_t50a_tolerant_extract_picks_first_balanced_json_object`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-019-051
+
+### 关联需求
+
+FR-023 AC-6/7 · §IC `LlmBackend._extract_json` 无 JSON · §Existing Code Reuse `FallbackDecorator` audit · Feature Design Test Inventory T51 · Wave 3 增量
+
+### 测试目标
+
+验证 LLM 响应 content 完全无可提取 JSON 对象（如 `"对不起我无法分类"`）时：(a) `LlmBackend.invoke` 抛 `ClassifierProtocolError(cause="json_parse_error")`；(b) `ClassifierService.classify` 经 FallbackDecorator 捕获后返回 `Verdict(backend="rule")`；(c) audit log 追加一行结构化事件 `{event:"classifier_fallback", cause:"json_parse_error"}`；(d) classify 永不抛（IAPI-010 约定保留）。
+
+### 前置条件
+
+- `.venv` 激活；respx 可用
+- audit log fixture / capsys 用于断言事件
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | respx mock content = `"对不起我无法分类"`（纯自然语言无 JSON 对象） | mock 就绪 |
+| 2 | 直接 `await backend.invoke(req, prompt)` | 抛 `ClassifierProtocolError`；`error.cause == "json_parse_error"` |
+| 3 | 改走 ClassifierService 全栈：`await service.classify(req)` | 不抛；返回 `Verdict(backend="rule")` |
+| 4 | 检查 audit log，断言含一行 `{"event":"classifier_fallback","cause":"json_parse_error",...}` | True |
+
+### 验证点
+
+- tolerant extractor 在无 JSON 时**确实抛**，而非静默返回（避免上层误以为 LLM 成功）
+- FallbackDecorator 捕获 ProtocolError 并下沉到 RuleBackend
+- audit `cause` 字段精确等于 `json_parse_error`（FR-023 AC-7 字面值）
+- classify 对外永不抛（IAPI-010）
+
+### 后置检查
+
+- respx 路由复位；audit log 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f19_wave3_llm_strict_off.py::test_t51a_tolerant_extract_no_json_raises_protocol_error_with_json_parse_error_cause`、`::test_t51b_classifier_service_no_json_content_falls_back_to_rule_with_audit`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-019-052
+
+### 关联需求
+
+IFR-004 AC-mod · ASM-008 · FR-023 strict-off 真网验证 · Feature Design Test Inventory T52 · Wave 3 增量
+
+### 测试目标
+
+通过 `@pytest.mark.real_external_llm` smoke 在真实 MiniMax OpenAI-compat 端点 `api.minimax.chat/v1/chat/completions` 上验证 strict-off 路径 + tolerant parse 端到端可用：(a) `test_connection` 在 IFR-004 10s 预算内返回结构化 `TestConnectionResult`；(b) `classify` 实网调用永不抛、返合法 `Verdict`，验证 ASM-008 假设（MiniMax strict-off + tolerant extractor 真网可用）。
+
+### 前置条件
+
+- `.venv` 激活
+- 平台 keyring 含 entry `service="harness-classifier"`、`username="minimax"`、有效 API key
+- 网络可达 `api.minimax.chat`（HTTPS 出站）
+- **当 keyring 无 entry 时**：pytest 自动 `skip()`（在 ST 自动化语义下视为非阻塞 PASS — 等价于"该 provider 等同 classifier disabled"，符合 design §11.4 Wave 3 Risk 行 fallback plan）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 从 `KeyringGateway()` 读 `harness-classifier/minimax` API key；缺失时 pytest.skip | 有 key → 继续；无 key → SKIPPED |
+| 2 | 构造 `ClassifierConfig(provider="minimax", base_url="https://api.minimax.chat/v1/", model_name="MiniMax-M2.7-highspeed", strict_schema_override=None)` → effective_strict=False | 配置就绪 |
+| 3 | `await service.test_connection(...)`；记录 wall-clock | 返回 `TestConnectionResult`（ok=True 或 ok=False + 已知 error_code）；耗时 ≤ 10s |
+| 4 | `await service.classify(req)` 真发 POST 一次 | 不抛；返回 `Verdict`；`backend ∈ {"llm","rule"}`（成功 LLM 时 backend="llm"，偶发空返回时 backend="rule" 视为辅助断言） |
+| 5 | 断言 verdict 字段 ∈ {COMPLETED, CONTINUE, RETRY, ABORT, HIL_REQUIRED}（Verdict 枚举范围） | True |
+
+### 验证点
+
+- ASM-008 假设：MiniMax 真实端点对 strict-off + JSON-only suffix prompt 路径稳定回 JSON
+- IFR-004 10s 预算在真网下满足
+- IAPI-010 永不抛承诺在真网下保留
+- 若实网偶发空返回触发 backend=rule，符合 design §11.4 Wave 3 Risk fallback（不算 FAIL）
+
+### 后置检查
+
+- 无副作用（test_connection 仅 ping，classify 单次调用 < 配额）
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/integration/test_f19_real_minimax.py::test_f19_real_minimax_test_connection_round_trip`、`::test_f19_real_minimax_classify_never_raises`
+- **Test Type**: Real
+
+> **类别归属说明**：design Test Inventory 标 T52 为 INTG/http（外部 LLM 端点真网集成）；ST 用例 ID 规范允许的 CATEGORY 仅 FUNC/BNDRY/UI/SEC/PERF，无独立 INTG 类。本用例本质验证 IFR-004 strict-off 路径在真实 MiniMax 端点的 happy/error 行为契约，归入 `functional` 与 ST-PERF-019-001（T31 真网 timeout）/ ST-FUNC-019-020（T35 real_fs）/ ST-FUNC-019-021（T36 real_keyring）的既有归类约定一致。
+
+---
+
 ## 可追溯矩阵
 
 | 用例 ID | 关联需求 | verification_step | 自动化测试 | Test Type | 结果 |
@@ -2759,6 +3062,12 @@ ST-FUNC-019-046
 | ST-FUNC-019-044 | LlmBackend 异常映射 / T75-T82 | verification_steps[6] | `tests/test_f19_coverage_supplement.py::test_t75_llm_backend_raises_http_error_on_connect_error`、`::test_t76_llm_backend_raises_http_error_on_generic_http_error`、`::test_t77_llm_backend_raises_protocol_error_on_non_json_envelope`、`::test_t78_llm_backend_raises_protocol_error_on_missing_choices`、`::test_t79_llm_backend_raises_protocol_error_when_assistant_is_array`、`::test_t80_llm_backend_raises_protocol_error_on_anomaly_out_of_enum`、`::test_t81_llm_backend_raises_protocol_error_on_empty_reason`、`::test_t82_llm_backend_maps_keyring_failure_to_http_error_keyring_cause` | Real | PASS |
 | ST-FUNC-019-045 | validate_base_url 守卫合集 / T83-T86 | verification_steps[7] | `tests/test_f19_coverage_supplement.py::test_t83_validate_base_url_rejects_scheme_missing`、`::test_t84_validate_base_url_rejects_http_scheme_for_whitelist_domain`、`::test_t85_validate_base_url_accepts_whitelist_subdomain_over_https`、`::test_t86_validate_base_url_rejects_http_scheme_for_custom_dns_host` | Real | PASS |
 | ST-FUNC-019-046 | 底层组件边界合集 / T87-T98 | verification_steps[0] | `tests/test_f19_coverage_supplement.py::test_t87_list_returns_all_four_providers_including_custom`、`::test_t88_rules_store_load_missing_file_returns_empty_list`、`::test_t89_rules_store_load_whitespace_file_returns_empty_list`、`::test_t90_rules_store_load_dict_root_raises_corrupt_error`、`::test_t91_rules_store_load_schema_mismatch_raises_corrupt_error`、`::test_t92_rules_store_save_preserves_all_rules_in_order`、`::test_t93_rules_store_path_property_returns_constructor_path`、`::test_t94_prompt_store_get_whitespace_file_returns_default_prompt`、`::test_t95_prompt_store_get_corrupt_json_raises_prompt_store_corrupt_error`、`::test_t96_prompt_store_put_overwrites_corrupt_existing_file`、`::test_t97_prompt_store_put_parent_mkdir_failure_raises_prompt_store_error`、`::test_t98_prompt_store_path_property_matches_constructor` | Real | PASS |
+| ST-FUNC-019-047 | FR-021 AC-4/5/6 / T47 / Wave 3 | verification_steps[8] | `tests/test_f19_wave3_strict_schema_capability.py::test_t47a_provider_preset_model_declares_supports_strict_schema_field`、`::test_t47b_glm_preset_supports_strict_schema_is_true`、`::test_t47c_openai_preset_supports_strict_schema_is_true`、`::test_t47d_custom_preset_supports_strict_schema_is_true`、`::test_t47e_minimax_preset_supports_strict_schema_is_false`、`::test_t47f_classifier_config_strict_schema_override_defaults_to_none`、`::test_t47g_classifier_config_strict_schema_override_accepts_bool_tri_state`、`::test_t47_effective_strict_truth_table[glm_none_preset_wins_true]`、`::test_t47_effective_strict_truth_table[glm_false_override_coerces_off]`、`::test_t47_effective_strict_truth_table[glm_true_override_stays_on]`、`::test_t47_effective_strict_truth_table[minimax_none_preset_wins_false]`、`::test_t47_effective_strict_truth_table[minimax_true_override_forces_on]` | Real | PASS |
+| ST-FUNC-019-048 | FR-023 AC-3 / IFR-004 AC-mod / T48 / Wave 3 | verification_steps[9] | `tests/test_f19_wave3_llm_strict_off.py::test_t48a_strict_off_body_omits_response_format_key`、`::test_t48b_strict_off_system_message_ends_with_json_only_suffix`、`::test_t48c_strict_off_url_method_auth_identical_to_strict_on` | Real | PASS |
+| ST-FUNC-019-049 | FR-023 AC-4/5 / T49 / Wave 3 | verification_steps[10] | `tests/test_f19_wave3_llm_strict_off.py::test_t49a_tolerant_extract_strips_think_prefix_and_parses_json` | Real | PASS |
+| ST-FUNC-019-050 | FR-023 AC-5 / T50 / Wave 3 | verification_steps[10] | `tests/test_f19_wave3_llm_strict_off.py::test_t50a_tolerant_extract_picks_first_balanced_json_object` | Real | PASS |
+| ST-FUNC-019-051 | FR-023 AC-6/7 / T51 / Wave 3 | verification_steps[10] | `tests/test_f19_wave3_llm_strict_off.py::test_t51a_tolerant_extract_no_json_raises_protocol_error_with_json_parse_error_cause`、`::test_t51b_classifier_service_no_json_content_falls_back_to_rule_with_audit` | Real | PASS |
+| ST-FUNC-019-052 | IFR-004 AC-mod / ASM-008 / T52 / Wave 3 real_external_llm smoke | verification_steps[11] | `tests/integration/test_f19_real_minimax.py::test_f19_real_minimax_test_connection_round_trip`、`::test_f19_real_minimax_classify_never_raises` | Real | PASS |
 
 > 结果 valid values: `PENDING`, `PASS`, `FAIL`, `MANUAL-PASS`, `MANUAL-FAIL`, `BLOCKED`, `PENDING-MANUAL`
 
@@ -2768,11 +3077,16 @@ ST-FUNC-019-046
 
 | Metric | Count |
 |--------|-------|
-| Total Real Test Cases | 61 |
-| Passed | 61 |
+| Total Real Test Cases | 67 |
+| Passed | 67 |
 | Failed | 0 |
 | Pending | 0 |
 
 > Real test cases = test cases with Test Type `Real` (executed against a real running environment, not Mock).
 > Any Real test case FAIL blocks the feature from being marked `"passing"` — must be fixed and re-executed.
-> 全部 61 用例自动化执行（无 `已自动化: No` 项）；映射到 98 个底层 pytest 函数（部分用例为合集，覆盖率补强类用例聚合多个函数到一个 ST 用例下，便于黑盒视角阅读）。
+> 全部 67 用例自动化执行（无 `已自动化: No` 项）；映射到 119 个底层 pytest 函数（含 Wave 3 新增 21 个）；部分用例为合集（覆盖率补强类用例聚合多个函数到一个 ST 用例下，便于黑盒视角阅读）。
+>
+> **Wave 3 增量执行证据**（2026-04-25）：
+> - `pytest tests/test_f19_wave3_*.py tests/integration/test_f19_real_minimax.py -v` → 21 passed in 5.15s
+> - `pytest tests/test_f19_*.py tests/integration/test_f19_*.py` → 119 passed in 18.09s（含 Wave 2 基线 98 + Wave 3 增量 21；零回归）
+> - real_external_llm smoke（T52 / ST-FUNC-019-052）：本机 keyring 含有效 MiniMax key，2 个真网用例均 PASSED（非 SKIPPED），ASM-008 假设在测试时点验证有效
