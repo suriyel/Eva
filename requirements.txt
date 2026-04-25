@@ -19,6 +19,10 @@ pydantic==2.13.3
 aiosqlite==0.20.0
 structlog==24.4.0
 
+# Run lifecycle (F20 — Orchestrator / SignalFileWatcher)
+filelock==3.29.0
+watchdog==6.0.0
+
 # PTY back-end (F18 — Bk-Adapter; POSIX only, see harness/pty/posix.py)
 ptyprocess==0.7.0 ; sys_platform != "win32"
 pydantic_core==2.46.3
