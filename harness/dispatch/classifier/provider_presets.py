@@ -33,7 +33,7 @@ _PRESETS: dict[str, ProviderPreset] = {
     "minimax": ProviderPreset(
         name="minimax",
         base_url="https://api.minimax.chat/v1/",
-        default_model="abab6.5s-chat",
+        default_model="MiniMax-M2.7-highspeed",
         api_key_user_slot="minimax",
     ),
     "openai": ProviderPreset(

@@ -389,7 +389,7 @@ async def test_t60_put_classifier_config_persists_to_disk_and_round_trips(
         "enabled": True,
         "provider": "minimax",
         "base_url": "https://api.minimax.chat/v1/",
-        "model_name": "abab6.5s-chat",
+        "model_name": "MiniMax-M2.7-highspeed",
     }
     client = await _app_client(home)
     async with client as c:

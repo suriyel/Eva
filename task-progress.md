@@ -397,3 +397,25 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage] branch 84.62% — 4.62 pp 缓冲，ProviderPresets / FallbackDecorator audit 分支边界改动易触底；后续若改动 fallback 路径需重跑 quality gate
 - ⚠ [Stale-Scripts] 会话开始前 `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 已存 dirty 改动，非本 feature 范围；本次 commit 继续显式排除，延续 Session 12/15 的处理方针，留待独立 chore commit 清理
 
+### Session 19 — Feature #19 · Real-External LLM Smoke (Post-ST · 2026-04-25)
+
+- Trigger: 用户请求"使用真实 MiniMax key 做真实测试"。F19 已 passing，本会话为 post-ST ad-hoc smoke，不改 feature-list.json status / 不复开 current 锁。
+- **Key 持久化**: `KeyringGateway().set_secret("harness-classifier", "minimax", <key>)` → SecretService backend（chainer 链路 `Keyring → PlaintextKeyring`，dbus Secret Service 优先吸收，未触发 PlaintextKeyring 降级警告）；key **不入任何文件 / 不入 git**，符合 NFR-008 + IFR-006。
+- **新增 marker `real_external_llm`** 注册于 `tests/conftest.py`：① `pytest_configure` `addinivalue_line` 注册；② `_null_keyring_for_unit_tests` autouse fixture 把它加入豁免集，并修复一处缺陷——之前 fixture 仅"不重置"keyring，但前序 unit test 留下的 null backend 会持续；新逻辑改为对 real-* 测试**主动恢复** `keyring.backends.chainer.ChainerBackend()`，确保 real-LLM 测试拿到平台默认 backend。
+- **新测试** `tests/integration/test_f19_real_minimax.py`（2 cases，标 `real_external_llm`，缺 key 时 `pytest.skip`）：
+  - `test_f19_real_minimax_test_connection_round_trip` — 真打 `https://api.minimax.chat/v1/chat/completions` ping，断言 IFR-004 10 s budget；接受 ok=True 或已知 error_code（401/connection_refused/dns_failure/timeout），401 显式 fail 提示 key 失效。
+  - `test_f19_real_minimax_classify_never_raises` — 真发完整 OpenAI-compat 请求（含 `response_format=json_schema strict`），断言 IAPI-010 永不抛 + Verdict 在合法枚举内 + 整体 ≤ 12 s；若 fallback 到 rule，必须存在至少一条 audit `classifier_fallback` 事件。
+- **Model 名修订**：`ProviderPresets["minimax"].default_model` 由占位 `abab6.5s-chat` 改为 `MiniMax-M2.7-highspeed`（用户提供）；同步更新 `tests/test_f19_coverage_supplement.py` PUT/GET 路由 fixture 与 `tests/integration/test_f19_real_minimax.py`。
+- **执行结果**（key 在 keyring 时，新 model 名）：2/2 PASSED in ~1 s。Ad-hoc verbose 抓到的真实 endpoint 行为：
+  - `test_connection`（最简单 ping body）: **ok=True, latency_ms=3026, elapsed=3.122s** — endpoint + key + model 名全合法
+  - `classify`（带 `response_format=json_schema strict`）: HTTP 400 → `ClassifierHttpError(http_400)` → `FallbackDecorator` 捕获 → `RuleBackend.decide` → `Verdict(verdict="COMPLETED", backend="rule", reason="clean exit (code=0, empty stderr, no banner)")` elapsed=0.358s；audit_sink 写入 `{event:"classifier_fallback", cause:"http_400", exc_class:"ClassifierHttpError"}` 一行。
+  - **关键契约验证**：MiniMax 不支持 OpenAI-compat 的 `response_format=json_schema strict` 字段（HTTP 400 拒收），`classify` 永不抛 + 走 rule 兜底 + audit 留痕（IAPI-010 / FR-022 / FR-023 三层契约在生产环境中真实成立）。
+- **全套回归**: `pytest -q` → 100/100 F19 测试全 PASS；其他特性测试套件未被 conftest 改动影响（real_http / real_fs / real_keyring 既有测试保持原行为，因 marker 集合扩展是叠加非替换）。
+- **Doc 更新**:
+  - `env-guide.md` §5 第三方服务表 `OpenAI-compatible HTTP endpoint` 行注明可选 `real_external_llm` smoke；新增 §5"Real-External LLM Smoke（可选 · F19 Classifier）"块说明 key 注入命令 + 执行命令 + 注销命令；frontmatter `approved_sections` 仍为 `["§3", "§4"]`，本次仅改 §5（无需重新审批，`check_env_guide_approval.py` 通过）。
+  - `.env.example` keyring 占位段补充 `KeyringGateway().set_secret(...)` 调用示例 + 指向 env-guide.md §5。
+- **本次 commit 范围**: `tests/integration/test_f19_real_minimax.py` (新) · `tests/conftest.py` (marker + chainer 恢复) · `env-guide.md` (§5 新增) · `.env.example` (keyring 占位说明)；不动 feature-list.json / 不动 RELEASE_NOTES.md（feature #19 已 passing）。
+
+#### Session 19 Findings（待评估）
+- ⚠ [Provider-Compat] **MiniMax 不支持 `response_format=json_schema strict`** — 真打实测：endpoint + key + model 名（`MiniMax-M2.7-highspeed`）全合法（test_connection 200 OK），但带 `response_format: {type:"json_schema", json_schema:{...strict:true...}}` 的 classify body 被 MiniMax 端拒收 HTTP 400。根因：MiniMax OpenAI-compat 当前不实现该字段（GLM / OpenAI 实现）。**当前 fallback 链能兜底**（不影响 FR-022/023 契约），若用户期望真用 LLM 分类而非 rule fallback，需走 `long-task-increment` 增加：① ProviderPresets `supports_strict_schema: bool` 能力位；② LlmBackend 在 supports_strict_schema=False 时改用 system-prompt 强约束 + 后置 JSON 解析（无 strict 字段）；③ per-provider response 兼容适配。当前只是 v1 已知降级，不阻塞 release。
+- ⚠ [Stale-Scripts] 会话开始前 5 个 `scripts/*.py` dirty 改动延续未清，本会话同样显式排除，留独立 chore commit。

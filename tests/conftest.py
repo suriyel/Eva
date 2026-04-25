@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 import keyring
+import keyring.backends.chainer
 import keyring.backends.null
 import pytest
 
@@ -36,8 +37,11 @@ for _var in (
 def _null_keyring_for_unit_tests(request: pytest.FixtureRequest) -> None:
     """Force keyring null backend unless the test opts into real fs/cli/http."""
     markers = {m.name for m in request.node.iter_markers()}
-    if markers & {"real_cli", "real_fs", "real_http"}:
-        # Real-test: leave the real configured backend in place.
+    if markers & {"real_cli", "real_fs", "real_http", "real_external_llm"}:
+        # Real-test: restore the platform-default chainer backend; a previous
+        # unit test in the same session may have swapped in null.Keyring,
+        # which would silently break real keyring lookups (e.g. real_external_llm).
+        keyring.set_keyring(keyring.backends.chainer.ChainerBackend())
         return
     keyring.set_keyring(keyring.backends.null.Keyring())
 
@@ -53,5 +57,5 @@ def tmp_harness_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def pytest_configure(config: pytest.Config) -> None:
     # Register custom markers used by integration tests.
-    for mark in ("real_cli", "real_fs", "real_http"):
+    for mark in ("real_cli", "real_fs", "real_http", "real_external_llm"):
         config.addinivalue_line("markers", f"{mark}: real integration test ({mark})")
