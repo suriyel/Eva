@@ -599,3 +599,19 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Inline-P2] IAPI-004 `reenqueue_ticket` / `cancel_ticket` 方法名在 TDD 阶段未实例化为独立 public 方法；行为合并到 `run_ticket` 重试循环 + `RunOrchestrator.cancel_run` / Watchdog 链。Feature design §IAPI-004 表已更新 inline 说明（按 §4 Internal API Contract Deviation Protocol "低影响内聚化"分支）；外部消费者无破坏（IAPI-004 是内聚 Provider，无 REST/WS 表面）。后续若 F21/F22 需要外部触发 reenqueue，需通过 increment 重新立约。
 - ⚠ [Coverage Buffer] F20 模块级 branch 缓冲依旧偏低（沿用 TDD/Quality 阶段记录）：`harness/orchestrator/run.py` 82% · `bus.py` 72% · `supervisor.py` 73% · `recovery/retry.py` 76% · `recovery/watchdog.py` 77% · `subprocess/validator/runner.py` 75%；下一轮变更触底前需配对测试。
 - ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 仍持有未提交修改（Session 12+ carry-over 与前序提交残留），本次 ST commit 显式排除；后续可独立 chore 收敛。
+
+---
+
+### Session 26 — Feature #21 F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream · Design (Wave 2 · 2026-04-25)
+- target_feature: id=21, title="F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream", category=ui, ui=true, ui_entry=/, wave=2
+- srs_trace: FR-010 (HIL 3 控件派生) · FR-030 (RunOverview 6 元素) · FR-031 (HILInbox + XSS 防注入) · FR-034 (TicketStream 筛选 + virtualized event tree) · NFR-002 (stream-json p95 < 2s) · NFR-011 (HIL 控件标注) · IFR-007 (FastAPI ↔ React WebSocket)
+- design_section: docs/plans/2026-04-21-harness-design.md §4.6 (lines 512–549) + §6.1.7 IFR-007 (1097) + §6.2.1 contract table (1107) + §6.2.2 REST routes (1133) + §6.2.3 WS channels (1169) + §6.2.4 schemas (1180–1428)
+- ucd_section: docs/plans/2026-04-21-harness-ucd.md §2 hard rules (33–117) + §4 page index (126–144 → §4.1 RunOverview / §4.2 HILInbox / §4.5 TicketStream) + §7 视觉回归 SOP (194–208)；视觉真相源 `docs/design-bundle/eava2/project/pages/{RunOverview,HILInbox,TicketStream}.jsx`
+- dependencies: [2, 12, 18, 20]（F02 Ticket/StreamEvent schema · F12 PageFrame/Sidebar/PhaseStepper/HarnessWsClient/createApiHook/tokens.css · F18 `/ws/hil` HilQuestion/HilAnswer · F20 RunStatus/RunControlBus/`/ws/run/:id`）
+- **Feature Design — DISPATCH** `long-task-feature-design` SubAgent
+  - 第一次 dispatch 因 stream idle timeout 中断（34 tool calls，无产物）；第二次 dispatch 收紧 read 范围 + 紧凑 ~20 步预算后 status=pass · 0 blockers · 0 assumptions · 28 tool calls / 60 KB 482 行
+  - 产物：`docs/features/21-f21-fe-runviews-runoverview-hilinbox-tic.md`（§1–§10 含 Visual Rendering Contract 17 元素 / Test Inventory 45 行 / 11 existing-code reuse from F12）
+  - Internal API Contract: F21 仅 Consumer — IAPI-001 WebSocket（`/ws/run/:id` · `/ws/hil` · `/ws/stream/:ticket_id` · `/ws/anomaly` · `/ws/signal`）· IAPI-002 REST 6 路由 · IAPI-019 RunControlBus；契约根与 design §6.2.4 schemas (RunStatus, Ticket, StreamEvent, HilQuestion, HilAnswerSubmit, HilAnswerAck) 一致，无偏差
+  - UML: 2 sequenceDiagram (HIL submit · TicketStream load) + 1 stateDiagram-v2 (HILCard answer-flow) + 1 flowchart TD (deriveHilControl 4-decision)
+- Design: DONE (docs/features/21-f21-fe-runviews-runoverview-hilinbox-tic.md)
+- current.phase: design → tdd
