@@ -419,3 +419,18 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 #### Session 19 Findings（待评估）
 - ⚠ [Provider-Compat] **MiniMax 不支持 `response_format=json_schema strict`** — 真打实测：endpoint + key + model 名（`MiniMax-M2.7-highspeed`）全合法（test_connection 200 OK），但带 `response_format: {type:"json_schema", json_schema:{...strict:true...}}` 的 classify body 被 MiniMax 端拒收 HTTP 400。根因：MiniMax OpenAI-compat 当前不实现该字段（GLM / OpenAI 实现）。**当前 fallback 链能兜底**（不影响 FR-022/023 契约），若用户期望真用 LLM 分类而非 rule fallback，需走 `long-task-increment` 增加：① ProviderPresets `supports_strict_schema: bool` 能力位；② LlmBackend 在 supports_strict_schema=False 时改用 system-prompt 强约束 + 后置 JSON 解析（无 strict 字段）；③ per-provider response 兼容适配。当前只是 v1 已知降级，不阻塞 release。
 - ⚠ [Stale-Scripts] 会话开始前 5 个 `scripts/*.py` dirty 改动延续未清，本会话同样显式排除，留独立 chore commit。
+
+### Session 20 — Increment Wave 3 — F19 MiniMax OpenAI-compat strict-schema bypass
+- **Date**: 2026-04-25
+- **Phase**: Increment
+- **Scope**: 响应 Session 19 Findings — F19 MiniMax 真打证实 `response_format=json_schema strict` 被 endpoint 拒收（HTTP 400 → fallback rule，FR-021/023 实质 disabled）。本增量在 OpenAI-compat 通路内引入 capability 位 + tolerant parse，让 strict-off provider（MiniMax 代表）仍能真打 LLM 分类；放弃 Anthropic-compat 通道。
+- **Changes**: Added 0, modified 1 (F19), deprecated 0
+- **Documents updated**: SRS（FR-021 +AC-4/5/6、FR-023 +AC-3..7、IFR-004 MODIFY +AC-mod、§8 +ASM-008、§12 Revision History +Wave 3）、Design（§4.4.2/§6.1.4/§6.2.2/§6.2.4/§11.4 Wave 3 增量段）、ATS（L89/L91/L182 Coverage Hint + §5.5 changelog）、F19 feature design（§IC/§IS §3a/§BC/§Reuse/§Tests T47..T52/§Checklist）、feature-list.json（F19 wave 2→3·status passing→failing·verification_steps +4·wave_note；waves[]+id=3；assumptions[]+ASM-008）
+- **Routing**: F19 由 hard impact 重置为 failing；下一会话 `phase_route.py` 将 F19 路由进 design 阶段（feature-level design 重生成以集成 Wave 3 实现路径）
+- **Skipped**: UCD（F22 设计阶段统一处理 UI 文案）；env-guide §3/§4（无新工具/库引入）；ats-reviewer rerun（needs_reviewer_rerun=false）；辅助文件（无新依赖/required_configs；validate_guide.py: VALID）
+- **Approvals**: 4 关闸（impact / design / ATS / SRS+FL）全 approve；0 revise；0 escalate
+- **Validate**: `validate_features.py: VALID — 22 features (5 passing, 5 failing, 12 deprecated) | Waves: 3 | Assumptions: 8`（3 个 cross-feature warning 为预期）
+- **Git**: 46f03a9 feat: increment wave 3 — F19 MiniMax OpenAI-compat strict-schema bypass
+
+#### Session 20 Findings
+- ⚠ [Stale-Scripts] 5 个 `scripts/*.py` dirty 改动延续 Session 12/15/19 carry-over，本会话继续显式排除，待独立 chore commit 清理（不阻塞）。
