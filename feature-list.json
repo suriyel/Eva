@@ -22,6 +22,11 @@
       "id": 2,
       "date": "2026-04-24",
       "description": "v1.0 MVP — Wave 2 refactor-only feature repackaging：17→10 features（2 passing + 1 st + 7 failing + 12 deprecated 审计条目）。新特性 F18-F22 承载旧 F03-F16 全量 FR/NFR/IFR；0 FR/NFR/IFR 变更；0 breaking contract。"
+    },
+    {
+      "id": 3,
+      "date": "2026-04-25",
+      "description": "v1.0 MVP — Wave 3 增量：F19 MiniMax OpenAI-compat strict-schema 兼容（preset capability 位 + tolerant parse）；0 新特性 / 1 hard impact / 0 breaking 契约"
     }
   ],
   "constraints": [
@@ -42,7 +47,8 @@
     "ASM-004 OpenCode hooks 机制可监听 Question 工具；hooks 失效则 OpenCode 分支降级到仅非-HIL skill",
     "ASM-005 LLM provider（GLM/MiniMax 等）与 OpenAI-compat chat completions schema 兼容",
     "ASM-006 longtaskforagent skill 已把关键状态持久化到磁盘，HIL 答案注入后能从磁盘正确续跑",
-    "ASM-007 目标项目 workdir 为 git 仓库；非 git 仓库则 Harness 拒启动（FR-001 错误路径）"
+    "ASM-007 目标项目 workdir 为 git 仓库；非 git 仓库则 Harness 拒启动（FR-001 错误路径）",
+    "ASM-008 (Wave 3) Some OpenAI-compat providers (MiniMax) reject response_format=json_schema strict；strict-off 模式下 prompt-only JSON 约束 + 容错解析仍可完成分类；不稳定则 FR-023 在该 provider 上等同 disabled（real_external_llm smoke 验证）"
   ],
   "real_test": {
     "marker_pattern": "@pytest.mark.(real_cli|real_fs|real_http)",
@@ -576,12 +582,13 @@
     },
     {
       "id": 19,
-      "wave": 2,
+      "wave": 3,
+      "wave_note": "Wave 3 (2026-04-25): MiniMax OpenAI-compat strict-schema bypass; preset capability bit + tolerant parse",
       "category": "core",
       "title": "F19 · Bk-Dispatch — Model Resolver & Classifier",
       "description": "合并原 F07 Model Override Resolver / F08 Classifier Service；承担 dispatch 决策面：spawn 前 ModelResolver 三层优先级解析 → spawn 后 Classifier OpenAI-compat LLM 分类 ticket 结果；共享 IAPI-014 keyring 门面 + ClassifierProviderPresets 配置",
       "priority": "high",
-      "status": "passing",
+      "status": "failing",
       "srs_trace": [
         "FR-019",
         "FR-020",
@@ -601,7 +608,11 @@
         "Given classifier off + exit_code=0 + 无 banner when 处理 then rule 判 COMPLETED（FR-022 降级）",
         "Given classifier off + stderr 含 'context window' when 处理 then 判 context_overflow（FR-022）",
         "Given LLM 返非法 JSON when 分类 then 降级 rule + audit warning（FR-023）",
-        "Given base_url 非白名单域 when 保存 then 拒绝（FR-021 SSRF 防护）"
+        "Given base_url 非白名单域 when 保存 then 拒绝（FR-021 SSRF 防护）",
+        "[Wave 3] Given preset='minimax' when ProviderPresets.resolve then supports_strict_schema=False；preset ∈ {glm,openai,custom} → True；strict_schema_override=False 覆写为 False（FR-021 AC-4/5/6）",
+        "[Wave 3] Given effective_strict=false when LlmBackend.invoke then request body 不含 'response_format' 键；URL/method/Authorization 与 strict-on 路径一致；system message = PromptStore.current + 固定 JSON-only suffix（FR-023 AC-3 / IFR-004 AC-mod）",
+        "[Wave 3] Given content='<think>...</think>{...}' 或多 JSON 段 when ToleranParse then 剥离 <think> 后提取首个语法平衡 JSON；无可提取 JSON → ClassifierProtocolError(cause='json_parse_error') → FallbackDecorator 兜底 rule 且 audit 记 classifier_fallback（FR-023 AC-5/6/7）",
+        "[Wave 3] Given preset='minimax' + 真实 API key when real_external_llm smoke 跑分类 then 收到合法 JSON 且 verdict ∈ enum（ASM-008 验证 — 若不稳定则该 provider 等同 classifier disabled）"
       ],
       "ui": false,
       "git_sha": "c4bc3cb",

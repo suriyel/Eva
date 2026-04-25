@@ -86,9 +86,9 @@
 |---|---|---|---|---|---|---|
 | FR-019 | per-ticket / per-skill 覆写 | skill=requirements, model=opus 映射生效 argv 含 `--model opus` / 重叠规则按优先级选 | FUNC, BNDRY, UI | Critical | Auto | UI：规则表 CRUD |
 | FR-020 | 四层优先级 | 仅 run-default → argv 含该 model / 四层空 → 不含 `--model` / per-ticket 胜 per-skill | FUNC, BNDRY | Critical | Auto | 优先级表全 2^4=16 组合抽样 |
-| FR-021 | Classifier OpenAI-compat | GLM 预设保存 base_url 自动填 + keyring 读 api_key / 空 base_url 前端阻止 | FUNC, BNDRY, SEC, UI | Critical | Auto | SEC：api_key 不落 config 明文；SSRF 防（base_url 白名单校验域名） |
+| FR-021 | Classifier OpenAI-compat | GLM 预设保存 base_url 自动填 + keyring 读 api_key / 空 base_url 前端阻止 | FUNC, BNDRY, SEC, UI | Critical | Auto | SEC：api_key 不落 config 明文；SSRF 防（base_url 白名单校验域名）; Wave 3：preset.supports_strict_schema 默认值矩阵 (GLM/OpenAI/custom=True, MiniMax=False) + ClassifierConfig.strict_schema_override 三态覆写 |
 | FR-022 | Classifier on/off + rule 降级 | Off + exit_code=0 + 无 banner → rule 判 COMPLETED / Off + stderr 含 "context window" → context_overflow | FUNC, BNDRY | Critical | Auto | rule 规则全覆盖 |
-| FR-023 | JSON schema 严格输出 | LLM 非合法 JSON → 降级 rule + audit warning / verdict 非枚举 → 同降级 | FUNC, BNDRY, SEC | Critical | Auto | SEC：防 LLM prompt injection 导致越权 verdict |
+| FR-023 | JSON schema 严格输出 | LLM 非合法 JSON → 降级 rule + audit warning / verdict 非枚举 → 同降级 | FUNC, BNDRY, SEC | Critical | Auto | SEC：防 LLM prompt injection 导致越权 verdict; Wave 3：strict-off 路径 body 不含 response_format / system message JSON-only suffix / tolerant 解析 (<think> 剥离 + 首段语法平衡 JSON) / 无 JSON 走 rule audit cause=json_parse_error |
 
 #### F. Anomaly Handling
 
@@ -179,7 +179,7 @@
 | IFR-001 | Claude Code CLI pty+argv+stream-json | 完整 argv 包含 FR-016 flag / stream-json 事件 kind 5 种全解 / CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-008/016 |
 | IFR-002 | OpenCode CLI pty+hooks | argv `opencode ...` 正确构造 / hooks.json 注入成功 Question 工具被捕获 / **hooks.json 写入路径限 `<isolated>/.opencode/` 防目录逃逸** / **Question name 超长（>256B）截断不崩** | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-012/017；SEC：hooks.json 作第三方 JSON 需防注入边界 |
 | IFR-003 | phase_route.py subprocess --json | 松弛 JSON 解析增减字段均可 / exit≠0 → 暂停 + 呈 error / stdout 非 JSON → parse_error + 暂停 | FUNC, BNDRY, SEC | Critical | Auto | SEC：subprocess argv 不拼接用户输入 |
-| IFR-004 | OpenAI-compat HTTP | GLM/MiniMax/OpenAI/custom 4 preset 均能发起成功 POST / 401 → 降级 rule + audit / response_format strict schema 外返回值拒收 | FUNC, BNDRY, SEC, PERF | Critical | Auto | SEC：SSRF 防（base_url domain 白名单校验）；PERF：10s timeout |
+| IFR-004 | OpenAI-compat HTTP | GLM/MiniMax/OpenAI/custom 4 preset 均能发起成功 POST / 401 → 降级 rule + audit / response_format strict schema 外返回值拒收 | FUNC, BNDRY, SEC, PERF | Critical | Auto | SEC：SSRF 防（base_url domain 白名单校验）；PERF：10s timeout; Wave 3：effective_strict=False 时 body 不含 response_format，URL/method/Authorization 不变；real_external_llm smoke (MiniMax) 验证 ASM-008 |
 | IFR-005 | git CLI subprocess | status/rev-parse/log/show/pull 6 命令正确调用 / 非 git 目录 exit=128 被捕获 | FUNC, BNDRY, SEC | Critical | Auto | SEC：git URL 仅 https/git+ssh 白名单 |
 | IFR-006 | 平台 keyring | macOS Keychain / Secret Service / Credential Manager 各自 get/set/delete 通过 / Linux 无 daemon → 降级 keyrings.alt + UI 告警 | FUNC, BNDRY, SEC | Critical | Auto | SEC：降级到明文文件时必提示 |
 | IFR-007 | WebSocket FastAPI → React | 5 channel 事件推送 / 30s ping 心跳 / 60s 未收客户端重连 | FUNC, BNDRY, PERF | Critical | Auto | PERF：消息延迟 p95 < 100ms |
@@ -384,6 +384,28 @@ Wave 2 重包装将 12 个旧 feature（F03/F04/F05/F06/F07/F08/F09/F11/F13/F14/
 - **§5.2 IAPI 覆盖自检**：19 条 IAPI 签名与语义 **0 变更**（Design §6.2.1 Wave 2 OWNER-REMAP）；对应测试场景清单不变。
 
 结论：ATS 仍是 feature-list.json Wave 2 版本的权威测试源；无需 ats-reviewer 重跑（测试场景与验收标准未动）。
+
+### 5.5 Wave 3 增量（2026-04-25，F19 MiniMax strict-schema 旁路）
+
+Wave 3 响应 MiniMax OpenAI-compat 严格 schema 兼容性问题（increment-request），作为 **Additive / Backward-compatible** 扩展。对 ATS 覆盖的影响：
+
+- **需求行修改**（3 行，原地扩展 Coverage Hint，不新增映射行）：
+  - **FR-021（L89）**：追加 preset.supports_strict_schema 默认矩阵 (GLM/OpenAI/custom=True, MiniMax=False) + ClassifierConfig.strict_schema_override 三态 (None/True/False)。既有 categories FUNC/BNDRY/SEC/UI 足以覆盖新增 AC4-AC6。
+  - **FR-023（L91）**：追加 strict-off 路径 body 不含 response_format、system message JSON-only suffix、tolerant 解析（`<think>` 剥离 + 首段语法平衡 JSON）、无 JSON 走 rule audit cause=json_parse_error。既有 categories FUNC/BNDRY/SEC 足以覆盖 AC3-AC7。
+  - **IFR-004（L182）**：追加 effective_strict=False 时 body 不含 response_format（URL/method/Authorization 不变），real_external_llm smoke（MiniMax 真实 round-trip）验证 ASM-008。既有 categories FUNC/BNDRY/SEC/PERF 足以覆盖（real-external smoke 属 FUNC 契约 + PERF 10s timeout 回归）。
+- **需求行新增**：0（所有新 AC 归口既有 3 行 mapping）。
+- **需求行弃用**：0。
+- **新 category**：无（复用既有 FUNC/BNDRY/SEC/PERF/UI）。
+- **§2.4 覆盖统计**：分母与分子不变（72 active 行，FUNC 100% / BNDRY 99% / SEC 47% / PERF 18% / UI 28% 全部保持）。
+- **§4 NFR Matrix**：0 变更（无新 NFR 条目）。
+- **§5.1 集成场景**：0 新增、0 修改（Wave 3 涉及的测试全部落在 Feature-ST 层；既有 INT-005 "Classifier LLM 失败降级" 与 INT-016 SSRF 等集成场景仍适用）。若 ST 阶段需要验证 MiniMax 真实 LLM smoke，落位 INT-005 同层 error path，无需新增场景行。
+- **ASM-008 关联**：ASM-008（"MiniMax OpenAI-compat 端点不承认未注册 JSON schema，会 return 400/500"）作为需求级 Assumption，通过 IFR-004 行 Coverage Hint 中 "verified ASM-008" 表述追溯；real_external_llm smoke 测试即为其经验验证。
+- **契约修改**（0 breaking）：
+  - IAPI-002 PUT /api/settings/classifier：增 Additive `strict_schema_override`（consumers=[F22]，backward-compatible，默认 null）。
+  - IAPI-010 Classifier：内部 effective_strict 计算；signature 0 变更（consumers=[F20]）。
+  - IFR-004 OpenAI-compat HTTP：body 条件发送 response_format；URL/method/Authorization 不变。
+
+结论：Wave 3 为纯 Additive 扩展，映射表 0 新增 / 3 原地扩展 Coverage Hint / 0 弃用；0 新 category；0 新集成场景；0 breaking 契约。ats-reviewer **无需重跑**（categories 不动、场景数不动、IAPI 覆盖自检不动）。
 
 ---
 

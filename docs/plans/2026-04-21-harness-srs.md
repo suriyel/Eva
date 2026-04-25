@@ -329,11 +329,16 @@ graph LR
 ### FR-021: Classifier OpenAI-compatible endpoint 支持
 **优先级**: Must
 **EARS**: The system shall 支持 Classifier 连接任意 OpenAI-compatible 聊天 completion endpoint（内置 GLM / MiniMax / OpenAI.com 预设，另支持自定义 endpoint），配置项包含 base_url / api_key / model_name。
+<!-- Wave 3: Extended 2026-04-25 — 新增 Provider capability 位 `supports_strict_schema`（GLM/OpenAI/custom=True；MiniMax=False）；ClassifierConfig 新增 `strict_schema_override: bool | None` 运行时覆写（参见 design §6.2.4） -->
+**EARS（Wave 3 extension）**: The system shall 在 ProviderPreset 数据结构中包含 `supports_strict_schema: bool` 能力位 (GLM/OpenAI/custom=True, MiniMax=False); ClassifierConfig 增 `strict_schema_override: bool | None = None`，None 沿用 preset，True/False 运行时覆写。
 **可视化输出**: SystemSettings Classifier 卡片有三个字段 + provider 预设下拉。
 **验收准则**:
 - Given 选中 GLM 预设，when 保存，then base_url 自动填为 GLM 官方；api_key 从 keyring 读
 - Given 自定义 endpoint，when 保存空 base_url，then 前端阻止提交并红色提示
-**来源**: raw_requirements E.21
+- AC-4 (Wave 3): Given preset='minimax' when ProviderPresets.resolve then supports_strict_schema=False
+- AC-5 (Wave 3): Given preset ∈ {glm,openai,custom} when resolve then supports_strict_schema=True
+- AC-6 (Wave 3): Given strict_schema_override=False + preset.supports_strict_schema=True when 计算 effective_strict then 取覆写值 False
+**来源**: raw_requirements E.21; Wave 3 增量 (2026-04-25 MiniMax 兼容)
 
 ### FR-022: Classifier 开关 + 硬编码规则降级
 **优先级**: Must
@@ -347,11 +352,19 @@ graph LR
 ### FR-023: Classifier 启用时固定 Schema JSON 输出
 **优先级**: Must
 **EARS**: While Classifier 启用, the system shall 按固定 System Prompt 做无状态单次分类，使用 response_format=json_schema 强制返回 `{verdict: HIL_REQUIRED|CONTINUE|RETRY|ABORT|COMPLETED, reason, anomaly, hil_source}` 严格 JSON。
+<!-- Wave 3: Extended 2026-04-25 — strict-off 模式用 prompt-only JSON 约束；对所有 provider 统一应用容错解析（<think> 剥离 + 首个平衡 JSON 提取）；解析失败走 RuleBackend 兜底 -->
+**EARS（Wave 3 extension — strict-off path）**: When effective_supports_strict_schema=False, the LlmBackend shall 不发送 `response_format` 字段；改为在 system message 末尾追加固定 JSON-only suffix；HTTP method/URL/Authorization header 与 strict-on 路径完全一致。
+**EARS（Wave 3 extension — tolerant parse）**: The system shall 对所有 provider 的 LLM 响应内容应用容错解析（不论 strict on/off）：剥离 `<think>...</think>` 包裹的推理段；提取首个语法平衡 JSON 对象；解析失败仍走 RuleBackend 兜底（IAPI-010 永不抛保留）。
 **可视化输出**: TicketStream 卡片 classification 字段显示 verdict + reason。
 **验收准则**:
 - Given LLM 返回非合法 JSON，when 解析失败，then 降级到硬编码规则且在 audit log 记 warning
 - Given LLM 返回合法 JSON 但 verdict 不在枚举，then 降级并记 warning
-**来源**: raw_requirements E.23
+- AC-3 (Wave 3): Given effective strict-off when LlmBackend.invoke then request body 不含 'response_format' 键；system message = PromptStore.current + 固定 JSON-only suffix
+- AC-4 (Wave 3): Given strict-off + LLM 返合法 JSON when parse then Verdict(backend='llm') verdict ∈ enum
+- AC-5 (Wave 3): Given content='<think>x</think>{...}' when parse then 提取后段合法 JSON 解析成功
+- AC-6 (Wave 3): Given content 含多个 JSON 段 when parse then 取首个语法平衡对象
+- AC-7 (Wave 3): Given content 无可提取 JSON when parse then ClassifierProtocolError(cause='json_parse_error') → FallbackDecorator 兜底 rule（audit 记 classifier_fallback）
+**来源**: raw_requirements E.23; Wave 3 增量 (2026-04-25 MiniMax 兼容 + tolerant parse)
 
 ### F. 异常处理（Anomaly）
 
@@ -758,10 +771,21 @@ flowchart TD
 | IFR-001 | Claude Code CLI | Outbound（spawn）+ Bidirectional（pty stdin/stdout）| pty + argv + stream-json stdout | JSON-Lines（stream-json），argv flags 见 FR-016 |
 | IFR-002 | OpenCode CLI | Outbound（spawn）+ Bidirectional（stdin via hooks）| pty + argv + hooks 配置文件 | argv + JSON hooks 配置 |
 | IFR-003 | `scripts/phase_route.py` subprocess | Outbound invoke | Python subprocess + `--json` flag | stdout JSON: `{ok, next_skill, feature_id, starting_new, needs_migration, counts, errors}`（松弛解析）|
-| IFR-004 | OpenAI-compatible HTTP API（GLM / MiniMax / OpenAI / 自定义）| Outbound | HTTP POST `<base_url>/v1/chat/completions` + `Authorization: Bearer <key>` | JSON request + JSON response（response_format=json_schema 时严格）|
+| IFR-004 | OpenAI-compatible HTTP API（GLM / MiniMax / OpenAI / 自定义）| Outbound | HTTP POST `<base_url>/v1/chat/completions` + `Authorization: Bearer <key>` | JSON request + JSON response（response_format=json_schema 在 effective_strict=true 时发送；effective_strict=false 时省略该字段并在 system message 追加 JSON-only suffix — 详见下方 "Effective Strict Schema 标志"）|
 | IFR-005 | git CLI subprocess | Outbound | subprocess | 命令: `status --porcelain` / `rev-parse HEAD` / `log --oneline` / `show --stat` / `pull` |
 | IFR-006 | 平台 keyring | Bidirectional | python `keyring` 库（macOS Keychain / freedesktop Secret Service / Windows Credential Manager）| Key-Value string pair |
 | IFR-007 | HIL 前端控件 WebSocket（FastAPI → React） | Bidirectional | WebSocket + JSON message | `{kind: single_select|multi_select|free_text, header, question, options[], multiSelect, allowFreeformInput}` |
+
+<!-- Wave 3: Modified 2026-04-25 — IFR-004 新增 effective_strict 标志条件性发送 response_format；协议根不变 -->
+
+### Effective Strict Schema 标志（Wave 3 · IFR-004 细化）
+
+维持 OpenAI-compat HTTP 协议根（POST `<base_url>/v1/chat/completions` + Bearer auth）不变；`response_format=json_schema strict` 由 effective_strict 标志条件性发送。effective_strict 由 ProviderPreset.supports_strict_schema + ClassifierConfig.strict_schema_override 合并计算（详见 design §6.1.4 / §6.2.4）：
+- effective_strict=true（GLM/OpenAI/custom 默认）→ request body 包含 `response_format={type:'json_schema', json_schema:{strict:true, ...}}`
+- effective_strict=false（MiniMax 默认，或用户覆写）→ request body **不含** `response_format` 字段；system message 末尾追加固定 JSON-only suffix 引导输出
+
+**验收准则**:
+- AC-mod (Wave 3): Given effective_strict=false when 构造 HTTP request then URL/method/Authorization 一致；body 不含 'response_format' 字段
 
 ## 8. 假设与依赖（Assumptions & Dependencies）
 | ID | Assumption | Impact if Invalid |
@@ -773,6 +797,7 @@ flowchart TD
 | ASM-005 | LLM provider（GLM / MiniMax 等）与 OpenAI-compatible chat completions schema 兼容 | 不兼容则 provider 适配器需特殊处理 |
 | ASM-006 | longtaskforagent skill 已把关键状态持久化到磁盘，HIL 答案注入交互消息后能从磁盘正确续跑 | skill 续跑失败则用户需重启 run |
 | ASM-007 | 目标项目 workdir 为 git 仓库 | 非 git 仓库则 Harness 拒绝启动（FR-001 错误路径）|
+| ASM-008 | Some OpenAI-compatible providers (典型 MiniMax) reject `response_format=json_schema strict` 子协议；本系统在 strict-off 模式下仍可通过 prompt-only JSON 约束 + 容错解析完成分类。 | 若 prompt-only 约束亦无法稳定产出合法 JSON，FR-023 在该 provider 上等同 disabled；real_external_llm smoke 验证（Wave 3 · 2026-04-25 新增） |
 
 ### 已排除（Exclusions — 详见 1.2）
 - EXC-001: 云端 / SaaS
@@ -852,4 +877,5 @@ flowchart TD
 | Date | Rev | 变更 | Author |
 |---|---|---|---|
 | 2026-04-21 | v1.0 | 初始 SRS — 46 active FR / 17 NFR / 7 IFR / 9 CON / 7 ASM | long-task-requirements skill |
+| 2026-04-25 | v1.0-w3 | Wave 3 增量 — FR-021 +AC-4/5/6（preset capability 位 `supports_strict_schema`）；FR-023 +AC-3..7（strict-off 路径 + `<think>` 剥离 + tolerant JSON 提取）；IFR-004 MODIFY（effective_strict 标志条件性发送 `response_format`）+AC-mod；ASM-008 NEW（MiniMax OpenAI-compat strict 子协议拒绝假设）。8 新 AC / 0 新 FR / 0 breaking contract / 1 hard impact (F19) / 1 soft impact (F22) | long-task-increment skill |
 | 2026-04-24 | v1.1 | Wave 2 refactor-only feature repackaging — 0 FR/NFR/IFR 修改；feature 边界调整参见 feature-list.json 与 design.md §4；SRS 本体零语义变更 | long-task-increment-srs SubAgent |

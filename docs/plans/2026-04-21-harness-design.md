@@ -405,11 +405,11 @@ graph LR
 - `harness.dispatch.model.ModelResolver` — 4 层优先级链
 - `harness.dispatch.model.ModelRule` / `ModelRulesStore` / `ProvenanceTag`
 - `harness.dispatch.classifier.ClassifierService` — 门面
-- `harness.dispatch.classifier.LlmBackend` — httpx AsyncClient + `response_format=json_schema`
+- `harness.dispatch.classifier.LlmBackend` — httpx AsyncClient + `response_format=json_schema`（**Wave 3**：strict-off 分支 — prompt-only JSON suffix + tolerant `<think>`/JSON 提取，见 §6.1.4 Effective Strict Schema 标志）
 - `harness.dispatch.classifier.RuleBackend` — 硬编码规则降级
 - `harness.dispatch.classifier.Verdict` — pydantic
 - `harness.dispatch.classifier.PromptStore` — classifier prompt 当前 + 历史
-- `harness.dispatch.classifier.ProviderPresets` — GLM / MiniMax / OpenAI / custom
+- `harness.dispatch.classifier.ProviderPresets` — GLM / MiniMax / OpenAI / custom（**Wave 3**：含 `supports_strict_schema` 能力位）
 - `harness.dispatch.classifier.FallbackDecorator` — LLM 失败自动 rule 降级
 
 **4.4.3 Module Layout 建议**
@@ -1044,6 +1044,22 @@ Hook 输出：OpenCode stdout `{"kind":"hook","channel":"harness-hil","payload":
 - `openai` → `https://api.openai.com/v1`
 - `custom` → 用户输入
 
+**Effective Strict Schema 标志（Wave 3 · 2026-04-25）**：
+`LlmBackend` 发送 body 时使用 `effective_strict: bool` 决定是否附带 `response_format` 字段；取值由 `ProviderPreset.supports_strict_schema: bool`（preset 能力位，默认 `True`；MiniMax=`False`）与 `ClassifierConfig.strict_schema_override: bool | None`（用户显式覆写，默认 `None`）按下式计算：
+
+```
+effective_strict = (
+    config.strict_schema_override
+    if config.strict_schema_override is not None
+    else preset.supports_strict_schema
+)
+```
+
+- `effective_strict=True` → body 含 `response_format.type="json_schema"` + `strict=true` + 上文 schema；与原协议等价。
+- `effective_strict=False` → body **不含** `response_format` 字段；system message 末尾拼接 `_JSON_ONLY_SUFFIX` 常量（“只输出严格 JSON，无 markdown / 无 `<think>`”等 prompt-only 约束）；响应走 tolerant 提取（剥离 `<think>...</think>` 块后扫首个语法平衡的 JSON 对象）。无合法 JSON → 抛 `ClassifierProtocolError` → FallbackDecorator 捕获 → RuleBackend 兜底 + audit `cause="json_parse_error"`。
+- URL / method / `Authorization: Bearer <api_key>` / `Content-Type` / `User-Agent` / `temperature=0` **均不变**；IFR-004 协议根不动，仅 body 的可选字段与解析容忍度变更。
+- `ClassifierService` 内完成 effective_strict 计算并注入 `LlmBackend`，外契约（IAPI-010 `classify` 签名 + 永不抛承诺）0 变化。
+
 **故障模式**：HTTP 4xx/5xx 或 JSON 不合 schema → F08 FallbackDecorator 降级 rule，audit warning。HTTP timeout 10s → 同上。
 
 **重试策略**：classifier 本身不重试（由 F09 rate_limit 统一处理）。
@@ -1147,6 +1163,8 @@ Hook 输出：OpenCode stdout `{"kind":"hook","channel":"harness-hil","payload":
 | `GET` | `/api/git/commits` | `?run_id=&feature_id=` | `GitCommit[]` | — |
 | `GET` | `/api/git/diff/:sha` | — | `DiffPayload` | 404 |
 | `GET` | `/api/health` | — | `{ bind: "127.0.0.1", version, claude_auth, cli_versions }` | — |
+
+> **Wave 3（2026-04-25）payload 增量**：`PUT /api/settings/classifier` 的 `ClassifierConfig` payload 新增 **Additive** 字段 `strict_schema_override: bool | None = None`；旧 payload 缺此字段等价于 `None`（沿用 `ProviderPreset.supports_strict_schema` 默认能力位），向后兼容不视为 Breaking。IAPI-002 路由签名 / method / path / 错误码均不变。
 
 #### 6.2.3 WebSocket 频道（IAPI-001 展开）
 
@@ -1382,6 +1400,19 @@ class ClassifierConfig(BaseModel):
     base_url: str
     model_name: str
     api_key_ref: str | None
+    # Wave 3 (2026-04-25): 用户显式覆写 provider 能力位；None=沿用 preset.supports_strict_schema
+    # rationale：部分 provider（MiniMax）默认走 prompt-only；用户亦可为调试强制开/关
+    strict_schema_override: bool | None = None
+
+# Wave 3 (2026-04-25): ProviderPreset 增 supports_strict_schema 能力位
+# rationale：MiniMax OpenAI-compat 端点对 response_format=json_schema 支持不稳（F19 smoke 回归证据），
+# 需要在 preset 层声明能力；旧 preset JSON 缺字段加载时默认 True，向后兼容。
+class ProviderPreset(BaseModel):
+    name: Literal["glm","minimax","openai","custom"]
+    base_url: str
+    default_model: str
+    api_key_user_slot: str
+    supports_strict_schema: bool = True
 
 class ClassifierPrompt(BaseModel):
     current: str
@@ -1696,6 +1727,7 @@ graph LR
 | SQLite 单文件积累 > 1GB 影响查询 | Low | Low | NFR-017 主列表 20 run 上限 + archived 迁 `.harness/archive/` |
 | pywebview 在 Linux 对 WebKit2GTK 版本敏感 | Medium | Medium | 打包文档要求 libwebkit2gtk-4.1 |
 | FR-014 终止横幅 + HIL 冲突误判 | Medium | Low | F04 BannerConflictArbiter 单测集 ≥10 条 fixture |
+| **Wave 3**：strict-off + prompt-only LLM 输出不稳定（JSON 随机性 / `<think>` 包裹 / 多段 JSON）→ real_external_llm smoke 失败 → ASM-008 invalidated | Medium | Medium | FallbackDecorator rule 兜底仍保活（IAPI-010 永不抛不变）；tolerant extractor 覆盖 `<think>` 剥离 + 首个语法平衡 JSON 对象；若 smoke 多次失败记为 ASM-008 假设失效，升级为 OQ 重新评估 preset 能力位 |
 
 ---
 
