@@ -583,3 +583,19 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage] combined `--cov-fail-under=89.99%` 距 env-guide §3 advisory 阈值 90% shy 0.01pp（individual line 91.79 / branch 81.04 均 PASS）；2 deselected real-CLI tests 不在 F20 scope，需独立 chore 排查 `byte_queue.get()` 5min hang
 - ⚠ [Coverage Buffer] F20 模块级 branch 缓冲偏低：`harness/orchestrator/run.py` 82% · `bus.py` 72% · `supervisor.py` 73% · `recovery/retry.py` 76% · `recovery/watchdog.py` 77% · `subprocess/validator/runner.py` 75%；下一波 fix 若新增分支需配对测试避免触底
 - ⚠ [Stale-Scripts] `scripts/check_source_lang.py` 仍持续 black-cosmetic dirty（Session 12+ carry-over），本次 commit 继续显式排除；其余 `count_pending/init_project/phase_route/validate_features` 已被前序提交逐步消化（仅 phase_route.py 被 Refactor 一并清理）
+
+---
+
+### Feature #20: F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess — PASS
+- Completed: 2026-04-25
+- TDD: green ✓ (51 passed)
+- Quality Gates: line 91.79% / branch 81.04% ≥ 90/80 ✓
+- Feature-ST: 51 cases, all PASS — `docs/test-cases/feature-20-f20-bk-loop-run-orchestrator-recovery-su.md` (validate_st_cases.py VALID · check_ats_coverage.py OK · pytest 51 passed in 6.57s)
+- Inline Check: PASS (P2: 26/28 直接命中 + 2 个 IAPI-004 内聚方法 inline 修复 design 标注；T2: 51/51 pytest 函数与 ST 矩阵交叉一致；D3: filelock==3.29.0 / watchdog==6.0.0 补 pin requirements.txt；ATS Category: FUNC/BNDRY/SEC/PERF/INTG 全覆盖 UI=N/A；§4: greenfield placeholder 0 violations)
+- Git: b1532db feat: feature #20 f20-bk-loop-run-orchestrator-recovery-subprocess — ST 51 cases passing
+- DISPATCH note：长任务 SubAgent (`long-task-feature-st`) 因外部 rate limit 在 Structured Return 写出前终止；产物（`docs/test-cases/feature-20-*.md`，2433 行 / 51 cases）已落盘，校验与回归全绿，由 dispatcher 按磁盘证据收口
+
+#### Risks
+- ⚠ [Inline-P2] IAPI-004 `reenqueue_ticket` / `cancel_ticket` 方法名在 TDD 阶段未实例化为独立 public 方法；行为合并到 `run_ticket` 重试循环 + `RunOrchestrator.cancel_run` / Watchdog 链。Feature design §IAPI-004 表已更新 inline 说明（按 §4 Internal API Contract Deviation Protocol "低影响内聚化"分支）；外部消费者无破坏（IAPI-004 是内聚 Provider，无 REST/WS 表面）。后续若 F21/F22 需要外部触发 reenqueue，需通过 increment 重新立约。
+- ⚠ [Coverage Buffer] F20 模块级 branch 缓冲依旧偏低（沿用 TDD/Quality 阶段记录）：`harness/orchestrator/run.py` 82% · `bus.py` 72% · `supervisor.py` 73% · `recovery/retry.py` 76% · `recovery/watchdog.py` 77% · `subprocess/validator/runner.py` 75%；下一轮变更触底前需配对测试。
+- ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 仍持有未提交修改（Session 12+ carry-over 与前序提交残留），本次 ST commit 显式排除；后续可独立 chore 收敛。

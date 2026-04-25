@@ -131,10 +131,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 20,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -629,7 +626,7 @@
       "title": "F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess",
       "description": "合并原 F06 Run Orchestrator + Phase Router / F09 Anomaly Recovery + Watchdog / F11 Subprocess Integrations (git + validators)；主循环 + 异常恢复 + 工具 subprocess 同属 run lifecycle state machine。TDD 建议按三子模块分组（Orchestrator / Recovery / Subprocess）",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-001",
         "FR-002",
@@ -676,7 +673,10 @@
         "Given 脚本 exit≠0 stderr 非空 when 执行 then 错误不被吞且 UI 显示（FR-040 / FR-039 后端入口）",
         "Given phase_route.py 缺字段 feature_id when 解析 then 松弛解析填默认不崩（NFR-015）"
       ],
-      "ui": false
+      "ui": false,
+      "git_sha": "b1532db",
+      "st_case_path": "docs/test-cases/feature-20-f20-bk-loop-run-orchestrator-recovery-su.md",
+      "st_case_count": 51
     },
     {
       "id": 21,
