@@ -434,3 +434,16 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 
 #### Session 20 Findings
 - ⚠ [Stale-Scripts] 5 个 `scripts/*.py` dirty 改动延续 Session 12/15/19 carry-over，本会话继续显式排除，待独立 chore commit 清理（不阻塞）。
+
+### Session 21 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · Design (Wave 3 Consistency Re-review · 2026-04-25)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier", category=core, ui=false, wave=3
+- Trigger: Session 20 long-task-increment 把 F19 status 重置为 failing（Wave 3 MiniMax OpenAI-compat strict-schema bypass · 8 新 AC）；router 命中 `long-task-work-design` 阶段做 feature-level 一致性复审
+- Anchors: SRS FR-019 L310 · FR-020 L319 · FR-021 L329 (+Wave3 ext L332-341) · FR-022 L343 · FR-023 L352 (+Wave3 ext L355-367) · IFR-004 row L774 (+Effective Strict subsection L779-788) · ASM-008 L800 / Design §4.4 F19 L398-435 · §6.1.4 IFR-004 L1005-1102 / UCD: N/A (ui:false) / env-guide §4: greenfield
+- Feature design doc: `docs/features/19-f19-bk-dispatch-model-resolver-classifie.md`（Session 20 已落 Wave 3 修订；本会话 SubAgent 做一致性验证）
+- Config Gate: skipped — `required_configs=[]` 不含连接串键（URL/URI/DSN/CONNECTION/HOST/PORT/ENDPOINT）
+- SubAgent `long-task-feature-design`: status=pass · assumption_count=5（5 条均沿用 Session 18/20 既有 Clarification Addendum，非本会话新增）
+- Design: DONE (docs/features/19-f19-bk-dispatch-model-resolver-classifie.md)
+- Wave 3 一致性修订（+20/-7 行）：(1) §SRS Requirement 同步 FR-021 AC-4/5/6 + FR-023 EARS strict-off/tolerant-parse + AC-3..7 + IFR-004 AC-mod；(2) 类别占比统计 21/52→26/52=50%（FUNC 29 · BNDRY 8 · SEC 7 · INTG 8）；(3) Verification Checklist AC 追溯 13 旧+6 新 → 12 旧+8 新+1 IFR-mod+1 ASM；(4) T47 扩展 (a) 4 preset capability 位默认值 + (b) 5 组合 effective_strict 真值表断言，闭合 FR-021 AC-6 grey area
+- Approval 关卡: user selected "Approve & 推进 design→tdd"
+- current.phase: design → tdd

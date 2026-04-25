@@ -166,10 +166,14 @@ sequenceDiagram
 ### FR-021: Classifier OpenAI-compatible endpoint 支持
 **优先级**: Must
 **EARS**: The system shall 支持 Classifier 连接任意 OpenAI-compatible 聊天 completion endpoint（内置 GLM / MiniMax / OpenAI.com 预设，另支持自定义 endpoint），配置项包含 base_url / api_key / model_name。
+**EARS（Wave 3 extension）**: The system shall 在 ProviderPreset 数据结构中包含 `supports_strict_schema: bool` 能力位 (GLM/OpenAI/custom=True, MiniMax=False)；ClassifierConfig 增 `strict_schema_override: bool | None = None`，None 沿用 preset，True/False 运行时覆写。
 **验收准则**:
 - AC-1: Given 选中 GLM 预设，when 保存，then base_url 自动填为 GLM 官方；api_key 从 keyring 读
 - AC-2: Given 自定义 endpoint，when 保存空 base_url，then 前端阻止提交并红色提示
 - AC-3 (ATS L89 补齐): Given base_url 非白名单域，when 后端校验，then 拒绝保存（SSRF 防护）
+- AC-4 (Wave 3): Given preset='minimax' when ProviderPresets.resolve then supports_strict_schema=False
+- AC-5 (Wave 3): Given preset ∈ {glm, openai, custom} when resolve then supports_strict_schema=True
+- AC-6 (Wave 3): Given strict_schema_override=False + preset.supports_strict_schema=True when 计算 effective_strict then 取覆写值 False
 
 ### FR-022: Classifier 开关 + 硬编码规则降级
 **优先级**: Must
@@ -181,14 +185,23 @@ sequenceDiagram
 ### FR-023: Classifier 启用时固定 Schema JSON 输出
 **优先级**: Must
 **EARS**: While Classifier 启用, the system shall 按固定 System Prompt 做无状态单次分类，使用 response_format=json_schema 强制返回 `{verdict: HIL_REQUIRED|CONTINUE|RETRY|ABORT|COMPLETED, reason, anomaly, hil_source}` 严格 JSON。
+**EARS（Wave 3 extension — strict-off path）**: When effective_supports_strict_schema=False, the LlmBackend shall 不发送 `response_format` 字段；改为在 system message 末尾追加固定 JSON-only suffix；HTTP method/URL/Authorization header 与 strict-on 路径完全一致。
+**EARS（Wave 3 extension — tolerant parse）**: The system shall 对所有 provider 的 LLM 响应内容应用容错解析（不论 strict on/off）：剥离 `<think>...</think>` 包裹的推理段；提取首个语法平衡 JSON 对象；解析失败仍走 RuleBackend 兜底（IAPI-010 永不抛保留）。
 **验收准则**:
 - AC-1: Given LLM 返回非合法 JSON，when 解析失败，then 降级到硬编码规则且在 audit log 记 warning
 - AC-2: Given LLM 返回合法 JSON 但 verdict 不在枚举，then 降级并记 warning
+- AC-3 (Wave 3): Given effective strict-off when LlmBackend.invoke then request body 不含 'response_format' 键；system message = PromptStore.current + 固定 JSON-only suffix
+- AC-4 (Wave 3): Given strict-off + LLM 返合法 JSON when parse then Verdict(backend='llm') verdict ∈ enum
+- AC-5 (Wave 3): Given content='<think>x</think>{...}' when parse then 提取后段合法 JSON 解析成功
+- AC-6 (Wave 3): Given content 含多个 JSON 段 when parse then 取首个语法平衡对象
+- AC-7 (Wave 3): Given content 无可提取 JSON when parse then ClassifierProtocolError(cause='json_parse_error') → FallbackDecorator 兜底 rule（audit 记 classifier_fallback）
 
 ### IFR-004: OpenAI-compatible HTTP API
 **Protocol**: HTTP POST `<base_url>/v1/chat/completions` + `Authorization: Bearer <key>`
-**Data Format**: JSON request + JSON response（response_format=json_schema 时严格）
+**Data Format**: JSON request + JSON response（`response_format=json_schema` 在 effective_strict=true 时发送；effective_strict=false 时省略该字段并在 system message 追加 JSON-only suffix — 详见 SRS §6 "Effective Strict Schema 标志" + design §6.1.4）
 **ATS 约束**（L182）：10s timeout、SSRF 防 base_url 白名单、401 → 降级 rule + audit。
+**验收准则**:
+- AC-mod (Wave 3): Given effective_strict=false when 构造 HTTP request then URL/method/Authorization 一致；body 不含 'response_format' 字段
 
 ## Interface Contract
 
@@ -379,16 +392,16 @@ Step 1c 搜索关键字与结果：
 | T44 | BNDRY/edge | §IC FallbackDecorator.invoke audit log | respx 502 → fallback | audit log 追加一行含 `event="classifier_fallback", cause="http_5xx"` | audit 缺失，无法排查降级 |
 | T45 | FUNC/error | §IC ClassifierService.test_connection SSRF | test body `base_url="http://127.0.0.1:8080/v1"` + provider=custom | `TestConnectionResult(ok=False, error_code="ssrf_blocked")` 或 400 | 测试连通路径绕过 SSRF 校验 |
 | T46 | INTG/http | §DA seq msg LlmBackend→HttpApi · request shape | respx 断言 request header 含 `Authorization: Bearer <key>` 与 body `response_format.type=="json_schema"` + `strict=true` | 请求结构严格 | 未启用严格 schema 导致 T18 绕过 |
-| T47 | FUNC/happy | **Wave 3** FR-021 AC-4 · §IC ProviderPresets.resolve · ProviderPreset.supports_strict_schema | 加载 4 个内置 preset，断言 `glm.supports_strict_schema==True` / `openai.supports_strict_schema==True` / `custom.supports_strict_schema==True` / `minimax.supports_strict_schema==False` | 4 个 capability 位默认值正确 | MiniMax 未被标记 strict-off 能力位导致 smoke 回归失败 |
+| T47 | FUNC/happy | **Wave 3** FR-021 AC-4/5/6 · §IC ProviderPresets.resolve + effective_strict 计算 · ProviderPreset.supports_strict_schema · ClassifierConfig.strict_schema_override | (a) 加载 4 个内置 preset，断言 `glm.supports_strict_schema==True` / `openai.supports_strict_schema==True` / `custom.supports_strict_schema==True` / `minimax.supports_strict_schema==False`；(b) 对 `(preset='glm', override=None) / (preset='glm', override=False) / (preset='glm', override=True) / (preset='minimax', override=None) / (preset='minimax', override=True)` 5 组合分别求 `effective_strict = override if override is not None else preset.supports_strict_schema` | (a) 4 个 capability 位默认值正确；(b) 5 组合 effective_strict 分别为 True / False / True / False / True（验证 None 沿用 preset、True/False 显式覆写优先于 preset） | (a) MiniMax 未被标记 strict-off 能力位导致 smoke 回归失败；(b) override 三态合并逻辑写错（如 None 当 False、override 不能压过 preset） |
 | T48 | FUNC/happy | **Wave 3** FR-023 AC-3 · §IC LlmBackend.invoke 双路径 body 构造 | `effective_strict=False` 注入；respx 捕获请求 body；body 解析为 dict | body **不含** `response_format` 字段；system message `content` 以 `_JSON_ONLY_SUFFIX` 常量结尾（断言 `endswith(_JSON_ONLY_SUFFIX)`） | strict-off 分支仍发送 `response_format` 导致 MiniMax 协议错误 |
 | T49 | FUNC/happy | **Wave 3** FR-023 AC-4 · §IC LlmBackend._extract_json tolerant parse | respx 返回 `"<think>step 1...</think>\n{\"verdict\":\"COMPLETED\",\"reason\":\"ok\",\"anomaly\":null,\"hil_source\":null}"` | `<think>` 块被剥离；`Verdict(verdict=COMPLETED, backend=llm)` 成功解析 | `<think>` 泄露导致 JSON 解析失败误降级 |
 | T50 | FUNC/happy | **Wave 3** FR-023 AC-5 · §IC LlmBackend._extract_json 多段 JSON 首对象 | respx 返回 `"前言文本{\"verdict\":\"CONTINUE\",\"reason\":\"a\",\"anomaly\":null,\"hil_source\":null}后续 {\"other\":\"junk\"}"` | 返回**首个**语法平衡 JSON 对象对应 Verdict，verdict=`CONTINUE` | 扫到第二个 JSON 或连在一起解析失败 |
 | T51 | FUNC/error | **Wave 3** FR-023 AC-6/7 · §IC LlmBackend._extract_json 无 JSON · §Existing Code Reuse FallbackDecorator audit | respx 返回 `"对不起我无法分类"`（无任何 JSON 对象） | LlmBackend 抛 `ClassifierProtocolError`；ClassifierService 返 `Verdict(backend="rule")`；audit 一行 `{event:"classifier_fallback", cause:"json_parse_error"}` | tolerant extractor 未抛导致上层误以为 LLM 成功 |
 | T52 | INTG/http | **Wave 3** IFR-004-mod · ASM-008 · real_external_llm smoke（MiniMax 实网） | `@pytest.mark.real_external_llm` + keyring 真 API key；`ClassifierConfig(provider="minimax", strict_schema_override=None)` → effective_strict=False；发真 POST | smoke 断言：响应 `backend=="llm"`（strict-off + tolerant extractor 命中）；rule 降级改为**辅助断言**（若 LLM 偶发空返回允许 backend=rule 但记 skipped reason） | MiniMax 真实端点 strict-off 路径不通 → ASM-008 假设失效触发 §11.4 Wave 3 Risk 行 |
 
-**主要类别覆盖**（对齐 ATS L87-91 + L182）：FUNC/happy + FUNC/error 增至 26 行；BNDRY 7 行；SEC 6 行（fs-perm · ssrf × 4 · keyring · secret-leak · path-traversal 纳入 SEC）；INTG 11 行（http × 8 / fs / keyring）；PERF 由 T31 承担（INTG/http + §IC timeout，对齐 ATS IFR-004 PERF 10s）。UI 不适用（`ui: false`）。**Wave 3 新增 6 行**（T47–T52）覆盖 6 条新 AC（FR-021 AC-4..6、FR-023 AC-3..5、AC-6/7 + IFR-004-mod + ASM-008）。
+**主要类别覆盖**（对齐 ATS L87-91 + L182）：FUNC/happy 18 行 + FUNC/error 11 行 = 29 行；BNDRY 8 行；SEC 7 行（fs-perm · ssrf × 3 · keyring · secret-leak · path-traversal 纳入 SEC）；INTG 8 行（http × 6 / fs / keyring）；PERF 由 T31 承担（INTG/http + §IC timeout，对齐 ATS IFR-004 PERF 10s）。UI 不适用（`ui: false`）。**Wave 3 新增 6 行**（T47–T52）覆盖 8 条新 AC（FR-021 AC-4/5/6、FR-023 AC-3/4/5/6/7 + IFR-004-mod + ASM-008）。
 
-**类别占比核验**：总 **52**；负向（FUNC/error + BNDRY/* + SEC/*）= 8 + 7 + 6 = **21**；比例 21/52 ≈ **0.404 > 0.40** ✓。
+**类别占比核验**：总 **52**；负向（FUNC/error + BNDRY/* + SEC/*）= 11 + 8 + 7 = **26**；比例 26/52 = **0.500 ≥ 0.40** ✓。
 
 **Design Interface Coverage Gate**：重扫系统设计 §4.4 Key Types + IAPI-015/010/002/014，逐一验证覆盖 —
 - `ModelResolver.resolve` → T01-T05 ✓
@@ -408,13 +421,13 @@ Step 1c 搜索关键字与结果：
 
 ## Verification Checklist
 - [x] 全部 SRS 验收准则（FR-019 AC-1/2 · FR-020 AC-1/2/3 · FR-021 AC-1/2/3 · FR-022 AC-1/2 · FR-023 AC-1/2 · IFR-004）追溯到 Interface Contract postcondition（见 §IC 各 Raises / Postcondition 列）
-- [x] **Wave 3 新增 AC** 追溯：FR-021 AC-4..6（preset capability 位）→ T47；FR-023 AC-3（strict-off body 构造）→ T48；FR-023 AC-4（`<think>` 剥离）→ T49；FR-023 AC-5（多段 JSON 首对象）→ T50；FR-023 AC-6/7（无 JSON 抛 + audit `json_parse_error`）→ T51；IFR-004-mod（协议根不变、body 条件发送）→ T48（请求结构）+ §IC LlmBackend.invoke postcondition；ASM-008（MiniMax strict-off 真网可用）→ T52
-- [x] 全部 SRS 验收准则追溯到 Test Inventory（T01..T52 覆盖全部 13 条 AC + Wave 3 新增 6 条 AC + 1 IFR-mod + 1 ASM）
+- [x] **Wave 3 新增 AC** 追溯：FR-021 AC-4/5（preset capability 位 minimax=False / glm·openai·custom=True）→ T47；FR-021 AC-6（strict_schema_override=False 取覆写值）→ T47 (preset capability 默认值) + T48 (effective_strict=False 注入并断言 body 不含 response_format)；FR-023 AC-3（strict-off body 构造 + JSON-only suffix）→ T48；FR-023 AC-4（strict-off 合法 JSON 走 backend=llm）→ T49 + T50；FR-023 AC-5（`<think>` 剥离）→ T49；FR-023 AC-6（多段 JSON 首对象）→ T50；FR-023 AC-7（无 JSON 抛 ProtocolError + audit `json_parse_error`）→ T51；IFR-004 AC-mod（协议根不变、body 条件发送）→ T48（请求结构）+ §IC LlmBackend.invoke postcondition；ASM-008（MiniMax strict-off 真网可用）→ T52
+- [x] 全部 SRS 验收准则追溯到 Test Inventory（T01..T52 覆盖全部 12 条旧 AC + Wave 3 新增 8 条 AC + 1 IFR-mod AC + 1 ASM）
 - [x] Interface Contract Raises 列覆盖所有预期错误（`ModelRulesCorruptError` / `ClassifierHttpError` / `ClassifierProtocolError` / `SsrfBlockedError` / `ProviderPresetError` / `PromptValidationError` / `PromptStoreError`）
 - [x] Boundary Conditions 表覆盖所有非平凡参数（12 行）
 - [x] Implementation Summary 为 5 段具体散文（含 `harness/dispatch/**` 文件路径 + 类名 + 调用链 + F01 复用 + §4 契约），并按 §2a 嵌入 `flowchart TD`（`ClassifierService.classify` 含 ≥3 决策分支）
 - [x] Existing Code Reuse 表填充（5 个复用符号 + 搜索关键字 6 条）
-- [x] Test Inventory 负向占比 20/46 ≈ 43.5% ≥ 40%
+- [x] Test Inventory 负向占比 26/52 = 50.0% ≥ 40%
 - [x] ui:false → Visual Rendering Contract 写明 "N/A — 后端专用特性"
 - [x] UML 图节点 / 参与者 / 消息均使用真实标识符（ClassName / methodName），无 A/B/C 代称
 - [x] 非类图（sequenceDiagram / flowchart TD）不含色彩 / 图标 / `rect` / 皮肤
