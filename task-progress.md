@@ -675,3 +675,40 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Coverage Buffer] `event-tree.tsx` happy-dom 下 useVirtualizer 主路径不可达（fallback 已覆盖；生产虚拟化逻辑由 ST/E2E 与 chrome-devtools take_snapshot 验证），下一波若新增分支需配对真浏览器测试
 - ⚠ [Backend-Surface] F21 是 Consumer，运行时依赖 IAPI-001/002/019（`/api/runs/current` · `/api/tickets` · `/ws/*`）由 F20 提供；当前 `harness.api:app` 未集成这些路由（F20 责任范围已交付但未挂入 main app router）。带数据态由 vitest mock-WebSocket / mock-fetch 全 PASS；真打数据态需待 F22（Fe-Config）+ F17（M4 Packaging）在 main app router 中聚合所有 IAPI-001/002 路由后端到端验证
 - ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 持续 dirty（Session 12+ carry-over，与 F20 Session 25 / F19 Session 24 同模式）；本次 ST commit 显式排除；建议下一会话开 chore 一次性收敛或显式接受其漂移
+
+---
+
+## Hotfix Session — 2026-04-25: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend
+- **Severity**: Critical
+- **Bugfix Feature ID**: #23
+- **Fixed Feature**: #20 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess
+- **Root Cause**: F20 ST 阶段仅通过 test-only factory `harness.app.main.build_app()` 验证 IAPI-002/IAPI-019 契约，未把 service 层 (RunOrchestrator/TicketRepository/HilControl/AnomalyClassifier/FilesService/CommitListService/DiffLoader) 通过 FastAPI router 挂载到 production 入口 `harness.api:app`，且 5 条 WebSocket 端点沿用 F12 echo bootstrap stub 未对接真实 broadcaster；并发缺陷：requirements.txt 缺 uvicorn WebSocket runtime 后端 (websockets/wsproto)，uvicorn 在 ASGI 之前对所有 WS upgrade 直接 HTTP 404
+- **Reproduction Evidence**:
+  - `bash scripts/svc-api-start.sh` → uvicorn :8765 启动成功（`Uvicorn running on http://127.0.0.1:8765`，PID `/tmp/svc-api.pid`）
+  - `curl /api/health` HTTP 200（基线 sanity）；`curl /api/{runs/current,tickets,files/tree?root=docs,git/commits,skills/tree,settings/general}` 全 HTTP 404；`POST /api/runs/start` HTTP 405（被 SPA fallback `/` 接走）
+  - `grep '@app.websocket.*ws/run' harness/api/__init__.py harness/app/main.py` → 2 命中（双定义：`__init__.py:159` 生产 stub + `app/main.py:55` test-only factory，仅 `tests/integration/test_f20_real_rest_ws.py` 引用 build_app）
+  - `app.routes` dump：5 条 APIWebSocketRoute 在 Mount("/") 之前；in-process Starlette TestClient `/ws/hil` 正常返回 mock `_F21_HIL_BOOTSTRAP` envelope
+  - 真实 uvicorn handshake：`websocket-client` 连 `/ws/{hil,run/r1,anomaly,signal,stream/t1}` 全 404 — 缺 `websockets`/`wsproto` 后端，ws upgrade 在 ASGI 之前被拒
+- **Status**: Enqueued — Worker will handle Design/TDD/Quality/ST/Review
+
+### Session 28 — Feature #23 Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend · Design (Wave 3 · 2026-04-25)
+
+- target_feature: id=23, title="Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend", category=bugfix, ui=false, wave=3, fixed_feature_id=20
+- Trigger: phase_route.py → next_skill=long-task-work-design, feature_id=23, starting_new=true (deps=[20], F20 status=passing)
+- Anchors:
+  - Design §1.1 范围（L18-23）+ §1.4 接口需求（L44-46）+ §3.1 Architecture Overview（L83-99）+ §3.2 Logical View（L100-185）+ §3.4 Tech Stack Decisions（L234-274）+ §4.3 F18（L339-397）+ §4.5 F20（L436-510）+ §6.1.7 IFR-007 WebSocket（L1097-1102）+ §6.2.1 契约总表（L1107-1132）+ §6.2.2 REST 路由表 IAPI-002（L1133-1167）+ §6.2.3 WebSocket 频道 IAPI-001（L1169-1180）+ §6.2.4 Schema Definitions（L1180-1427）+ §6.2.5 错误码（L1428-1441）+ §8.1 Python 后端依赖（L1459-1483）+ §8.3 版本约束（L1515-1521）+ §8.4 依赖图（L1522-1554）
+  - SRS FR-001 启动 Run（L136）· FR-024 context_overflow（L371）· FR-029 异常可视化+手动控制（L417）· FR-039 过程文件双层校验（L520）· FR-042 Ticket 级 git 记录（L549）· §6 Interface Requirements 表（L768-）IFR-007 WebSocket（L777）
+  - env-guide §1 Services（api/ui-dev）· §3 构建与执行命令 · §4 存量代码库约束（greenfield placeholder）
+  - ucd: ui:false → 跳过 UCD 引用
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Config Gate: 跳过 — required_configs=[]（无连接串键）
+- Bootstrap: `.venv` 激活 OK · python 3.12.3 · fastapi 0.136.0 · uvicorn 0.44.0（缺 [standard] WS runtime — 验证根因之一）
+- **Feature-Design — DISPATCH** `long-task-feature-design` SubAgent（精简版 bugfix）
+  - status=pass · test_inventory_count=46 · negative_ratio=43.5% (20/46) · interface_methods=25 · existing_code_reuse=22 · assumption_count=0
+  - Provider: IAPI-001 (5 WS 频道 §6.2.3) · IAPI-002 (14 REST 路由 §6.2.2) · IAPI-019 (RunControl 维持现状)；无 schema 偏移
+  - UML 元素覆盖：sequenceDiagram 7 msg + flowchart 6 branch = 13/13
+  - ATS bugfix 回归锚点 6 行全命中：FR-001 L49 / FR-024 L97 / FR-029 L102 / FR-039 L120 / FR-042 L128 / IFR-007 L185
+  - Real-uvicorn handshake 子集 9 行（R22-R29/R36）独立于 in-process Starlette TestClient；R30 保护 F20 既有 `test_f20_real_rest_ws.py` 不回归
+  - 4 类定向修复点：(1) 14 REST → `harness/api/{runs,tickets,hil,anomaly,general_settings,files,git,validate,skills}.py` router + `app.include_router()`；(2) 5 WS → `harness/api/__init__.py` 删 echo stub 接 `RunControlBus`/`HilEventBus`/F18 stream parser/`AnomalyClassifier`/`SignalFileWatcher`；(3) `requirements.txt` `uvicorn==0.44.0` → `uvicorn[standard]==0.44.0`（对齐 design §3.4 L240 / §8.1 L1464 / §8.4 L1539）；(4) `/ws/run/:id` 双定义归一（保留 `harness.api:app` 为生产入口，`harness.app.main.build_app` 仅供 `tests/integration/test_f20_real_rest_ws.py` 引用）
+- Design: DONE (`docs/features/23-fix-f18-f20-iapi-002-ship-miss-14-rest-r.md`)
+- current.phase: design → tdd

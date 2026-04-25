@@ -133,7 +133,7 @@
   ],
   "current": {
     "feature_id": 23,
-    "phase": "design"
+    "phase": "tdd"
   },
   "features": [
     {
