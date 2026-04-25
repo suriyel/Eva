@@ -509,3 +509,59 @@ async def test_f23_feature_23_r42_real_uvicorn_ws_run_unknown_id_emits_no_mock(
                     f"feature 23 R42 expected real broadcaster envelope to "
                     f"carry payload.state, not the F12 mock 'phase' field; got {m!r}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# R47 — Real uvicorn /ws/anomaly latency p95 < 100ms (IFR-007 PERF)
+# ---------------------------------------------------------------------------
+@pytest.mark.real_http
+async def test_f23_feature_23_r47_real_uvicorn_ws_anomaly_p95_latency_under_100ms(
+    tmp_path: Path,
+) -> None:
+    """feature 23 R47 PERF (IFR-007 ATS L185): broadcast→receive latency over
+    /ws/anomaly across 30 sequential injections must satisfy p95 < 100ms on
+    loopback. Validates the WS push pipeline (RunControlBus.broadcast_anomaly →
+    ws_anomaly handler → client receive) does not accumulate queueing delay."""
+    import statistics
+    import websockets
+
+    _git_init(tmp_path)
+    samples_ms: list[float] = []
+    n = 30
+    with _spawn_real_uvicorn(workdir=tmp_path) as (host, port, _proc):
+        url = f"ws://{host}:{port}/ws/anomaly"
+        async with websockets.connect(url, open_timeout=5, close_timeout=2) as ws:
+            async with httpx.AsyncClient(base_url=f"http://{host}:{port}", timeout=5.0) as client:
+                for i in range(n):
+                    t0 = time.monotonic()
+                    inject = await client.post(
+                        "/api/anomaly/_test/inject",
+                        json={
+                            "ticket_id": f"t-r47-{i}",
+                            "cls": "context_overflow",
+                            "retry_count": 1,
+                        },
+                    )
+                    assert inject.status_code == 200, (
+                        f"R47 inject hook missing or failed; got "
+                        f"{inject.status_code}: {inject.text!r}"
+                    )
+                    raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                    t1 = time.monotonic()
+                    env = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+                    assert isinstance(env, dict)
+                    payload = env.get("payload") or {}
+                    assert payload.get("ticket_id") == f"t-r47-{i}", (
+                        f"R47 expected ticket_id=t-r47-{i}; got {env!r}"
+                    )
+                    samples_ms.append((t1 - t0) * 1000.0)
+
+    assert len(samples_ms) == n, f"R47 expected {n} samples; got {len(samples_ms)}"
+    samples_ms.sort()
+    # p95 = ceil(0.95 * n) - 1 index
+    p95 = samples_ms[max(0, int(0.95 * n) - 1)]
+    p50 = statistics.median(samples_ms)
+    assert p95 < 100.0, (
+        f"R47 IFR-007 PERF: WS broadcast→receive latency p95={p95:.2f}ms "
+        f"exceeds 100ms threshold. p50={p50:.2f}ms, max={samples_ms[-1]:.2f}ms"
+    )
