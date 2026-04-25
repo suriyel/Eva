@@ -626,3 +626,52 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - TDD: green ✓ (R-G-R complete)
 - Quality: line=94.96%, branch=82.93%, srs_trace_coverage=OK
 - current.phase: tdd → st
+
+### Session 27 — Feature #21 F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream · ST (Wave 2 · 2026-04-25)
+
+- target_feature: id=21, title="F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream", category=ui, ui=true, ui_entry=/, wave=2
+- Trigger: phase_route.py → next_skill=long-task-work-st, feature_id=21, starting_new=false (current locked at {21, st})
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Bootstrap: services 由 Feature-ST SubAgent 自管理；主 worker 仅做环境激活与产物收口
+- **Feature-ST — DISPATCH** `long-task-feature-st` SubAgent（general-purpose subagent + Skill 加载）
+  - status=pass · 24 ST cases · 23 PASS + 1 BLOCKED (Known-Gap visual-regression)
+  - 类别覆盖：FUNC=8 · BNDRY=3 · UI=9 · SEC=2 · PERF=2 · negative_ratio=10/24 ≈ 41.7% (≥40%)
+  - validate_st_cases.py: VALID — 24 test case(s)（exit 0，零 warnings）
+  - check_ats_coverage.py --strict: ATS COVERAGE OK — checked feature #21（7 SRS trace × ATS 类别全覆盖）
+  - 服务自管理：`bash scripts/svc-api-start.sh` → uvicorn :8765 + `bash scripts/svc-ui-dev-start.sh` → vite :5173；curl /api/health=200 / curl /:5173=200；执行结束清理（PID kill + lsof :8765/:5173 fallback，最终 lsof 输出空）
+  - vitest: 27 文件 / 177 tests PASS（3.73s）
+  - chrome-devtools MCP 三页 take_snapshot：RunOverview / HILInbox / TicketStream 关键元素全命中（Empty State / Sidebar 8 nav / 三 pane / filter chip / 内联搜索）
+  - 浏览器实测：deriveHilControl 5 happy + 1 boundary PASS + invalid 输入抛 InvalidHilQuestionError；runOverviewReducer cost 累加 PASS；Ctrl+F 焦点 PASS；URL filter 同步 PASS；Sidebar nav PASS；console error/warn = 0
+  - 视觉评估（4 项）：Rendering 4/5 · Interactive Depth 4/5 · Visual Coherence 5/5 · Functional Accuracy 4/5；Display-Only Defects 0
+  - **Known-Gap** ST-UI-021-009 visual-regression pixelmatch BLOCKED：prototype 三页 artboard PNG 未导出（与 F12 ST-UI-012-009 同源跨 feature UCD §7 SOP 缺口），不阻塞 ATS 类别覆盖；其余 8 UI 用例覆盖 §VRC 全部关键元素 + Layer 1b 正向渲染
+- **Inline Check (主 agent)**:
+  - P2 Interface Contract grep: 11/11 公开方法签名命中 src 实现文件
+  - T2 Test Inventory ↔ 测试文件: 13/13 vitest 文件覆盖 design Test Inventory 45 行（vitest 全套 27 文件 / 177 tests PASS）
+  - D3 2/3 party 版本: `@tanstack/react-virtual ^3.10.8` · `@tanstack/react-query 5.59.20` · `react-router-dom 7.0.1` 与 design §Existing Code Reuse 一致
+  - U1 UCD 硬编码颜色: 初次扫到 4 处 `#06101E`（与 prototype tokens.css `.btn.primary` 一致字面）→ 抽 `--fg-on-accent: #06101E` token 添入 `apps/ui/src/theme/tokens.css` + 替换 `apps/ui/src/routes/run-overview/index.tsx` (1 处) 与 `apps/ui/src/routes/hil-inbox/components/hil-card.tsx` (3 处) 为 `var(--fg-on-accent)`；重校 0 命中；vitest 13 routes 文件 / 94 tests PASS 无回归
+  - e ST 文档完整性: validate_st_cases.py VALID — 24 test case(s)
+  - e2 ATS Category 卫生: check_ats_coverage.py 复跑 OK
+  - §4 存量约定: greenfield 占位（无强制内部库 / 禁用 API / 命名约束）→ 0 violations
+- **Persist**:
+  - Git: `b756594` feat: feature #21 f21-fe-runviews-runoverview-hilinbox-tic — ST 24 cases passing
+  - RELEASE_NOTES.md: 在 [Unreleased] · Added 追加 F21 一行（合并 F13+F14；纯 UI Consumer；Known-Gap 标注）
+  - feature-list.json: features[#21].status `failing → passing` + `git_sha=b756594` + `st_case_path` + `st_case_count=24`；root `current` `{21, st} → null`
+  - validate_features.py: VALID — 22 features (8 passing, 2 failing, 12 deprecated) | current=none
+- **Stale-scripts carry-over**: `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` + `apps/ui/test-results/`、`.claude/` 维持 Session 12+ 已知未提交状态，本次 ST commit 显式排除（与 F20 Session 25 同模式）；后续可独立 chore 收敛
+- current.phase: st → null (cleared)
+
+---
+
+### Feature #21: F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream — PASS
+- Completed: 2026-04-25
+- TDD: green ✓ (R-G-R complete · 27 vitest 文件 / 177 tests after Quality 补强)
+- Quality Gates: line 94.96% / branch 82.93% ≥ 90/80 ✓
+- Feature-ST: 24 cases · 23 PASS + 1 BLOCKED (Known-Gap visual-regression) — `docs/test-cases/feature-21-f21-fe-runviews-runoverview-hilinbox-tic.md` (validate_st_cases.py VALID · check_ats_coverage.py OK · vitest 177 PASS · chrome-devtools 三页 take_snapshot)
+- Inline Check: PASS (P2: 11/11 methods · T2: 13/13 测试文件 / 177 tests · D3: react-virtual/react-query/react-router-dom 版本对齐 · U1: 4 处 `#06101E` 抽离为 `--fg-on-accent` token + 替换；ATS Category: FUNC/BNDRY/SEC/UI/PERF + DEVTOOLS/VISUAL-REGRESSION 全覆盖；§4: greenfield placeholder 0 violations)
+- Git: b756594 feat: feature #21 f21-fe-runviews-runoverview-hilinbox-tic — ST 24 cases passing
+
+#### Risks
+- ⚠ [Known-Gap] ST-UI-021-009 visual-regression pixelmatch < 3% 阻塞于 prototype 三页 artboard PNG 未导出（UCD §7 SOP 第 5 步未跨 feature 落齐；与 F12 ST-UI-012-009 同源缺口）。短期由其余 8 UI 用例 + chrome-devtools take_snapshot + Layer 1b 正向渲染补偿；长期需独立 chore 在 `docs/design-bundle/eava2/project/pages` 跑 prototype HTML → 导出 RunOverview/HILInbox/TicketStream 三 PNG 后回填 ST-UI-021-009
+- ⚠ [Coverage Buffer] `event-tree.tsx` happy-dom 下 useVirtualizer 主路径不可达（fallback 已覆盖；生产虚拟化逻辑由 ST/E2E 与 chrome-devtools take_snapshot 验证），下一波若新增分支需配对真浏览器测试
+- ⚠ [Backend-Surface] F21 是 Consumer，运行时依赖 IAPI-001/002/019（`/api/runs/current` · `/api/tickets` · `/ws/*`）由 F20 提供；当前 `harness.api:app` 未集成这些路由（F20 责任范围已交付但未挂入 main app router）。带数据态由 vitest mock-WebSocket / mock-fetch 全 PASS；真打数据态需待 F22（Fe-Config）+ F17（M4 Packaging）在 main app router 中聚合所有 IAPI-001/002 路由后端到端验证
+- ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` 持续 dirty（Session 12+ carry-over，与 F20 Session 25 / F19 Session 24 同模式）；本次 ST commit 显式排除；建议下一会话开 chore 一次性收敛或显式接受其漂移

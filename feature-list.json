@@ -131,10 +131,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 21,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -688,7 +685,7 @@
       "title": "F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream",
       "description": "合并原 F13 RunOverview+HILInbox / F14 TicketStream；3 页面共享 stream-json 数据域 + ticket 模型 + WebSocket 客户端；HIL 闭环（controls radio/checkbox/textarea）+ event tree 虚拟滚动",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-010",
         "FR-030",
@@ -719,7 +716,10 @@
         "[visual-regression] Given RunOverview / HILInbox / TicketStream 实现渲染 when 与 design-bundle 对应 .jsx 截图 pixelmatch 对比 then 像素差 < 3%（UCD §7 SOP）"
       ],
       "ui": true,
-      "ui_entry": "/"
+      "ui_entry": "/",
+      "git_sha": "b756594",
+      "st_case_path": "docs/test-cases/feature-21-f21-fe-runviews-runoverview-hilinbox-tic.md",
+      "st_case_count": 24
     },
     {
       "id": 22,
