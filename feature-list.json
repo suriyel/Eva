@@ -131,7 +131,10 @@
       ]
     }
   ],
-  "current": null,
+  "current": {
+    "feature_id": 23,
+    "phase": "design"
+  },
   "features": [
     {
       "id": 1,
@@ -766,6 +769,34 @@
       ],
       "ui": true,
       "ui_entry": "/settings"
+    },
+    {
+      "id": 23,
+      "wave": 3,
+      "category": "bugfix",
+      "title": "Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend",
+      "description": "Production ASGI 入口 `harness.api:app` (uvicorn) 仅挂载 11 条 REST + 5 条 echo-stub WebSocket；Design §6.2.2 列出的 29 条 REST 中 ≥14 条 (`/api/runs/{current,start,pause,cancel}`, `/api/runs`, `/api/tickets[/:id[/stream]]`, `/api/hil/:ticket_id/answer`, `/api/anomaly/:ticket_id/{skip,force-abort}`, `/api/settings/general`, `/api/skills/tree`, `/api/files/{tree,read}`, `/api/validate/:file`, `/api/git/{commits,diff/:sha}`) 在 service 层 (`harness.orchestrator.run`, `harness.persistence.tickets`, `harness.hil.control`, `harness.recovery.anomaly`, `harness.api.files`, `harness.api.git`) 已实现但未被 FastAPI router 包装并 `app.include_router()`；§6.2.3 列出的 5 条 WS 频道仅返回 F12 mock bootstrap envelope，未对接 RunControlBus / HilEventBus / F18 stream parser / AnomalyClassifier / SignalFileWatcher 真实 broadcaster；`/ws/run/{run_id}` 在 `harness/api/__init__.py:159` 与 `harness/app/main.py:55` 双定义（后者为 test-only factory `build_app()`，仅 `tests/integration/test_f20_real_rest_ws.py` 引用），需在 production 入口归一；`requirements.txt` 锁 `uvicorn==0.44.0` 未带 WebSocket runtime（无 `websockets`/`wsproto`），uvicorn 在 ASGI 之前对所有 ws upgrade 直接 HTTP 404。F21 三页面 mock-WebSocket/mock-fetch vitest 全 PASS 但 production 拉真数据 100% 失效；F22 (Fe-Config) 进入 TDD 前需先消解此 ship miss。— Root cause: F20 ST 阶段仅通过 test-only factory `harness.app.main.build_app()` 验证 IAPI-002/IAPI-019，未把 service 层挂载到 production `harness.api:app`，5 条 WS endpoint 沿用 F12 echo stub 未替换为真 broadcaster；并发缺陷：requirements.txt 缺 uvicorn WebSocket runtime 后端导致 production WS upgrade 在 ASGI 之前 404。",
+      "priority": "high",
+      "status": "failing",
+      "srs_trace": [
+        "FR-001",
+        "FR-024",
+        "FR-029",
+        "FR-039",
+        "FR-042",
+        "IFR-007"
+      ],
+      "dependencies": [
+        20
+      ],
+      "ui": false,
+      "deprecated": false,
+      "deprecated_reason": null,
+      "supersedes": null,
+      "bug_severity": "Critical",
+      "bug_source": "manual-testing",
+      "fixed_feature_id": 20,
+      "root_cause": "F20 ST 阶段仅通过 test-only factory `harness.app.main.build_app()` 验证 IAPI-002/IAPI-019 契约，未把 service 层 (RunOrchestrator/TicketRepository/HilControl/AnomalyClassifier/FilesService/CommitListService/DiffLoader) 通过 FastAPI router 挂载到 production 入口 `harness.api:app`，且 5 条 WebSocket 端点沿用 F12 echo bootstrap stub 未对接真实 broadcaster；并发缺陷：requirements.txt 缺 uvicorn WebSocket runtime 后端 (websockets/wsproto)，uvicorn 在 ASGI 之前对所有 WS upgrade 直接 HTTP 404。"
     }
   ]
 }
