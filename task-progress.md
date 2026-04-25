@@ -712,3 +712,34 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - 4 类定向修复点：(1) 14 REST → `harness/api/{runs,tickets,hil,anomaly,general_settings,files,git,validate,skills}.py` router + `app.include_router()`；(2) 5 WS → `harness/api/__init__.py` 删 echo stub 接 `RunControlBus`/`HilEventBus`/F18 stream parser/`AnomalyClassifier`/`SignalFileWatcher`；(3) `requirements.txt` `uvicorn==0.44.0` → `uvicorn[standard]==0.44.0`（对齐 design §3.4 L240 / §8.1 L1464 / §8.4 L1539）；(4) `/ws/run/:id` 双定义归一（保留 `harness.api:app` 为生产入口，`harness.app.main.build_app` 仅供 `tests/integration/test_f20_real_rest_ws.py` 引用）
 - Design: DONE (`docs/features/23-fix-f18-f20-iapi-002-ship-miss-14-rest-r.md`)
 - current.phase: design → tdd
+
+### Session 29 — Feature #23 Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend · TDD (Wave 3 · 2026-04-25)
+
+- target_feature: id=23, title="Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend", category=bugfix, ui=false, wave=3
+- Trigger: phase_route.py → next_skill=long-task-work-tdd, feature_id=23, starting_new=false
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Bootstrap: `.venv` 激活 OK · 已 passing 子集 smoke (`tests/integration/test_f20_real_rest_ws.py`) 1 passed · 不预启 api/ui-dev（feature 自身改写 uvicorn ws backend，测试自管子进程避免端口冲突）
+- **TDD Red — DISPATCH** `long-task-tdd-red` SubAgent
+  - status=pass · 51 tests across 3 files (`test_f23_real_rest_routes.py` 37 / `test_f23_real_uvicorn_handshake.py` 7 / `test_f23_real_lifespan_wiring.py` 7) · 50/51 fail Red · R30 (F20 anti-regression) 维持 green
+  - Rule 1 categories=FUNC/happy 17 + FUNC/error 10 + BNDRY/edge 9 + SEC 2 + INTG 13（asgi-rest / uvicorn-real-handshake / dependency-import / single-definition / lifespan / regression-f20-st）
+  - Rule 2 negative_ratio=21/51=41.2% (≥40%)；Rule 3 low_value≈4.8% (≤20%)；Rule 4 wrong-impl 通过；Rule 5 real_test_count=51 全 `@pytest.mark.real_http`
+- **TDD Green — DISPATCH** `long-task-tdd-green` SubAgent
+  - status=pass（中途 SubAgent 未返结构化 JSON，主 agent 亲跑 `pytest tests/integration/test_f23_*.py tests/integration/test_f20_real_rest_ws.py` → 52 passed in 50.23s, exit=0）
+  - 实现：14 REST router (runs/tickets/hil/anomaly/general_settings/files_routes/git_routes/validate/skills) + 5 WS broadcaster wired to `harness.api:app` + `wiring.py` lifespan helper（HARNESS_WORKDIR env 触发自动 wire；in-process 测试需显式调 `wire_services`）
+  - `requirements.txt` `uvicorn==0.44.0` → `uvicorn[standard]==0.44.0`（websockets/wsproto 装入；uvicorn 启动行 `Uvicorn running on http://127.0.0.1:8765` 已捕获，`/api/health` 200 OK）
+  - 双定义归一：production `harness.api:app` 持有 5 条 ws；`harness.app.main.build_app()` 仅供 R30 anchor
+- **TDD Refactor — DISPATCH** `long-task-tdd-refactor` SubAgent
+  - status=pass · 52 tests still green · ruff/black/mypy 在 F23 触及文件 0 violation
+  - design alignment final §4/§6/§8 matches drift=none；UML sequenceDiagram 7 msg + flowchart 6 branch 全部保留
+  - Refactor 调整：runs.py 删冗余 `_StartBody`、移除未用 imports；anomaly/validate 显式类型注解；files_routes/git_routes 类型修正；black 全文格式化
+- **F12/F21 ws contract decision (用户裁决 Option A — Update tests with wire_services + event publish)**
+  - 缘起：F23 替换 echo stub 为真 broadcaster；`tests/integration/test_f12_real_websocket.py`（2）+ `test_f21_real_websocket.py`（3）原依赖 echo 行为，TestClient(app) 不调 wire_services 致 1011 close（F12）/ q.get hang（F21）
+  - 修复：两文件均加 wire_services + event publish 模式（同 F23 R32 in-block 同步推），5/5 测试 0.40s 通过；契约对齐 F23 emit 形状（`{kind: 'hil_event', payload}` / `{kind: 'StreamEvent', payload}` / kind ∈ run_phase_changed/...）
+- **Quality Gates — DISPATCH** `long-task-quality` SubAgent → first-pass returned 88.45% line（below 90% gate；多数缺口在 real-uvicorn subprocess 路径，pytest-cov 跨进程不可见）
+- **Quality Addendum — DISPATCH** `long-task-quality` SubAgent（扩测）
+  - 新增 `tests/integration/test_f23_inproc_coverage.py` 35 测试（in-process /ws/signal /ws/anomaly /ws/stream broadcaster + REST 错误码 + test-only inject endpoints）
+  - 主 agent 亲跑 `pytest --cov=harness --cov-branch ...` → 647 passed, 2 deselected (test_t29_real_claude_hil_round_trip / test_t30_hil_poc_20_round 慢 LLM PoC), **line=90.24% ≥ 90%**, branch≈85.7% ≥ 80%, exit=0
+  - srs_trace_coverage: FR-001 / FR-024 / FR-029 / FR-039 / FR-042 / IFR-007 全在 F23 测试 docstring/marker 中显式映射 → uncovered_fr_ids=[]
+- TDD: green ✓ (R-G-R complete) · 测试总数 51 + 35 inproc + 5 F12/F21 ws update = 91 fresh tests (R30 anchor 既有不计)
+- Quality: line=90.24%, branch≈85.7%, srs_trace_coverage=OK (uncovered_fr_ids=[])
+- current.phase: tdd → st

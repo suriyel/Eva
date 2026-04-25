@@ -90,6 +90,14 @@ class _InMemoryRunRepo:
     async def list_active(self) -> list[Run]:
         return [r for r in self._rows.values() if r.state in {"starting", "running", "paused"}]
 
+    async def list_recent(self, *, limit: int = 50, offset: int = 0) -> list[Run]:
+        rows = sorted(
+            self._rows.values(),
+            key=lambda r: r.started_at,
+            reverse=True,
+        )
+        return rows[offset : offset + limit]
+
 
 class _InMemoryTicketRepo:
     def __init__(self) -> None:
@@ -101,8 +109,24 @@ class _InMemoryTicketRepo:
     async def get(self, ticket_id: str) -> Ticket | None:
         return self._rows.get(ticket_id)
 
-    async def list_by_run(self, run_id: str) -> list[Ticket]:
-        return [t for t in self._rows.values() if t.run_id == run_id]
+    async def list_by_run(
+        self,
+        run_id: str,
+        *,
+        state: Any = None,
+        tool: Any = None,
+        parent: Any = None,
+    ) -> list[Ticket]:
+        rows = [t for t in self._rows.values() if t.run_id == run_id]
+        if state is not None:
+            state_val = state.value if hasattr(state, "value") else state
+            rows = [t for t in rows if t.state.value == state_val]
+        if tool is not None:
+            rows = [t for t in rows if t.tool == tool]
+        if parent is not None:
+            rows = [t for t in rows if t.parent_ticket == parent]
+        rows.sort(key=lambda t: (t.execution.started_at or "", t.id))
+        return rows
 
 
 class _CapturedAuditEvent:
@@ -412,16 +436,19 @@ class RunOrchestrator:
     async def spawn_test_ticket(
         self,
         *,
-        state: TicketState = TicketState.RUNNING,
+        state: TicketState | str = TicketState.RUNNING,
         skill_hint: str = "long-task-design",
         depth: int = 0,
+        run_id: str | None = None,
     ) -> str:
         ticket_id = f"t-{uuid.uuid4().hex[:8]}"
-        run_id = next(iter(self._runtimes), "run-test")
+        if isinstance(state, str):
+            state = TicketState(state)
+        rid = run_id or next(iter(self._runtimes), "run-test")
         now = datetime.now(timezone.utc).isoformat()
         ticket = Ticket(
             id=ticket_id,
-            run_id=run_id,
+            run_id=rid,
             depth=depth,
             tool="claude",
             skill_hint=skill_hint,
@@ -439,7 +466,52 @@ class RunOrchestrator:
             git=DomainGitContext(),
         )
         await self.ticket_repo.save(ticket)
+        # Track stream-event seeds keyed by ticket_id so spawn_test_stream_events
+        # can append after construction.
         return ticket_id
+
+    async def spawn_test_run(self) -> str:
+        """Insert a synthetic Run row in the run repo and return its id (F23 helper)."""
+        run_id = f"run-{uuid.uuid4().hex[:10]}"
+        now = datetime.now(timezone.utc).isoformat()
+        run = Run(
+            id=run_id,
+            workdir=str(self.workdir),
+            state="running",
+            started_at=now,
+        )
+        await self.run_repo.create(run)
+        # Register a runtime so pause/cancel can find it.
+        rt = _RunRuntime(run_id=run_id, workdir=Path(self.workdir), lock_handle=None)
+        self._runtimes[run_id] = rt
+        return run_id
+
+    async def spawn_test_stream_events(self, ticket_id: str, events: list[dict[str, Any]]) -> None:
+        """Seed in-memory stream events for /api/tickets/{tid}/stream (F23 helper).
+
+        Stored on ``self._stream_events_by_ticket`` (created lazily) — the
+        tickets router falls back to this dict when no real stream backend is
+        wired in (test profile).
+        """
+        store: dict[str, list[dict[str, Any]]] = getattr(self, "_stream_events_by_ticket", {})
+        bucket = store.setdefault(ticket_id, [])
+        for raw in events:
+            seq = raw.get("seq")
+            if seq is None:
+                seq = len(bucket) + 1
+            entry = {
+                "ticket_id": ticket_id,
+                "seq": seq,
+                "ts": raw.get("ts", datetime.now(timezone.utc).isoformat()),
+                "kind": raw.get("kind", "text"),
+                "payload": raw.get("payload", {}),
+            }
+            bucket.append(entry)
+        self._stream_events_by_ticket = store
+
+    def stream_events_for(self, ticket_id: str) -> list[dict[str, Any]]:
+        store: dict[str, list[dict[str, Any]]] = getattr(self, "_stream_events_by_ticket", {})
+        return list(store.get(ticket_id, []))
 
     def set_pause_pending(self, run_id: str, value: bool) -> None:
         rt = self._runtimes.get(run_id)

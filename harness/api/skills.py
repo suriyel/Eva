@@ -61,6 +61,26 @@ def post_install(req: SkillsInstallRequest) -> SkillsInstallResult:
         raise HTTPException(status_code=409, detail=f"git 调用失败: {exc}")
 
 
+@router.get("/tree")
+def get_tree() -> dict[str, object]:
+    """Return ``SkillTree {root, plugins[]}`` derived from HARNESS_WORKDIR."""
+    workdir = _resolve_workdir()
+    plugins_root = workdir / "plugins"
+    plugins: list[dict[str, object]] = []
+    if plugins_root.is_dir():
+        for entry in sorted(plugins_root.iterdir()):
+            if entry.is_dir():
+                plugins.append(
+                    {
+                        "name": entry.name,
+                        "source": "local",
+                        "sha": None,
+                        "installed_at": None,
+                    }
+                )
+    return {"root": str(workdir), "plugins": plugins}
+
+
 @router.post("/pull", response_model=SkillsInstallResult)
 def post_pull(req: SkillsInstallRequest) -> SkillsInstallResult:
     workdir = _resolve_workdir()
