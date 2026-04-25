@@ -482,3 +482,42 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 #### Session 22 Findings
 - ⚠ [Coverage] **branch buffer 收窄**：Wave 3 前 84.62% → Wave 3 后 81.45%（缓冲 4.62 pp → 1.45 pp）；line 同步 98.37% → 96.32%。仍均超阈，但若后续在 `harness/dispatch/classifier/llm_backend.py:123-127, 148-151, 157` 增加分支而无配对测试可能触底。主要未覆盖分支位于 strict-on 旧路径的回退处理（仅在 real_external_llm smoke 触达，本次 deselect）。
 - ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` dirty 改动延续 Session 12/15/17/18/19/20 carry-over，本次 commit 继续显式排除，待独立 chore commit 清理（不阻塞）。
+
+### Session 23 — Feature #19 F19 · Bk-Dispatch — Model Resolver & Classifier · ST (Wave 3 · 2026-04-25)
+
+- target_feature: id=19, title="F19 · Bk-Dispatch — Model Resolver & Classifier", category=core, ui=false, wave=3
+- Trigger: Session 22 推进至 `current.phase=st`；router 命中 `long-task-work-st`，starting_new=false（Wave 3 增量 ST 阶段重生成用例）
+- Anchors: SRS FR-019/020/021/022/023 + IFR-004（含 Wave 3 EARS 扩展 L332-341 / L355-367 / L774-788）· ATS L87-91 + L182 类别约束（FUNC/BNDRY/SEC/PERF · UI 由 F22 承担，ATS L87/L89 hint）· §5.5 Wave 3 Coverage Hint · Feature design §IC §IS §3a §BC §Test Inventory T01-T46 旧 + T47-T52 新
+- env-guide approval: PASS（approved §3/§4 sections valid · 2026-04-21）
+- Bootstrap: 纯 CLI / library 模式（env-guide §1.6）— 无 api / ui-dev 服务；`source .venv/bin/activate` 即可
+- **Feature-ST — DISPATCH** `long-task-feature-st` SubAgent
+  - status=pass · st_case_count=67（Wave 2 baseline 61 → Wave 3 +6）· manual_case_count=0 · environment_cleaned=true
+  - 新增 6 条 ST-FUNC-019-047..052 覆盖 T47-T52（保留既有 61 条措辞不变；摘要表 functional 46→52、合计 61→67 同步更新；traceability matrix +12 nodeid 映射 verification_steps[8..11]）
+  - T52 INTG/http real_external_llm smoke 按 ST CASE_ID_PATTERN 入 `functional` 类别（与 ST-FUNC-019-020/021、ST-PERF-019-001 既有真实网络场景一致）
+  - Validators: `validate_st_cases.py` → VALID 67 / `check_ats_coverage.py --feature 19` → exit 0（UI 类别 warning 因 ui:false 已被 ATS L87/L89 hint 豁免）
+  - Pytest 全套: `tests/test_f19_*.py + tests/integration/test_f19_*.py` → **119 passed in 15.98s**（Wave 2 baseline 98 + Wave 3 增量 21；零回归）
+  - real_external_llm smoke (T52): MiniMax round-trip + classify-never-raises 两条 **均 live PASSED**（非 skip — keyring 含 valid api_key），ASM-008 strict-off 路径生产环境验证成立
+- **Inline Check**: PASS
+  - P2: 10/10 PUBLIC 类签名匹配（`ModelResolver` / `ModelRulesStore` / `ClassifierService` / `LlmBackend` / `RuleBackend` / `FallbackDecorator` / `PromptStore` / `ProviderPresets` / `Verdict` / `ClassifierConfig`）；10 核心方法（resolve / load / save / classify / test_connection / invoke / decide / get / put / validate_base_url）实现存在
+  - T2: Wave 3 18 个新测试函数（test_t47a-h capability + truth-table 5 行 / test_t48a-c body shape / test_t49a tolerant strip / test_t50a first-balanced / test_t51a-b parse-error fallback / test_f19_real_minimax_*）与 Test Inventory T47-T52 行 1:1 对应
+  - D3: httpx==0.28.1 / respx==0.23.1 / pydantic==2.13.3 / fastapi==0.136.0 / keyring==25.7.0 / pytest==8.4.2 与 env-guide §3 工具版本表对齐
+  - U1: N/A（ui:false）
+  - ATS Category: OK（exit 0；UI warning 豁免）
+  - §4 存量约束: env-guide §4 greenfield 占位 → 0 violations
+- **Persist**:
+  - Git (Wave 3 ST): `39edce8` feat: feature #19 f19-bk-dispatch-model-resolver-classifier — Wave 3 ST cases 67 (119 auto PASS)
+  - feature-list.json: F19 status `failing → passing`；`git_sha=39edce8`；`st_case_path=docs/test-cases/feature-19-...md`；`st_case_count=67`；root `current` `{19, st} → null`
+  - RELEASE_NOTES.md: Wave 3 `### Changed` 条目附录 Worker 流水线完成证据（design `10342f6` · TDD `2ba24d4` · ST `39edce8`）
+  - Validate: `validate_features.py: VALID — 22 features (6 passing, 4 failing, 12 deprecated) | current=none | Waves: 3 | Assumptions: 8`
+
+### Feature #19: F19 · Bk-Dispatch — Model Resolver & Classifier (Wave 3) — PASS
+- Completed: 2026-04-25
+- TDD: green ✓ (commit `2ba24d4`)
+- Quality Gates: line 96.32% / branch 81.45%（≥ 90 / 80）
+- Feature-ST: 67 cases (FUNC×52 + BNDRY×7 + SEC×7 + PERF×1 · 119 auto PASS · 0 manual · real_external_llm smoke live PASS)
+- Inline Check: PASS
+- Git: `39edce8` feat: feature #19 f19-bk-dispatch-model-resolver-classifier — Wave 3 ST cases 67 (119 auto PASS)
+#### Risks
+- ⚠ [Coverage] branch 81.45% — 缓冲 1.45 pp（Wave 3 前 84.62% → Wave 3 后 81.45%）。strict-on 旧路径回退分支主要未覆盖；后续在 `harness/dispatch/classifier/llm_backend.py:123-127, 148-151, 157` 增加分支需配对测试避免触底
+- ⚠ [Provider-Compat] MiniMax `response_format=json_schema strict` HTTP 400 拒收已通过 `supports_strict_schema=False` + tolerant parse + JSON-only suffix 规避；但 OpenAI-compat provider 协议漂移持续存在风险（GLM/OpenAI/custom 仍走 strict-on，若后续 provider 端协议变更需 re-smoke + 必要时再增 capability 位）
+- ⚠ [Stale-Scripts] `scripts/{check_source_lang,count_pending,init_project,phase_route,validate_features}.py` dirty 改动延续 Session 12/15/17/18/19/20/22 carry-over，本次 commit 继续显式排除，待独立 chore commit 清理（不阻塞）
