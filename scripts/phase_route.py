@@ -102,12 +102,8 @@ def route(root: str = ".") -> dict:
         "feature_id": None,
         "starting_new": False,
     }
-
-    def j(*p: str) -> str:
-        return os.path.join(root, *p)
-
-    def has_glob(pat: str) -> bool:
-        return bool(sorted(glob.glob(j(*pat.split("/")))))
+    j = lambda *p: os.path.join(root, *p)
+    has_glob = lambda pat: bool(sorted(glob.glob(j(*pat.split("/")))))
 
     # 1-2. Signal files (highest priority)
     if os.path.isfile(j("bugfix-request.json")):

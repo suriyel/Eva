@@ -38,7 +38,9 @@ WHITELIST_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^(claude|opencode|Harness|Ticket|hns-pulse)$"),
     # HTTP verbs, MIME types, header names.
     re.compile(r"^(GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD)$"),
-    re.compile(r"^(application/json|text/html|text/plain|Content-Type|Bearer|Accept|Authorization)$"),
+    re.compile(
+        r"^(application/json|text/html|text/plain|Content-Type|Bearer|Accept|Authorization)$"
+    ),
     # URL / protocol prefixes.
     re.compile(r"^(https?://[^\s]+|wss?://[^\s]+)$"),
     re.compile(r"^/(ws|api)(/[\w./:?&=\-%{}]*)?$"),
@@ -57,7 +59,9 @@ WHITELIST_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^var\([^)]+\)$"),
     re.compile(r"^--[a-z][a-z0-9-]*$"),
     # Font family stacks, keywords, units.
-    re.compile(r"^(Inter|JetBrains|PingFang|Microsoft|Segoe|Consolas|Menlo|Fira|SF Pro|system-ui|sans-serif|serif|monospace)(\s.*)?$"),
+    re.compile(
+        r"^(Inter|JetBrains|PingFang|Microsoft|Segoe|Consolas|Menlo|Fira|SF Pro|system-ui|sans-serif|serif|monospace)(\s.*)?$"
+    ),
     re.compile(r"^(cv11|ss01|ss03|ss04|calt|tnum|zero|liga)$"),
     # Pure-ASCII kebab/snake identifier (react router event names, etc.).
     re.compile(r"^[a-z][a-z0-9_-]{0,40}$"),
@@ -71,7 +75,9 @@ WHITELIST_PATTERNS: list[re.Pattern[str]] = [
 # Skip if the matched string is actually a TS identifier reference such as
 # `HttpError`, `ServerError` that appears inside template literals / as
 # catch-type strings.  These don't surface in the UI.
-TS_IDENT_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9_]{2,40}(Error|Exception|Type|Props|Config|Event|State|Client|Factory|Schema|Guard|Scope|Result|Request|Response|Message)?$")
+TS_IDENT_PATTERN = re.compile(
+    r"^[A-Z][A-Za-z0-9_]{2,40}(Error|Exception|Type|Props|Config|Event|State|Client|Factory|Schema|Guard|Scope|Result|Request|Response|Message)?$"
+)
 
 # --- Comment detection -------------------------------------------------------
 SINGLE_LINE_COMMENT = re.compile(r"^\s*(//|\*|/\*|\*/)")
@@ -109,8 +115,8 @@ _CSS_KEYWORDS = (
 )
 CSS_VALUE = re.compile(
     r"^\s*(?:"
-    r"\d+(\.\d+)?(px|em|rem|%|vh|vw|deg|s|ms)?|"        # numeric + unit
-    r"#[0-9a-fA-F]{3,8}|"                                # hex color
+    r"\d+(\.\d+)?(px|em|rem|%|vh|vw|deg|s|ms)?|"  # numeric + unit
+    r"#[0-9a-fA-F]{3,8}|"  # hex color
     r"rgba?\([^)]*\)|"
     r"hsla?\([^)]*\)|"
     r"var\(--[\w-]+\)|"
@@ -164,9 +170,7 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
         # these never reach the UI. Multi-line `throw new TypeError(\n  "…",\n)`
         # places the literal on a line whose current neighbours hold the
         # context.
-        window = "\n".join(
-            source_lines[max(0, lineno - 3) : lineno + 1]
-        )
+        window = "\n".join(source_lines[max(0, lineno - 3) : lineno + 1])
         if DEV_API_CONTEXT.search(window):
             continue
         if ATTR_CONTEXT.search(window):
@@ -197,8 +201,12 @@ def scan_file(path: Path) -> list[tuple[int, str]]:
                 continue
             # Also skip if body is obviously a CSS property chain like
             # "flex: 1; min-width: 0;" — semicolon-heavy + no word chars.
-            if ";" in body and CJK_CHAR.search(body) is None and all(
-                is_whitelisted(seg) for seg in (s.strip() for s in body.split(";") if s.strip())
+            if (
+                ";" in body
+                and CJK_CHAR.search(body) is None
+                and all(
+                    is_whitelisted(seg) for seg in (s.strip() for s in body.split(";") if s.strip())
+                )
             ):
                 continue
             violations.append((lineno, body))
@@ -222,7 +230,9 @@ def main() -> int:
             print(f"[NFR-010] {rel}:{lineno}: suspicious English string: {body!r}", file=sys.stderr)
             total_violations += 1
     if total_violations:
-        print(f"check_source_lang: {total_violations} potential NFR-010 violation(s)", file=sys.stderr)
+        print(
+            f"check_source_lang: {total_violations} potential NFR-010 violation(s)", file=sys.stderr
+        )
         return 1
     return 0
 
