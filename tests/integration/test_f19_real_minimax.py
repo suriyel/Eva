@@ -80,9 +80,13 @@ async def test_f19_real_minimax_test_connection_round_trip(tmp_path: Path) -> No
     elapsed = time.monotonic() - start
 
     assert elapsed <= 12.0, f"test_connection over budget: {elapsed:.2f}s (IFR-004 10 s)"
-    assert result.error_code in {None, "401", "connection_refused", "dns_failure", "timeout"}, (
-        f"unexpected error_code={result.error_code!r}"
-    )
+    assert result.error_code in {
+        None,
+        "401",
+        "connection_refused",
+        "dns_failure",
+        "timeout",
+    }, f"unexpected error_code={result.error_code!r}"
     if result.error_code == "401":
         pytest.fail(
             f"MiniMax rejected key as Unauthorized — message={result.message!r}; "

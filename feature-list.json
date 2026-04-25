@@ -133,7 +133,7 @@
   ],
   "current": {
     "feature_id": 20,
-    "phase": "tdd"
+    "phase": "st"
   },
   "features": [
     {

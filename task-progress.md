@@ -549,3 +549,37 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
     9. NFR-016 filelock acquire timeout=0.5s（失败抛 `RunStartError(reason="already_running")` → 409）
 - Design: DONE (`docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md`)
 - current.phase: design → tdd
+
+### Session 25 — Feature #20 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess · TDD (Wave 2 · 2026-04-25)
+
+- target_feature: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=2
+- Trigger: phase_route.py → next_skill=long-task-work-tdd, feature_id=20, starting_new=false (current locked at {20, tdd})
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Bootstrap: 纯 CLI / library 模式（env-guide §1.6）— 无 api / ui-dev 服务；`source .venv/bin/activate` 即可；冒烟 F19 classifier subset → 3 passed in 0.12s
+- **TDD Red — DISPATCH** `long-task-tdd-red` SubAgent
+  - status=pass · test_count=51（design §7 Test Inventory 50 + 1 boundary 增项）· negative_ratio=51% (26/51) · real_test_count=9
+  - 类别覆盖：FUNC/happy=22 · FUNC/error=10 · BNDRY/edge=8 · SEC/path-traversal=1 · SEC/argv-injection=1 · PERF/timing=1 · INTG{subprocess=2,timing=1,git=1,fs=1,concurrency=1,db=1,api+ws=1}=8（UI=N/A，ui:false）
+  - 测试文件 14 个：`tests/test_f20_{run_orchestrator,phase_route_invoker,anomaly_recovery,user_override,validator_runner,git_tracker,signal_watcher,ticket_supervisor,security}.py` + `tests/integration/test_f20_real_{subprocess,signal_fs,git,db,rest_ws}.py`
+  - all-failed: 51 failed in 0.70s （ModuleNotFoundError on harness.{orchestrator,recovery,subprocess,api.git,api.files} — greenfield expected RED）
+  - UML 覆盖：classDiagram 15/15 · seq msg#1-7/8-12/9+16 · state(runs) 9/9 · state(anomaly) 4/5 + retry_count guards · flowchart 5/5
+- **TDD Green — DISPATCH** `long-task-tdd-green` SubAgent
+  - status=pass · 51 passed in 6.32s（pytest exit=0 per env-guide §3 silent protocol）
+  - 实现 22 文件：`harness/orchestrator/{__init__,errors,schemas,phase_route,run_lock,signal_watcher,bus,supervisor,run}.py` + `harness/recovery/{__init__,anomaly,retry,watchdog}.py` + `harness/subprocess/{__init__,git/__init__,git/tracker,validator/__init__,validator/schemas,validator/runner}.py` + `harness/api/{git,files}.py` + `harness/app/main.py`
+  - design §4 alignment: matches（22 个 public method 签名与 Internal API Contracts 一致）
+  - design §6 alignment: matches（call chain start_run → RunLock.acquire → run_repo.create → spawn _run_loop → PhaseRouteInvoker.invoke → TicketSupervisor.run_ticket → GitTracker.begin → ToolAdapter.spawn → Watchdog.arm → StreamParser.events → Watchdog.disarm → ClassifierService.classify → AnomalyClassifier.classify → GitTracker.end → TicketRepository.save 完整还原）
+  - ⚠ Green 自分类 NOT [CONTRACT-DEVIATION]：filelock/watchdog 缺包改用 stdlib（fcntl + poll）→ Refactor 复核推翻
+- **TDD Refactor — DISPATCH** `long-task-tdd-refactor` SubAgent
+  - status=pass · 51 passed in 6.54s（F20）· 521 passed in 15.86s（全单元）· F20 integration 8 passed
+  - **drift resolved**：`uv add filelock>=3.29.0 watchdog>=6.0.0` → 重构 `RunLock` 用 `filelock.FileLock(thread_local=False)` + `SignalFileWatcher` 用 `watchdog.observers.Observer + PatternMatchingEventHandler`（debounce_ms=200）；公共 API 不变；推翻 Green 自分类，§6 明确处方此两库
+  - 静态分析：ruff=0 violations · black=0（26 文件 cosmetic 重排，含 `tests/test_f19_coverage_supplement.py` / `tests/integration/test_f19_real_minimax.py`）· mypy=0 errors（97 源文件）
+  - 修复：13 unused imports/vars (F401/F841) · 2 E731 lambda → nested def (`scripts/phase_route.py`) · 6 mypy Any-leakage 用 `cast` 收紧 · Verdict literal-typed args 收紧 · 清理 retry.py / app/main.py 多余 type:ignore
+- **Quality Gates — DISPATCH** `long-task-quality` SubAgent
+  - status=pass · Gate 0 (Real Test) PASS（F20 9 real passed in 3.07s, 0 skipped）· Gate 0.5 (SRS Trace) PASS（20/20 FR/NFR/IFR 全覆盖, uncovered=[]）· Gate 1 line=91.79% (4058/4421) ≥90 · Gate 1 branch=81.04% (718/886) ≥80 · Gate 2 558 passed, 2 deselected (test_f18_real_cli T29/T30 real-CLI hang, F20 范围外)
+- **Persist**:
+  - feature-list.json: root `current` `{20, tdd} → {20, st}`；F20 `status=failing` 保持（ST 未完，下一会话 long-task-work-st）
+  - validate_features.py: VALID — 22 features (6 passing, 4 failing, 12 deprecated) | current=#20(st) | 2 warnings（F21/F22 dep on failing F20，ST 完成后消解）
+- current.phase: tdd → st
+#### Risks
+- ⚠ [Coverage] combined `--cov-fail-under=89.99%` 距 env-guide §3 advisory 阈值 90% shy 0.01pp（individual line 91.79 / branch 81.04 均 PASS）；2 deselected real-CLI tests 不在 F20 scope，需独立 chore 排查 `byte_queue.get()` 5min hang
+- ⚠ [Coverage Buffer] F20 模块级 branch 缓冲偏低：`harness/orchestrator/run.py` 82% · `bus.py` 72% · `supervisor.py` 73% · `recovery/retry.py` 76% · `recovery/watchdog.py` 77% · `subprocess/validator/runner.py` 75%；下一波 fix 若新增分支需配对测试避免触底
+- ⚠ [Stale-Scripts] `scripts/check_source_lang.py` 仍持续 black-cosmetic dirty（Session 12+ carry-over），本次 commit 继续显式排除；其余 `count_pending/init_project/phase_route/validate_features` 已被前序提交逐步消化（仅 phase_route.py 被 Refactor 一并清理）

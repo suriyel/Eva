@@ -86,9 +86,9 @@ async def test_t47_put_prompt_rejects_malformed_json_body_with_400(
         )
 
     assert resp.status_code == 400, f"malformed JSON must surface 400, got {resp.status_code}"
-    assert "invalid JSON" in str(resp.json().get("detail", "")), (
-        f"detail must identify invalid JSON, got {resp.json()!r}"
-    )
+    assert "invalid JSON" in str(
+        resp.json().get("detail", "")
+    ), f"detail must identify invalid JSON, got {resp.json()!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -109,9 +109,9 @@ async def test_t48_put_prompt_rejects_extra_fields_with_422(
 
     assert resp.status_code == 422, f"extra field must trigger 422, got {resp.status_code}"
     body = resp.json()
-    assert body.get("detail", {}).get("error_code") == "validation", (
-        f"detail.error_code must be 'validation', got {body!r}"
-    )
+    assert (
+        body.get("detail", {}).get("error_code") == "validation"
+    ), f"detail.error_code must be 'validation', got {body!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +128,7 @@ async def test_t49_put_prompt_oversized_content_returns_422(
     async with client as c:
         resp = await c.put("/api/prompts/classifier", json={"content": oversized})
 
-    assert resp.status_code == 422, (
-        f"oversized prompt must map to 422, got {resp.status_code}"
-    )
+    assert resp.status_code == 422, f"oversized prompt must map to 422, got {resp.status_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -153,9 +151,9 @@ async def test_t50_get_prompt_corrupt_file_returns_500_with_detail(
 
     assert resp.status_code == 500, f"corrupt JSON must map to 500, got {resp.status_code}"
     detail = str(resp.json().get("detail", ""))
-    assert "corrupt" in detail.lower() or "JSON" in detail, (
-        f"detail must identify corruption, got {detail!r}"
-    )
+    assert (
+        "corrupt" in detail.lower() or "JSON" in detail
+    ), f"detail must identify corruption, got {detail!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -522,9 +520,9 @@ async def test_t64_classify_preset_resolve_error_audits_and_falls_back_to_rule(
     assert verdict.backend == "rule", "preset error must fall back to rule backend"
     fallback_events = [e for e in events if e.get("event") == "classifier_fallback"]
     assert fallback_events, "preset failure must emit classifier_fallback audit"
-    assert fallback_events[0].get("cause") == "preset_resolve_error", (
-        f"cause must be preset_resolve_error, got {fallback_events[0]!r}"
-    )
+    assert (
+        fallback_events[0].get("cause") == "preset_resolve_error"
+    ), f"cause must be preset_resolve_error, got {fallback_events[0]!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -711,9 +709,9 @@ async def test_t68_test_connection_generic_httperror_returns_connection_refused(
         result = await service.test_connection(req)
 
     assert result.ok is False
-    assert result.error_code == "connection_refused", (
-        f"generic HTTPError must map to connection_refused, got {result.error_code!r}"
-    )
+    assert (
+        result.error_code == "connection_refused"
+    ), f"generic HTTPError must map to connection_refused, got {result.error_code!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -757,9 +755,9 @@ async def test_t69_test_connection_5xx_returns_connection_refused_with_latency(
 
     assert result.ok is False
     assert result.error_code == "connection_refused"
-    assert result.latency_ms is not None and result.latency_ms >= 0, (
-        "latency_ms must be populated for non-exception responses"
-    )
+    assert (
+        result.latency_ms is not None and result.latency_ms >= 0
+    ), "latency_ms must be populated for non-exception responses"
     assert "HTTP 503" in result.message
 
 
@@ -849,9 +847,9 @@ async def test_t71_test_connection_continues_when_keyring_raises(
     assert result.ok is True
     assert route.called
     sent = route.calls.last.request
-    assert "authorization" not in {k.lower() for k in sent.headers.keys()}, (
-        "no Authorization header expected when keyring raised"
-    )
+    assert "authorization" not in {
+        k.lower() for k in sent.headers.keys()
+    }, "no Authorization header expected when keyring raised"
 
 
 # ===========================================================================
@@ -872,9 +870,7 @@ async def test_t72_fallback_decorator_audits_protocol_error_with_cause(tmp_path:
 
     class _StubLlm:
         async def invoke(self, req, prompt):  # noqa: ARG002
-            raise ClassifierProtocolError(
-                "bad schema", cause="schema_mismatch"
-            )
+            raise ClassifierProtocolError("bad schema", cause="schema_mismatch")
 
     events: list[dict[str, Any]] = []
     decorator = FallbackDecorator(
@@ -990,9 +986,7 @@ async def test_t75_llm_backend_raises_http_error_on_connect_error(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).mock(side_effect=httpx.ConnectError("refused"))
@@ -1014,9 +1008,7 @@ async def test_t76_llm_backend_raises_http_error_on_generic_http_error(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).mock(side_effect=httpx.ProtocolError("bad wire"))
@@ -1038,9 +1030,7 @@ async def test_t77_llm_backend_raises_protocol_error_on_non_json_envelope(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).respond(200, text="not-json at all")
@@ -1062,9 +1052,7 @@ async def test_t78_llm_backend_raises_protocol_error_on_missing_choices(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         # Valid JSON but no choices array.
@@ -1087,9 +1075,7 @@ async def test_t79_llm_backend_raises_protocol_error_when_assistant_is_array(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).respond(
@@ -1131,9 +1117,7 @@ async def test_t80_llm_backend_raises_protocol_error_on_anomaly_out_of_enum(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).respond(
@@ -1165,9 +1149,7 @@ async def test_t81_llm_backend_raises_protocol_error_on_empty_reason(
     from harness.dispatch.classifier.models import ClassifyRequest
 
     backend = _build_backend(monkeypatch)
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with respx.mock() as mock:
         mock.post(GLM_URL).respond(
@@ -1206,9 +1188,7 @@ async def test_t82_llm_backend_maps_keyring_failure_to_http_error_keyring_cause(
 
     monkeypatch.setattr(KeyringGateway, "get_secret", _boom, raising=True)
     backend = LlmBackend(preset=ProviderPresets().resolve("glm"), keyring=KeyringGateway())
-    req = ClassifyRequest(
-        exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False
-    )
+    req = ClassifyRequest(exit_code=0, stderr_tail="", stdout_tail="", has_termination_banner=False)
 
     with pytest.raises(ClassifierHttpError) as exc_info:
         await backend.invoke(req, prompt="p")
@@ -1404,9 +1384,9 @@ def test_t94_prompt_store_get_whitespace_file_returns_default_prompt(tmp_path: P
     store = PromptStore(path=path)
 
     prompt = store.get()
-    assert isinstance(prompt.current, str) and prompt.current.strip(), (
-        "whitespace file must fall back to built-in default"
-    )
+    assert (
+        isinstance(prompt.current, str) and prompt.current.strip()
+    ), "whitespace file must fall back to built-in default"
     assert prompt.history == []
 
 
