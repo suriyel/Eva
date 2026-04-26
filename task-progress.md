@@ -885,3 +885,10 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Approval Gate**: 跳过（assumption_count=0）
 - Design: DONE (docs/features/24-fix-打包前-ui-fastapi-集成壳-9-项缺陷-设计稿控件大幅错位-缺.md)
 - current.phase: design → tdd
+
+### Session 35 — Feature #24 Bugfix B1-B9 合并 · TDD (2026-04-26)
+
+- target_feature: id=24, title="Fix: 打包前 UI↔FastAPI 集成壳 9 项缺陷 + 设计稿控件大幅错位/缺失（B1-B9 合并 · pre-PyInstaller integration QA）", category=bugfix, ui=true
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- design doc verified on disk (471 行 / 22 negative inventory rows = 53.7%)
+- **Bootstrap**: venv 激活 · harness import OK · API :8765 PID=540263 健康 · UI dev :5173 PID=540249 启动 · vitest 基线 32/32 文件 232/232 tests PASS · 仓库根 `--version/` `status/` 残留确认（B8 直接物证，Green 阶段清理）

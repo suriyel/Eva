@@ -122,11 +122,11 @@ describe("22-01 FUNC/happy useUpdateGeneralSettings round-trip", () => {
     const { container } = render(<SystemSettingsPage />, { wrapper: Wrapper });
     // 进入 ApiKey tab
     await waitFor(() => {
-      const tab = container.querySelector('[data-component="settings-vtabs"] [data-tab-id="apikey"]');
+      const tab = container.querySelector('[data-component="settings-vtabs"] [data-tab-id="auth"]');
       expect(tab).not.toBeNull();
     });
     fireEvent.click(
-      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="apikey"]') as Element,
+      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="auth"]') as Element,
     );
     // 点击「更换」展开输入框
     const changeBtn = await waitFor(() => {
@@ -184,7 +184,7 @@ describe("22-02 SEC/dom-scan plaintext 不残留 DOM", () => {
       expect(container.querySelector('[data-component="settings-vtabs"]')).not.toBeNull();
     });
     fireEvent.click(
-      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="apikey"]') as Element,
+      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="auth"]') as Element,
     );
     const changeBtn = await waitFor(() => {
       const b = container.querySelector('[data-testid="masked-key-change-btn"]');
@@ -546,7 +546,7 @@ describe("22-44 SEC/audit-log-scan plaintext 只出现在请求体", () => {
       expect(container.querySelector('[data-component="settings-vtabs"]')).not.toBeNull(),
     );
     fireEvent.click(
-      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="apikey"]') as Element,
+      container.querySelector('[data-component="settings-vtabs"] [data-tab-id="auth"]') as Element,
     );
     fireEvent.click(
       (await waitFor(() => container.querySelector('[data-testid="masked-key-change-btn"]'))) as Element,

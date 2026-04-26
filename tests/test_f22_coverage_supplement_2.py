@@ -563,21 +563,30 @@ def test_f22_git_commits_falls_back_to_git_log_when_registry_empty(
 # ---------------------------------------------------------------------------
 def test_f22_health_endpoint_uses_cached_claude_auth_when_state_missing() -> None:
     """When ``app.state.claude_auth_status`` is None but
-    ``app.state._health_cache['claude_auth']`` is set, /api/health returns the
-    cached value (lines 141-142)."""
+    ``app.state._health_cache`` is fresh, /api/health returns the cached value.
+
+    F24 B9 sanctioned drift: cache shape changed from
+    ``{cli_versions, claude_auth}`` → ``{_value: {cli_versions, claude_auth},
+    _ts: monotonic}`` to support TTL semantics.
+    """
+    import time
     from harness.api import app
     from harness.auth import ClaudeAuthStatus
 
-    # Pre-populate cache so health endpoint reads from it (line 141-142 branch).
     fake_auth = ClaudeAuthStatus(
         cli_present=True,
         authenticated=True,
         hint=None,
         source="claude-cli",
     )
+    # Post-B9 cache shape: nest under `_value` + monotonic `_ts` so the TTL
+    # check (now - _ts <= TTL_SEC) succeeds and returns cached payload.
     app.state._health_cache = {
-        "cli_versions": {"claude": "claude 1.0", "opencode": None},
-        "claude_auth": fake_auth,
+        "_value": {
+            "cli_versions": {"claude": "claude 1.0", "opencode": None},
+            "claude_auth": fake_auth,
+        },
+        "_ts": time.monotonic(),
     }
     # Ensure no claude_auth_status overrides cache.
     if hasattr(app.state, "claude_auth_status"):
@@ -589,10 +598,9 @@ def test_f22_health_endpoint_uses_cached_claude_auth_when_state_missing() -> Non
         body = resp.json()
         assert body["claude_auth"]["cli_present"] is True
         assert body["claude_auth"]["authenticated"] is True
-        # cli_versions sourced from cache (line 146-147 branch).
+        # cli_versions sourced from cache.
         assert body["cli_versions"]["claude"] == "claude 1.0"
     finally:
-        # Restore unmodified state to avoid leaking into other tests.
         if hasattr(app.state, "_health_cache"):
             delattr(app.state, "_health_cache")
 

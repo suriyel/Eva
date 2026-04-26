@@ -110,11 +110,13 @@ describe("RunOverviewPage 渲染 6 元素 (T01 FUNC/happy)", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-component="phase-stepper"]')).not.toBeNull();
     });
+    // F24 B3 — 直连 /ws/run/r-42 的 socket 是最后创建的实例。
+    const channelWs = wsInstances[wsInstances.length - 1];
     // 推 3 条 cost_usd=0.05
     act(() => {
-      wsInstances[0]?._fireOpen();
+      channelWs?._fireOpen();
       for (const ticketId of ["t-1", "t-2", "t-3"]) {
-        wsInstances[0]?._fireMessage({
+        channelWs?._fireMessage({
           kind: "ticket_state_changed",
           channel: "/ws/run/r-42",
           payload: { ticket_id: ticketId, cost_usd: 0.05, num_turns: 1 },

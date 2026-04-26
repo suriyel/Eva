@@ -11,9 +11,10 @@
  *        HilAnswerAccepted → 卡片 answered=true。
  */
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWs } from "@/ws/use-ws";
 import { resolveApiBaseUrl } from "@/api/client";
+import { useCurrentRunId } from "@/api/routes/run-current";
 import { HILCard, type HilCardVariant, type HilOption } from "./components/hil-card";
 import { deriveHilControl, type HilQuestionLike } from "./derive-control";
 
@@ -74,10 +75,17 @@ function ticketsToEntries(tickets: HilTicketDto[]): HilCardEntry[] {
 }
 
 export function HilInboxPage(): React.ReactElement {
+  const currentRunId = useCurrentRunId();
+  const queryClient = useQueryClient();
   const tickets = useQuery<HilTicketDto[]>({
-    queryKey: ["GET", "/api/tickets?state=hil_waiting"],
+    // F24 B2 — keyqueue carries currentRunId so React Query can scope cache.
+    queryKey: ["GET", "/api/tickets", { state: "hil_waiting", run_id: currentRunId }],
+    enabled: !!currentRunId,
     queryFn: async () => {
-      const resp = await fetch(`${resolveApiBaseUrl()}/api/tickets?state=hil_waiting`);
+      const url = `${resolveApiBaseUrl()}/api/tickets?state=hil_waiting&run_id=${encodeURIComponent(
+        currentRunId ?? "",
+      )}`;
+      const resp = await fetch(url);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
       return text ? (JSON.parse(text) as HilTicketDto[]) : [];
@@ -87,36 +95,47 @@ export function HilInboxPage(): React.ReactElement {
   const [extraEntries, setExtraEntries] = React.useState<HilCardEntry[]>([]);
   const [answeredQuestions, setAnsweredQuestions] = React.useState<Set<string>>(new Set());
 
-  const onWsEvent = React.useCallback((ev: { kind: string; payload?: unknown }) => {
-    if (!ev || typeof ev.kind !== "string") return;
-    if (ev.kind === "hil_question_opened") {
-      const p = ev.payload as { ticket_id?: string; questions?: HilQuestionDto[] } | undefined;
-      if (!p || typeof p.ticket_id !== "string" || !Array.isArray(p.questions)) return;
-      const newEntries = ticketsToEntries([
-        {
-          id: p.ticket_id,
-          state: "hil_waiting",
-          questions: p.questions,
-        },
-      ]);
-      if (newEntries.length > 0) {
-        setExtraEntries((prev) => [...prev, ...newEntries]);
+  const onWsEvent = React.useCallback(
+    (ev: { kind: string; payload?: unknown }) => {
+      if (!ev || typeof ev.kind !== "string") return;
+      if (ev.kind === "hil_question_opened") {
+        const p = ev.payload as { ticket_id?: string; questions?: HilQuestionDto[] } | undefined;
+        if (!p || typeof p.ticket_id !== "string") return;
+        // Trigger refetch of the tickets query (B2-P3) so cache invalidates.
+        queryClient.invalidateQueries({ queryKey: ["GET", "/api/tickets"] });
+        if (Array.isArray(p.questions)) {
+          const newEntries = ticketsToEntries([
+            {
+              id: p.ticket_id,
+              state: "hil_waiting",
+              questions: p.questions,
+            },
+          ]);
+          if (newEntries.length > 0) {
+            setExtraEntries((prev) => [...prev, ...newEntries]);
+          }
+        }
+        return;
       }
-      return;
-    }
-    if (ev.kind === "hil_answer_accepted") {
-      const p = ev.payload as { question_id?: string } | undefined;
-      if (p && typeof p.question_id === "string") {
-        setAnsweredQuestions((prev) => {
-          const next = new Set(prev);
-          next.add(p.question_id as string);
-          return next;
-        });
+      if (ev.kind === "ticket_state_changed") {
+        queryClient.invalidateQueries({ queryKey: ["GET", "/api/tickets"] });
+        return;
       }
-      return;
-    }
-    // unknown kind: silent (T45)
-  }, []);
+      if (ev.kind === "hil_answer_accepted") {
+        const p = ev.payload as { question_id?: string } | undefined;
+        if (p && typeof p.question_id === "string") {
+          setAnsweredQuestions((prev) => {
+            const next = new Set(prev);
+            next.add(p.question_id as string);
+            return next;
+          });
+        }
+        return;
+      }
+      // unknown kind: silent (T45)
+    },
+    [queryClient],
+  );
 
   useWs("/ws/hil", onWsEvent);
 
@@ -140,14 +159,17 @@ export function HilInboxPage(): React.ReactElement {
     return out;
   }, [allEntries, answeredQuestions]);
 
-  const isLoading = tickets.isLoading;
-  const isEmpty = !isLoading && dedupedEntries.length === 0;
+  const isLoading = tickets.isLoading && !!currentRunId;
+  const isEmpty =
+    (!currentRunId || (!isLoading && dedupedEntries.length === 0)) && dedupedEntries.length === 0;
 
   return (
     <div data-component="hil-inbox-page" style={{ padding: 24 }}>
       {isEmpty && (
+        <div data-testid="hil-empty" data-component="hil-inbox-empty-wrapper">
         <div
-          data-testid="hil-empty"
+          data-testid="hil-inbox-empty"
+          data-empty-source={currentRunId ? "no-tickets" : "no-current-run"}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -161,6 +183,7 @@ export function HilInboxPage(): React.ReactElement {
           <div style={{ fontSize: 16, fontWeight: 500, color: "var(--fg-dim)" }}>
             无待答 HIL
           </div>
+        </div>
         </div>
       )}
       {!isEmpty && (

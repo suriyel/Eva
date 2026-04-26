@@ -83,16 +83,28 @@ afterEach(() => {
 
 describe("HilInboxPage 初始 fetch (T03/T04 FUNC/happy + UI/render Empty)", () => {
   it("T03 mock /api/tickets?state=hil_waiting → 3 张 → DOM 含 3 个 [data-component='hil-card']", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { id: "t-1", state: "hil_waiting", questions: [{ id: "q-1", multi_select: false, options: [{ label: "A" }, { label: "B" }], allow_freeform: false, question: "Q1" }] },
-          { id: "t-2", state: "hil_waiting", questions: [{ id: "q-2", multi_select: true, options: [{ label: "A" }, { label: "B" }], allow_freeform: false, question: "Q2" }] },
-          { id: "t-3", state: "hil_waiting", questions: [{ id: "q-3", multi_select: false, options: [], allow_freeform: true, question: "Q3" }] },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    // F24 B2: HilInbox 现在依赖 useCurrentRun 的 run_id；按 URL 路由分发响应。
+    globalThis.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/runs/current")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ run_id: "run-test", state: "running" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            { id: "t-1", state: "hil_waiting", questions: [{ id: "q-1", multi_select: false, options: [{ label: "A" }, { label: "B" }], allow_freeform: false, question: "Q1" }] },
+            { id: "t-2", state: "hil_waiting", questions: [{ id: "q-2", multi_select: true, options: [{ label: "A" }, { label: "B" }], allow_freeform: false, question: "Q2" }] },
+            { id: "t-3", state: "hil_waiting", questions: [{ id: "q-3", multi_select: false, options: [], allow_freeform: true, question: "Q3" }] },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
     const { container } = render(<HilInboxPage />, { wrapper: Wrapper });
     await waitFor(() => {
       expect(container.querySelectorAll('[data-component="hil-card"]').length).toBe(3);
@@ -129,10 +141,11 @@ describe("HilInboxPage WebSocket /ws/hil (T28 INTG/ws)", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-testid="hil-empty"]')).not.toBeNull();
     });
-    // 触发 WS open & 推送
+    // 触发 WS open & 推送（F24 B3 — useWs 直连 /ws/hil 创建独立 socket）
+    const ch = wsInstances[wsInstances.length - 1];
     act(() => {
-      wsInstances[0]?._fireOpen();
-      wsInstances[0]?._fireMessage({
+      ch?._fireOpen();
+      ch?._fireMessage({
         kind: "hil_question_opened",
         channel: "/ws/hil",
         payload: {
@@ -168,11 +181,12 @@ describe("HilInboxPage 未知 envelope 容错 (T45 FUNC/error)", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-testid="hil-empty"]')).not.toBeNull();
     });
-    // 推送非法 envelope 不应触发 ErrorBoundary
+    // 推送非法 envelope 不应触发 ErrorBoundary（F24 B3 — useWs 直连 /ws/hil）
+    const ch = wsInstances[wsInstances.length - 1];
     expect(() => {
       act(() => {
-        wsInstances[0]?._fireOpen();
-        wsInstances[0]?._fireMessage({ kind: "unknown_event", channel: "/ws/hil" });
+        ch?._fireOpen();
+        ch?._fireMessage({ kind: "unknown_event", channel: "/ws/hil" });
       });
     }).not.toThrow();
     // 状态不变（仍为空态）

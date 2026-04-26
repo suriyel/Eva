@@ -51,16 +51,6 @@ def validate(path: str) -> tuple[list[str], list[str]]:
     if "features" not in data:
         return ['"features" key missing from root object'], []
 
-    # F22 FR-039: emit empty features array as a soft warning. Some pipelines
-    # (phase_route post-init) accept an empty list during early bootstrap;
-    # it becomes a hard error only when invoked with HARNESS_STRICT_FEATURES=1
-    # (the F22 /api/validate route sets this env var so users see ok=False).
-    if isinstance(data.get("features"), list) and len(data["features"]) == 0:
-        if os.environ.get("HARNESS_STRICT_FEATURES") == "1":
-            errors.append("features array is empty: project must declare at least one feature")
-        else:
-            warnings.append("features array is empty (allowed during bootstrap)")
-
     # Validate tech_stack if present
     tech_stack = data.get("tech_stack")
     if tech_stack:
@@ -136,16 +126,12 @@ def validate(path: str) -> tuple[list[str], list[str]]:
     # Validate st_case_template_path if present (root-level)
     st_case_template = data.get("st_case_template_path")
     if st_case_template is not None and not isinstance(st_case_template, str):
-        errors.append(
-            f"st_case_template_path must be a string, got {type(st_case_template).__name__}"
-        )
+        errors.append(f"st_case_template_path must be a string, got {type(st_case_template).__name__}")
 
     # Validate st_case_example_path if present (root-level)
     st_case_example = data.get("st_case_example_path")
     if st_case_example is not None and not isinstance(st_case_example, str):
-        errors.append(
-            f"st_case_example_path must be a string, got {type(st_case_example).__name__}"
-        )
+        errors.append(f"st_case_example_path must be a string, got {type(st_case_example).__name__}")
 
     # Validate ats_template_path if present (root-level)
     ats_template = data.get("ats_template_path")
@@ -169,9 +155,7 @@ def validate(path: str) -> tuple[list[str], list[str]]:
                     errors.append(f"real_test.{field} must be a non-empty string")
             mock_patterns = real_test.get("mock_patterns")
             if mock_patterns is not None:
-                if not isinstance(mock_patterns, list) or not all(
-                    isinstance(p, str) for p in mock_patterns
-                ):
+                if not isinstance(mock_patterns, list) or not all(isinstance(p, str) for p in mock_patterns):
                     errors.append("real_test.mock_patterns must be an array of strings")
 
     # Validate required_configs if present
@@ -221,9 +205,7 @@ def validate(path: str) -> tuple[list[str], list[str]]:
                     if not isinstance(req_by, list):
                         errors.append(f"{cprefix}: required_by must be an array")
                     elif not all(isinstance(x, int) for x in req_by):
-                        errors.append(
-                            f"{cprefix}: required_by must contain only integer feature IDs"
-                        )
+                        errors.append(f"{cprefix}: required_by must contain only integer feature IDs")
 
     features = data["features"]
     if not isinstance(features, list):
@@ -239,12 +221,13 @@ def validate(path: str) -> tuple[list[str], list[str]]:
             cfid = cur.get("feature_id")
             cphase = cur.get("phase")
             if cfid is None or not isinstance(cfid, int):
-                errors.append("current.feature_id must be an integer")
+                errors.append('current.feature_id must be an integer')
             else:
                 current_feature_id = cfid
             if cphase not in VALID_PHASES:
                 errors.append(
-                    f"current.phase must be one of {sorted(VALID_PHASES)}, " f"got {cphase!r}"
+                    f"current.phase must be one of {sorted(VALID_PHASES)}, "
+                    f"got {cphase!r}"
                 )
 
     ids_seen = set()
@@ -271,9 +254,7 @@ def validate(path: str) -> tuple[list[str], list[str]]:
         # Check status
         status = feat.get("status")
         if status and status not in VALID_STATUSES:
-            errors.append(
-                f"{prefix} (id={fid}): invalid status '{status}', must be one of {VALID_STATUSES}"
-            )
+            errors.append(f"{prefix} (id={fid}): invalid status '{status}', must be one of {VALID_STATUSES}")
 
         # Legacy: sub_status field removed in favor of root `current`.
         # validate stays quiet; `phase_route.py` short-circuits to
@@ -282,9 +263,7 @@ def validate(path: str) -> tuple[list[str], list[str]]:
         # Check priority
         priority = feat.get("priority")
         if priority and priority not in VALID_PRIORITIES:
-            errors.append(
-                f"{prefix} (id={fid}): invalid priority '{priority}', must be one of {VALID_PRIORITIES}"
-            )
+            errors.append(f"{prefix} (id={fid}): invalid priority '{priority}', must be one of {VALID_PRIORITIES}")
 
         # Check verification_steps
         steps = feat.get("verification_steps")
@@ -300,63 +279,47 @@ def validate(path: str) -> tuple[list[str], list[str]]:
         # Check ui_entry field type
         ui_entry = feat.get("ui_entry")
         if ui_entry is not None and not isinstance(ui_entry, str):
-            errors.append(
-                f"{prefix} (id={fid}): 'ui_entry' must be a string, got {type(ui_entry).__name__}"
-            )
+            errors.append(f"{prefix} (id={fid}): 'ui_entry' must be a string, got {type(ui_entry).__name__}")
 
         # Check wave field type
         wave = feat.get("wave")
         if wave is not None:
             if not isinstance(wave, int) or wave < 0:
-                errors.append(
-                    f"{prefix} (id={fid}): 'wave' must be a non-negative integer, got {wave!r}"
-                )
+                errors.append(f"{prefix} (id={fid}): 'wave' must be a non-negative integer, got {wave!r}")
             elif wave_ids and wave not in wave_ids:
                 errors.append(f"{prefix} (id={fid}): wave={wave} not found in root 'waves' array")
 
         # Check deprecated field
         deprecated = feat.get("deprecated")
         if deprecated is not None and not isinstance(deprecated, bool):
-            errors.append(
-                f"{prefix} (id={fid}): 'deprecated' must be a boolean, got {type(deprecated).__name__}"
-            )
+            errors.append(f"{prefix} (id={fid}): 'deprecated' must be a boolean, got {type(deprecated).__name__}")
 
         # Check deprecated_reason required when deprecated=true
         if deprecated is True:
             reason = feat.get("deprecated_reason")
             if not reason or not isinstance(reason, str) or len(reason.strip()) == 0:
-                errors.append(
-                    f"{prefix} (id={fid}): 'deprecated_reason' is required when deprecated=true"
-                )
+                errors.append(f"{prefix} (id={fid}): 'deprecated_reason' is required when deprecated=true")
 
         # Check deprecated_reason type when present
         dep_reason = feat.get("deprecated_reason")
         if dep_reason is not None and not isinstance(dep_reason, str):
-            errors.append(
-                f"{prefix} (id={fid}): 'deprecated_reason' must be a string, got {type(dep_reason).__name__}"
-            )
+            errors.append(f"{prefix} (id={fid}): 'deprecated_reason' must be a string, got {type(dep_reason).__name__}")
 
         # Check supersedes field
         supersedes = feat.get("supersedes")
         if supersedes is not None and not isinstance(supersedes, int):
-            errors.append(
-                f"{prefix} (id={fid}): 'supersedes' must be an integer, got {type(supersedes).__name__}"
-            )
+            errors.append(f"{prefix} (id={fid}): 'supersedes' must be an integer, got {type(supersedes).__name__}")
 
         # Check st_case_path field type (optional)
         st_case_path = feat.get("st_case_path")
         if st_case_path is not None and not isinstance(st_case_path, str):
-            errors.append(
-                f"{prefix} (id={fid}): 'st_case_path' must be a string, got {type(st_case_path).__name__}"
-            )
+            errors.append(f"{prefix} (id={fid}): 'st_case_path' must be a string, got {type(st_case_path).__name__}")
 
         # Check st_case_count field type (optional)
         st_case_count = feat.get("st_case_count")
         if st_case_count is not None:
             if not isinstance(st_case_count, int) or st_case_count < 0:
-                errors.append(
-                    f"{prefix} (id={fid}): 'st_case_count' must be a non-negative integer, got {st_case_count!r}"
-                )
+                errors.append(f"{prefix} (id={fid}): 'st_case_count' must be a non-negative integer, got {st_case_count!r}")
 
         # Check git_sha field type (optional — set by Worker Step 11 after feature commit)
         git_sha = feat.get("git_sha")
@@ -395,10 +358,14 @@ def validate(path: str) -> tuple[list[str], list[str]]:
     if current_feature_id is not None:
         cfeat = id_to_feature.get(current_feature_id)
         if cfeat is None:
-            errors.append(f"current.feature_id={current_feature_id} does not exist")
+            errors.append(
+                f"current.feature_id={current_feature_id} does not exist"
+            )
         else:
             if cfeat.get("deprecated"):
-                errors.append(f"current.feature_id={current_feature_id} is deprecated")
+                errors.append(
+                    f"current.feature_id={current_feature_id} is deprecated"
+                )
             if cfeat.get("status") == "passing":
                 errors.append(
                     f"current.feature_id={current_feature_id} has "
@@ -419,11 +386,7 @@ def validate(path: str) -> tuple[list[str], list[str]]:
         if feat.get("ui") is True and not feat.get("deprecated", False):
             for dep in feat.get("dependencies", []):
                 dep_feat = id_to_feature.get(dep)
-                if (
-                    dep_feat
-                    and dep_feat.get("status") == "failing"
-                    and not dep_feat.get("deprecated", False)
-                ):
+                if dep_feat and dep_feat.get("status") == "failing" and not dep_feat.get("deprecated", False):
                     warnings.append(
                         f"Feature id={fid}: UI feature depends on feature id={dep} "
                         f"which is still 'failing' — E2E testing may be incomplete"
@@ -479,12 +442,8 @@ def main():
         with open(sys.argv[1], "r", encoding="utf-8") as f:
             data = json.load(f)
         features = data["features"]
-        deprecated_count = sum(
-            1 for f in features if isinstance(f, dict) and f.get("deprecated", False)
-        )
-        active_features = [
-            f for f in features if isinstance(f, dict) and not f.get("deprecated", False)
-        ]
+        deprecated_count = sum(1 for f in features if isinstance(f, dict) and f.get("deprecated", False))
+        active_features = [f for f in features if isinstance(f, dict) and not f.get("deprecated", False)]
         passing = sum(1 for f in active_features if f.get("status") == "passing")
         failing = sum(1 for f in active_features if f.get("status") == "failing")
         summary = f"VALID — {len(features)} features ({passing} passing, {failing} failing"
@@ -495,7 +454,8 @@ def main():
         # Current lock
         cur = data.get("current")
         if cur and isinstance(cur, dict):
-            summary += f" | current=#{cur.get('feature_id')}" f"({cur.get('phase')})"
+            summary += (f" | current=#{cur.get('feature_id')}"
+                        f"({cur.get('phase')})")
         else:
             summary += " | current=none"
 

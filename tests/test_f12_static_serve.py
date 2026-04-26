@@ -32,11 +32,15 @@ def _find_static_mount() -> Mount | None:
 
 
 def test_f12_t33_static_mount_registered() -> None:
-    """feature 12: FastAPI app 必须挂载 apps/ui/dist 作为根静态目录。"""
+    """feature 12: FastAPI app 必须挂载 apps/ui/dist 静态资源。
+
+    F24 B4 sanctioned drift: SPA fallback 不再依赖 ``html=True`` —
+    改为显式 ``/assets`` StaticFiles 挂载 + ``/{full_path:path}``
+    catch-all 路由（覆盖 ``/process-files``、``/hil`` 等子路径）。
+    本测试只断言至少有一个 StaticFiles 挂载存在；``html=True`` 不再要求。
+    """
     mount = _find_static_mount()
     assert mount is not None, "feature 12 期望 FastAPI app 挂载 StaticFiles，当前未找到"
-    staticfiles: StaticFiles = mount.app  # type: ignore[assignment]
-    assert staticfiles.html is True, "StaticFiles 必须启用 html=True 以支持 SPA fallback"
 
 
 async def test_f12_t33_get_root_returns_index_html() -> None:

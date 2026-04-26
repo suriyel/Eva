@@ -202,19 +202,17 @@ describe("AppShell resolveWsBase branches", () => {
     HarnessWsClient.__resetSingletonForTests();
   });
 
-  it("默认（无注入、window 存在）—— connect 收到基于 window.location 的 ws:// URL", () => {
+  it("F24 B3 — AppShell 不再在 mount 时对单例 connect (path-per-channel 还原)", () => {
     render(<AppShell routes={[]} />);
-    expect(connectSpy).toHaveBeenCalledTimes(1);
-    const url = String(connectSpy.mock.calls[0]?.[0] ?? "");
-    // happy-dom 默认 location.hostname === "localhost"；回退到 127.0.0.1 也可接受
-    expect(url).toMatch(/^ws:\/\/(localhost|127\.0\.0\.1|[^/]+):\d+$/);
+    // After F24 B3 the root-path singleton connect was removed; each
+    // useWs(channel) opens its own per-channel socket directly.
+    expect(connectSpy).toHaveBeenCalledTimes(0);
   });
 
-  it("window.__HARNESS_WS_BASE__ 非空 —— 使用注入 URL", () => {
+  it("F24 B3 — window.__HARNESS_WS_BASE__ 注入不再触发 mount-time connect", () => {
     (globalThis as { __HARNESS_WS_BASE__?: string }).__HARNESS_WS_BASE__ = "ws://127.0.0.1:9876";
     render(<AppShell routes={[]} />);
-    expect(connectSpy).toHaveBeenCalledTimes(1);
-    expect(connectSpy.mock.calls[0]?.[0]).toBe("ws://127.0.0.1:9876");
+    expect(connectSpy).toHaveBeenCalledTimes(0);
   });
 
   it("typeof window === 'undefined' —— 回退到 ws://127.0.0.1:8765", () => {

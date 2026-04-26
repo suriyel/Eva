@@ -1,14 +1,16 @@
 /**
  * AppShell — top-level application shell.
  * §4 IC: <QueryClientProvider> + <BrowserRouter> + <PageFrame> + <ErrorBoundary>.
- * WS client singleton connects on mount / disconnects on unmount.
+ *
+ * F24 B3 — root-path WS singleton connect was removed; each ``useWs(channel)``
+ * now opens its own direct-channel socket per IAPI-001 §6.2.3 path-per-channel
+ * semantics.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { PageFrame } from "../components/page-frame";
 import type { NavId } from "../components/sidebar";
-import { HarnessWsClient } from "../ws/client";
 import { getTokensCssText } from "../theme/tokens-inline";
 
 export interface RouteSpec {
@@ -40,17 +42,6 @@ class ErrorBoundary extends React.Component<
     }
     return this.props.children;
   }
-}
-
-function resolveWsBase(): string {
-  const injected = (globalThis as unknown as { __HARNESS_WS_BASE__?: string }).__HARNESS_WS_BASE__;
-  if (typeof injected === "string" && injected.length > 0) return injected;
-  if (typeof window !== "undefined") {
-    const host = window.location.hostname || "127.0.0.1";
-    const port = window.location.port || "8765";
-    return `ws://${host}:${port}`;
-  }
-  return "ws://127.0.0.1:8765";
 }
 
 function TokensStyleTag(): React.ReactElement | null {
@@ -94,18 +85,6 @@ export function AppShell({ routes }: AppShellProps): React.ReactElement {
   const [queryClient] = React.useState(
     () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
   );
-
-  React.useEffect(() => {
-    const client = HarnessWsClient.singleton();
-    try {
-      client.connect(resolveWsBase());
-    } catch {
-      /* invalid URL → stay disconnected */
-    }
-    return () => {
-      client.disconnect();
-    };
-  }, []);
 
   const hasRoutes = Array.isArray(routes) && routes.length > 0;
 

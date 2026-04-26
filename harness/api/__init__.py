@@ -23,14 +23,21 @@ import os
 import pathlib
 import shutil
 import subprocess
+import time
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from starlette.responses import FileResponse
 from starlette.staticfiles import StaticFiles
 
 from .. import __version__
 from ..auth import ClaudeAuthDetector, ClaudeAuthStatus
 from .wiring import wire_services
+
+
+# Health cache TTL (B9 — §IS B9). Use time.monotonic() so wall-clock skew
+# doesn't bypass the refresh.
+TTL_SEC = 30.0
 
 
 @contextlib.asynccontextmanager
@@ -47,28 +54,26 @@ async def _lifespan(app_: FastAPI) -> AsyncIterator[None]:
             wire_services(app_, workdir=pathlib.Path(workdir_env))
         except Exception:
             pass
-    # Cache /api/health probe results so the first request doesn't block on
-    # subprocess CLI invocations (claude --version / opencode --version).
-    if not hasattr(app_.state, "_health_cache"):
-        try:
-            cli_versions = {
-                "claude": _probe_cli_version("claude"),
-                "opencode": _probe_cli_version("opencode"),
-            }
-        except Exception:
-            cli_versions = {"claude": None, "opencode": None}
-        try:
-            claude_auth = ClaudeAuthDetector().detect()
-        except Exception:
-            claude_auth = None
-        app_.state._health_cache = {
-            "cli_versions": cli_versions,
-            "claude_auth": claude_auth,
-        }
+    # B9 — initialise the lazy-probe cache; do NOT freeze cli_versions /
+    # claude_auth here. The cache is refreshed by ``health()`` on demand
+    # (TTL=30s via time.monotonic()).
+    app_.state._health_cache = {"_value": None, "_ts": 0.0}
     yield
 
 
-app = FastAPI(title="Harness", version=__version__, lifespan=_lifespan)
+app = FastAPI(
+    title="Harness",
+    version=__version__,
+    lifespan=_lifespan,
+    # B4 — `/docs` is reserved for the SPA route (renders `id="root"` shell);
+    # FastAPI's default Swagger UI would shadow it. We disable the default
+    # docs/redoc/openapi.json endpoints since this is an internal loopback API
+    # consumed by the Vite-built UI (the OpenAPI surface is documented via
+    # design docs, not Swagger).
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 # F10 · Skills Installer REST (IAPI-018) + F23 · /api/skills/tree
 from .skills import router as _skills_router  # noqa: E402
@@ -131,46 +136,116 @@ def health() -> dict[str, object]:
     ``bind`` is sourced from ``app.state.bind_host`` when ``AppBootstrap.start``
     populated it; otherwise we default to the hard-coded constant ``127.0.0.1``
     (CON-006 — this endpoint must NEVER advertise a non-loopback bind).
+
+    B9 — health probe results (cli_versions + claude_auth) are cached with a
+    30-second monotonic TTL. ``_probe_cli_version`` raising ``OSError`` does
+    NOT propagate as 5xx; the cache simply isn't refreshed and we degrade to
+    a ``{"claude": None, "opencode": None}`` shape on the first miss.
     """
     bind_host = getattr(app.state, "bind_host", "127.0.0.1")
     if bind_host not in {"127.0.0.1", "::1"}:
         bind_host = "127.0.0.1"
 
-    cached: ClaudeAuthStatus | None = getattr(app.state, "claude_auth_status", None)
-    health_cache = getattr(app.state, "_health_cache", None)
-    if cached is None and isinstance(health_cache, dict):
-        cached = health_cache.get("claude_auth")
-    if cached is None:
-        cached = ClaudeAuthDetector().detect()
+    cache = getattr(app.state, "_health_cache", None)
+    if not isinstance(cache, dict) or "_ts" not in cache:
+        cache = {"_value": None, "_ts": 0.0}
+        app.state._health_cache = cache
 
-    if isinstance(health_cache, dict) and "cli_versions" in health_cache:
-        cli_versions = health_cache["cli_versions"]
-    else:
-        cli_versions = {
-            "claude": _probe_cli_version("claude"),
-            "opencode": _probe_cli_version("opencode"),
-        }
+    now = time.monotonic()
+    needs_refresh = cache.get("_value") is None or (now - cache.get("_ts", 0.0)) > TTL_SEC
+    if needs_refresh:
+        try:
+            cli_versions = {
+                "claude": _probe_cli_version("claude"),
+                "opencode": _probe_cli_version("opencode"),
+            }
+        except OSError:
+            # Probe failure: degrade to None values; do NOT raise 5xx.
+            cli_versions = {"claude": None, "opencode": None}
+        try:
+            claude_auth = ClaudeAuthDetector().detect()
+        except Exception:
+            claude_auth = None
+        cache["_value"] = {"cli_versions": cli_versions, "claude_auth": claude_auth}
+        cache["_ts"] = now
+
+    cached_value = cache.get("_value") or {}
+    cli_versions_out = cached_value.get("cli_versions") or {"claude": None, "opencode": None}
+    claude_auth_obj: ClaudeAuthStatus | None = cached_value.get("claude_auth")
+    # Late-bind fallback to AppBootstrap-populated detector result so first-request
+    # round-trip still returns the rich shape.
+    if claude_auth_obj is None:
+        claude_auth_obj = getattr(app.state, "claude_auth_status", None)
+    if claude_auth_obj is None:
+        claude_auth_obj = ClaudeAuthDetector().detect()
 
     return {
         "bind": bind_host,
         "version": __version__,
-        "claude_auth": cached.model_dump(mode="json"),
-        "cli_versions": cli_versions,
+        "claude_auth": claude_auth_obj.model_dump(mode="json"),
+        "cli_versions": cli_versions_out,
     }
 
 
 # --------------------------------------------------------------------------- #
-# StaticFiles mount (apps/ui/dist → /)
-# Registered last so `/api/*` + `/ws/*` routes match first. `html=True` enables
-# SPA fallback (unknown paths return `index.html`).
+# StaticFiles mount (apps/ui/dist/assets → /assets)
+# B4 — Don't rely on `html=True` (StaticFiles only auto-resolves index.html for
+# precise dir hits like `/`). Instead serve assets explicitly + register a
+# catch-all SPA fallback last so unknown sub-paths (`/hil`, `/settings`, etc.)
+# return `index.html`.
 # --------------------------------------------------------------------------- #
 _UI_DIST = pathlib.Path(__file__).resolve().parents[2] / "apps" / "ui" / "dist"
 if _UI_DIST.exists():
-    app.mount(
-        "/",
-        StaticFiles(directory=str(_UI_DIST), html=True),
-        name="ui",
-    )
+    _ASSETS_DIR = _UI_DIST / "assets"
+    if _ASSETS_DIR.is_dir():
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(_ASSETS_DIR)),
+            name="ui-assets",
+        )
 
 
-__all__ = ["app", "wire_services"]
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str, request: Request) -> FileResponse:
+    """B4 — SPA fallback for unknown sub-paths.
+
+    Decision tree (see §Design Alignment flowchart TD branch#1..#6):
+      1. ``api/`` prefix → defensive 404 (router precedence has already
+         handled valid ``/api/*`` paths; this is a not-found that the
+         catch-all MUST NOT swallow as SPA shell).
+      2. ``ws/`` prefix → defensive 404 (same rationale).
+      3. ``UI_DIST/<full_path>`` resolves to a real file (e.g. ``favicon.ico``)
+         → serve it as static.
+      4. else → return ``UI_DIST/index.html`` so react-router can take over.
+
+    Path traversal is rejected by Starlette's URL normalisation BEFORE this
+    handler is invoked; we additionally guard against ``..`` segments resolving
+    outside ``UI_DIST`` for defensive depth.
+    """
+    if full_path.startswith(("api/", "ws/")):
+        raise HTTPException(status_code=404)
+
+    if not _UI_DIST.exists():
+        raise HTTPException(status_code=404)
+
+    # Defensive: candidate must resolve under UI_DIST.
+    if full_path:
+        try:
+            candidate = (_UI_DIST / full_path).resolve()
+            ui_dist_resolved = _UI_DIST.resolve()
+            if (
+                candidate != ui_dist_resolved
+                and ui_dist_resolved in candidate.parents
+                and candidate.is_file()
+            ):
+                return FileResponse(str(candidate))
+        except (OSError, ValueError):
+            pass
+
+    index = _UI_DIST / "index.html"
+    if not index.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(str(index), media_type="text/html", status_code=200)
+
+
+__all__ = ["app", "wire_services", "spa_fallback"]

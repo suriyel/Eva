@@ -88,17 +88,29 @@ afterEach(() => {
 
 describe("TicketStreamPage 三栏 layout (T23/T24)", () => {
   it("T23 URL ?tool=claude → fetch 含 tool=claude param 且 ticket-list 仅 4 条 claude", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { id: "t-1", state: "running", tool: "claude", skill: "design", events: 10 },
-          { id: "t-2", state: "completed", tool: "claude", skill: "tdd", events: 5 },
-          { id: "t-3", state: "running", tool: "claude", skill: "ucd", events: 1 },
-          { id: "t-4", state: "completed", tool: "claude", skill: "ats", events: 0 },
-        ]),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    // F24 B2 — TicketStream 现在需要 currentRunId 才会发 /api/tickets。
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/runs/current")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ run_id: "run-test", state: "running" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify([
+            { id: "t-1", state: "running", tool: "claude", skill: "design", events: 10 },
+            { id: "t-2", state: "completed", tool: "claude", skill: "tdd", events: 5 },
+            { id: "t-3", state: "running", tool: "claude", skill: "ucd", events: 1 },
+            { id: "t-4", state: "completed", tool: "claude", skill: "ats", events: 0 },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
     globalThis.fetch = fetchMock;
     const { container } = render(
       <Wrapper initial="/ticket-stream?tool=claude">
@@ -182,9 +194,11 @@ describe("TicketStreamPage event tree 渲染 (T24/T27)", () => {
     await waitFor(() => {
       expect(container.querySelector('[data-component="event-tree"]')).not.toBeNull();
     });
+    // F24 B3 — useWs 直连 /ws/stream/t-1 的 socket 是最后创建的实例。
+    const ch = wsInstances[wsInstances.length - 1];
     act(() => {
-      wsInstances[0]?._fireOpen();
-      wsInstances[0]?._fireMessage({
+      ch?._fireOpen();
+      ch?._fireMessage({
         kind: "stream_event",
         channel: "/ws/stream/t-1",
         payload: { seq: 1, kind: "tool_use", payload: { name: "Bash" } },

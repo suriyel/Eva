@@ -9,7 +9,7 @@
  * 6 元素：phase-stepper / current-skill / current-feature / run-cost / run-turns / run-head。
  */
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWs } from "@/ws/use-ws";
 import { PhaseStepper } from "@/components/phase-stepper";
 import { Icons } from "@/components/icons";
@@ -81,10 +81,13 @@ export async function cancelRun(runId: string): Promise<RunStatus> {
 }
 
 export function RunOverviewPage(): React.ReactElement {
+  const queryClient = useQueryClient();
   const runQ = useQuery<RunStatus | null>({
     queryKey: ["GET", "/api/runs/current"],
+    retry: false,
     queryFn: async () => {
       const resp = await fetch(`${resolveApiBaseUrl()}/api/runs/current`);
+      if (resp.status === 404) return null;
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
       if (!text || text === "null") return null;
@@ -96,6 +99,54 @@ export function RunOverviewPage(): React.ReactElement {
   const [controlError, setControlError] = React.useState<{ code: string; message: string } | null>(
     null,
   );
+  // F24 B1 — useStartRun (POST /api/runs/start) wraps the Start button click.
+  const startRun = useMutation<RunStatus, Error, void>({
+    retry: false,
+    mutationFn: async () => {
+      const resp = await fetch(`${resolveApiBaseUrl()}/api/runs/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text);
+          detail =
+            (parsed?.detail?.message as string) ??
+            (typeof parsed?.detail === "string" ? parsed.detail : text);
+        } catch {
+          /* keep raw */
+        }
+        throw new RunControlError(
+          resp.status === 409 ? "STATE_CONFLICT" : "BAD_REQUEST",
+          `HTTP ${resp.status}: ${detail}`,
+        );
+      }
+      const text = await resp.text();
+      const parsed = (text ? JSON.parse(text) : {}) as RunStatus;
+      return parsed;
+    },
+    onSuccess: (data) => {
+      // Optimistically seed the live status so the 6-element UI renders
+      // synchronously after the mutation completes; then invalidate to refetch
+      // canonical /api/runs/current.
+      if (data && typeof data === "object" && (data as { run_id?: string }).run_id) {
+        setLiveStatus(data);
+      }
+      queryClient.invalidateQueries({ queryKey: ["GET", "/api/runs/current"] });
+    },
+    onError: (err) => {
+      const e = err as RunControlError;
+      setControlError({ code: e.code ?? "BAD_REQUEST", message: e.message ?? "" });
+    },
+  });
+  const handleStart = React.useCallback((): void => {
+    if (startRun.isPending) return;
+    setControlError(null);
+    startRun.mutate();
+  }, [startRun]);
 
   // sync server query into local state
   React.useEffect(() => {
@@ -173,6 +224,9 @@ export function RunOverviewPage(): React.ReactElement {
         <button
           data-testid="btn-start-run"
           type="button"
+          onClick={handleStart}
+          disabled={startRun.isPending}
+          aria-busy={startRun.isPending ? "true" : "false"}
           style={{
             marginTop: 24,
             padding: "8px 16px",
@@ -182,11 +236,29 @@ export function RunOverviewPage(): React.ReactElement {
             fontSize: 13,
             fontWeight: 600,
             border: "none",
-            cursor: "pointer",
+            cursor: startRun.isPending ? "wait" : "pointer",
+            opacity: startRun.isPending ? 0.6 : 1,
           }}
         >
-          Start
+          {startRun.isPending ? "Starting…" : "Start"}
         </button>
+        {controlError && (
+          <div
+            data-testid="run-start-error-toast"
+            role="alert"
+            data-error="true"
+            style={{
+              marginTop: 12,
+              padding: "8px 12px",
+              borderRadius: 6,
+              background: "rgba(255,107,107,0.12)",
+              color: "var(--state-fail)",
+              fontSize: 12,
+            }}
+          >
+            {controlError.code}: {controlError.message}
+          </div>
+        )}
       </div>
     );
   }
@@ -264,7 +336,7 @@ export function RunOverviewPage(): React.ReactElement {
             <Icons.DollarSign size={12} /> cost_usd
           </div>
           <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-            ${liveStatus.cost_usd.toFixed(2)}
+            ${(liveStatus.cost_usd ?? 0).toFixed(2)}
           </div>
         </div>
         <div data-row="turns" data-testid="run-turns">
@@ -272,7 +344,7 @@ export function RunOverviewPage(): React.ReactElement {
             <Icons.RefreshCw size={12} /> num_turns
           </div>
           <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-            {liveStatus.num_turns}
+            {liveStatus.num_turns ?? 0}
           </div>
         </div>
         <div data-row="head" data-testid="run-head">

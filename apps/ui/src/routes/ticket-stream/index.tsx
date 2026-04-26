@@ -19,6 +19,7 @@ import { useSearchParams } from "react-router-dom";
 import { useWs } from "@/ws/use-ws";
 import { Icons } from "@/components/icons";
 import { resolveApiBaseUrl } from "@/api/client";
+import { useCurrentRunId } from "@/api/routes/run-current";
 import { useTicketStreamFilters, type TicketFilters } from "./use-filters";
 import { EventTree, type StreamEventLike } from "./components/event-tree";
 
@@ -32,11 +33,20 @@ interface TicketDto {
   run_id?: string;
 }
 
-function buildTicketsUrl(filters: TicketFilters): string {
+/**
+ * F24 B2 — buildTicketsUrl
+ *
+ * Returns ``null`` when no run_id can be derived; callers MUST treat null as
+ * "skip fetch" so we don't spam ``GET /api/tickets`` with missing run_id and
+ * inflate 400 responses.
+ */
+function buildTicketsUrl(filters: TicketFilters): string | null {
+  const runId = filters.run_id;
+  if (!runId) return null;
   const u = new URLSearchParams();
   if (filters.state) u.set("state", filters.state);
   if (filters.tool) u.set("tool", filters.tool);
-  if (filters.run_id) u.set("run_id", filters.run_id);
+  u.set("run_id", runId);
   if (filters.parent) u.set("parent", filters.parent);
   const qs = u.toString();
   return `${resolveApiBaseUrl()}/api/tickets${qs ? `?${qs}` : ""}`;
@@ -59,11 +69,23 @@ export function TicketStreamPage(): React.ReactElement {
   const { filters, setFilter } = useTicketStreamFilters();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedTicketId = searchParams.get("ticket");
-
+  // F24 B2 — currentRunId fallback so URL params or current-run hook can
+  // populate ``filters.run_id`` even when the user hasn't manually set it.
+  const fallbackRunId = useCurrentRunId();
+  const effectiveFilters: TicketFilters = React.useMemo(
+    () => ({
+      ...filters,
+      run_id: filters.run_id ?? fallbackRunId ?? undefined,
+    }),
+    [filters, fallbackRunId],
+  );
+  const ticketsUrl = buildTicketsUrl(effectiveFilters);
   const ticketsQ = useQuery<TicketDto[]>({
-    queryKey: ["GET", "/api/tickets", filters],
+    queryKey: ["GET", "/api/tickets", effectiveFilters],
+    enabled: ticketsUrl !== null,
     queryFn: async () => {
-      const resp = await fetch(buildTicketsUrl(filters));
+      if (!ticketsUrl) return [];
+      const resp = await fetch(ticketsUrl);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const text = await resp.text();
       return text ? (JSON.parse(text) as TicketDto[]) : [];

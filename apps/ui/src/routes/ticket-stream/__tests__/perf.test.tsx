@@ -152,10 +152,12 @@ describe("T26 PERF/latency —— 100 个 ws push 全部进入 row model", () =>
     await waitFor(() => {
       expect(container.querySelector('[data-component="event-tree"]')).not.toBeNull();
     });
+    // F24 B3 — useWs 直连 /ws/stream/t-1 的 socket 是最后创建的实例。
+    const ch = wsInstances[wsInstances.length - 1];
     act(() => {
-      wsInstances[0]?._fireOpen();
+      ch?._fireOpen();
       for (let i = 0; i < 100; i += 1) {
-        wsInstances[0]?._fireMessage({
+        ch?._fireMessage({
           kind: "stream_event",
           channel: "/ws/stream/t-1",
           payload: { seq: i + 1, kind: "text", payload: { text: `msg ${i}` } },
