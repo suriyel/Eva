@@ -27,6 +27,7 @@
   --accent-press: #4A8BEB;
   --accent-2: #B192FB;
   --accent-3: #7DDBD3;
+  --fg-on-accent: #06101E;
 
   /* State */
   --state-running: #3ECF8E;
