@@ -1,7 +1,7 @@
 ---
-version: 1.1
+version: 1.2
 approved_by: godsuriyel@gmail.com
-approved_date: 2026-04-21T09:21:02+08:00
+approved_date: 2026-04-27T00:00:00+08:00
 approved_sections: ["§3", "§4"]
 ---
 
@@ -245,6 +245,7 @@ mypy harness > /tmp/static-mypy-$$.log 2>&1; echo $? > /tmp/static-mypy-$$.exit
 | vitest | `>= 2.1` | Design §8.2 |
 | playwright | `>= 1.48`（仅 E2E） | Design §8.2 |
 | pyinstaller | `>= 6.10`（仅 F17） | Design §8.1 |
+| **claude (Claude Code CLI)** | **`>= 2.1.119`** | **Design IFR-001（Wave 4 Hook 协议 + skipDangerousModePermissionPrompt 字段支持锁版本）** |
 
 ### 工具/环境故障 Fallback
 
@@ -287,6 +288,40 @@ mypy harness > /tmp/static-mypy-$$.log 2>&1; echo $? > /tmp/static-mypy-$$.exit
 - 构建产物目录：_(empty — greenfield project)_
 - 忽略清单参考：`.gitignore`
 - 依赖锁文件：_(empty — greenfield project)_
+
+### §4.5 Claude TUI 隔离三件套（Wave 4 · 2026-04-26）
+
+> Claude Code CLI（≥ 2.1.119）按 cwd 加载 `.claude/settings.json` 与 `.claude.json`；F18 `ToolAdapter.prepare_workdir` 在 spawn 前**幂等**写入下列三件套到 `<workdir>/.harness-workdir/<run-id>/`，是 IFR-001 协议的本地承载。
+
+**写路径白名单**：仅允许 `<cwd>/.harness-workdir/<run-id>/.claude*`（即 `.claude/` 目录与 `.claude.json` 文件）。任何写入路径越界（写到 `~/.claude/` 或 cwd 之外）违反 NFR-009 / NFR-006，必须 `EnvError` 中止。
+
+**1. `<isolated_cwd>/.claude/settings.json` — 字段依赖清单**
+
+| 字段 | 类型 | 必需 | 用途 |
+|---|---|---|---|
+| `env` | object（KEY → string） | 必需 | 透传到 hook 子进程；至少含 `HARNESS_BASE_URL=http://127.0.0.1:<port>`（供 `claude-hook-bridge.py` 寻址） |
+| `hooks.PreToolUse` | array of `{ command: string }` | 必需 | 注册 PreToolUse 桥接命令，指向 `<isolated_cwd>/.claude/hooks/claude-hook-bridge.py` |
+| `hooks.PostToolUse` | array | 必需 | 注册 PostToolUse 桥接 |
+| `hooks.SessionStart` | array | 必需 | 注册 SessionStart 桥接 |
+| `hooks.SessionEnd` | array | 必需 | 注册 SessionEnd 桥接（FR-014 弃用后终止协调改走此 hook） |
+| `enabledPlugins` | array | 必需 | 空数组（harness 不启用 Claude plugin） |
+| `model` | string | 可选 | 由 `ModelResolver.resolve` 注入 |
+| `skipDangerousModePermissionPrompt` | bool | 必需 | `true`，与 argv `--dangerously-skip-permissions` 等价代偿 |
+
+**2. `<isolated_cwd>/.claude.json` — 字段依赖清单**
+
+| 字段 | 类型 | 必需 | 用途 |
+|---|---|---|---|
+| `hasCompletedOnboarding` | bool | 必需 | `true`，绕过首启 onboarding wizard |
+| `projects.<isolated_cwd>.hasTrustDialogAccepted` | bool | 必需 | `true`，绕过 directory trust 对话框 |
+| `lastOnboardingVersion` | string | 必需 | 与当前 Claude CLI 版本对齐，避免再次触发 onboarding |
+| `projectOnboardingSeenCount` | int | 必需 | `>= 1` |
+
+**3. `<isolated_cwd>/.claude/hooks/claude-hook-bridge.py`**
+
+由 `HookBridgeScriptDeployer` 从仓库根 `scripts/claude-hook-bridge.py` 复制并 `chmod 0o755`；脚本读 stdin hook event JSON → POST `<HARNESS_BASE_URL>/api/hook/event` → exit 0。
+
+**测试 / 验收**：详见 design §4.3.5 HIL PoC Gate（FR-013 重跑要求） + §4.3.6 Test Inventory Hint（Wave 4 重写）。
 
 ---
 
@@ -391,3 +426,4 @@ pytest -m real_external_llm -v                          # 全部 real-LLM 测试
 |---|---|---|---|
 | 2026-04-21 | 1.0 | null | 由 `long-task-init-env` 首次生成：§1 双服务（api/ui-dev）、§2 venv + npm、§3 pytest/pytest-cov/ruff/mypy/eslint、§4 greenfield 占位、§5 SQLite + subprocess 替身说明 |
 | 2026-04-21 | 1.1 | godsuriyel@gmail.com | 重新审批 §3 + §4：将 `approved_date` 提升为精确 ISO 时间戳（2026-04-21T09:21:02+08:00），解除 `check_env_guide_approval.py` 同日 commit 误判；内容无变更 |
+| 2026-04-27 | 1.2 | godsuriyel@gmail.com | Wave 4 F18 协议层重构：§3 工具锁定表新增 `claude (Claude Code CLI) >= 2.1.119`；§4 新增 §4.5 "Claude TUI 隔离三件套"（写路径白名单、settings.json / .claude.json 字段依赖清单、hook bridge 部署） |
