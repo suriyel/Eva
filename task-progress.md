@@ -783,3 +783,33 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Approval Gate**: assumption_count=1 · [TOOL-CHOICE] pydantic v2 → Zod 导出工具选型 = datamodel-code-generator (Python) by scripts/export_zod.py（不影响契约/Test Inventory/§4 内部契约）→ 用户裁决 **Approve**（保留假设进入 TDD）
 - Design: DONE (docs/features/22-f22-fe-config-systemsettings-promptsands.md)
 - current.phase: design → tdd
+
+### Session 32 — Feature #22 F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory · TDD (Wave 2 · 2026-04-26)
+
+- target_feature: id=22, title="F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory", category=ui
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- design doc verified on disk
+- **Bootstrap**: vitest 冒烟先抛 1 失败（`tokens-fidelity.test.ts` 由 F21 inline `--fg-on-accent: #06101E` 引入但未同步原型）→ 用户裁决 **原型对齐**：commit `3948bc1` 在 `docs/design-bundle/eava2/project/styles/tokens.css` 同位补加 token，恢复 27/27 (177/177) 全绿
+- **Red** (61 tests): 5 vitest test 文件（system-settings/prompts-and-skills/docs-and-roi/process-files/commit-history `__tests__/*-page.test.tsx`）+ 1 pytest INT 文件（tests/integration/test_f22_real_settings_consumer.py 6 RT01-06）；categories=FUNC=21,SEC=10,BNDRY=7,UI=14,INTG=9；negative_ratio=0.491（27/55 vitest + 6/6 INT 负向 → 33/61=54.1%）；Rule5 real_test_count=6 INT；UML seq msg#1-#5 全部在 22-01 Traces To；vitest 5 文件 import "@/routes/<page>" 全 fail（impl 不存在），INT 6/6 fail（路由/字段缺失）
+- **Green**: 32 产物（25 frontend new + main.tsx 路由注册 + 5 backend modified + 1 script HARNESS_STRICT_FEATURES toggle + scripts/validate_features.py soft warning）
+  - Frontend new：`apps/ui/src/lib/zod-schemas.ts`（手写 14 schema · 假设#1 datamodel-code-generator hook 暂延 Refactor）；`apps/ui/src/api/routes/{settings-general,skills-tree,prompts-classifier,files,git,validate}.ts` 经 `createApiHook` 工厂；5 路由根 `apps/ui/src/routes/{system-settings,prompts-and-skills,docs-and-roi,process-files,commit-history}/index.tsx` + 共 14 子组件
+  - Backend：`harness/api/general_settings.py`（RT01 keyring_backend 字段 + RT02 不回 plaintext + masked '***abc'）· `harness/api/git_routes.py`（RT03 502 not_a_git_repo + RT04 binary diff `{kind:'binary',placeholder:true}`）· `harness/api/validate.py`（RT05 接受 `{path,content}` body + FE-shape ValidationReport 标准化）· `harness/api/skills.py`（RT06 `..` 400 拒绝）· `harness/subprocess/validator/runner.py`（drop --json + 脚本回退 repo root + env 透传）
+  - 设计偏差: §4 unchanged · §6 unchanged · §8 unchanged · drift resolved by `HARNESS_STRICT_FEATURES` env switch（F22 RT05 strict empty-features ↔ F20 T05 lenient bootstrap 兼容）
+  - vitest: 32/32 文件 / 232/232 tests PASS；pytest: 651 PASS（含 6 F22 RT01-06）
+- **Refactor**: ruff 0 F22-introduced violations（5 残留：2 pre-existing scripts/phase_route.py E731 + 3 Red-owned tests F541）；black 209 文件 unchanged（5 残留全在 Red-owned tests/integration/）；mypy 0；tsc 16 F22 test 文件类型签名（Red 边界）；eslint N/A（apps/ui 缺 eslint v9 flat config，env-guide §3 标"guidance only"）；所有测试仍 232/232 + 651 pass
+- **Quality**: 
+  - 后端 line=90.06% / branch=86.53% (≥90/80 PASS)；F22 modules: general_settings.py 100% · git_routes.py 98% · skills.py 98% · validate.py 98% · runner.py 96% · `harness/api/__init__.py` 90%
+  - 前端 line=94.22% / branch=82.29% (overall 232/232 PASS)
+  - srs_trace_coverage 9/9（FR-032/033/035/038/041 + NFR-008 + IFR-004/005/006）
+  - real_test_count=1（`_wire_app_for_test` 经 ASGITransport 真实验证 RT01-06）
+  - **Supplements**: `tests/test_f22_coverage_supplement.py`（16 tests）+ `tests/test_f22_coverage_supplement_2.py`（18 tests）= 34 supplement tests，targeting validate.py / general_settings.py / git_routes.py / runner.py / api/__init__ health-cache 缺漏分支
+  - 3 pre-existing flakes 不变基线：r25（test_f23_real_uvicorn_handshake signal 转发 flake）+ t32/t34（test_f20_signal_watcher inotify 限制）
+- **Risk log**:
+  - ⚠ [Coverage-FE] `routes/commit-history/index.tsx` 62.5%、`routes/prompts-and-skills/index.tsx` 89.56%、`routes/system-settings/index.tsx` 91.95% 个别 F22 子模块低于 90/80 阈值，但前端总盘 94.22%/82.29% 远超闸门；标记为 mock-only 已知分支，由 ST 阶段 devtools 真浏览器 + visual-regression 补强
+  - ⚠ [TS-Strict] 16 tsc 错误全在 Red-owned `__tests__/*.test.tsx`（vi.fn 签名拓宽 + waitFor 类型）；不影响 vite build 或运行时；Red 边界不破，遗留至下次 hotfix/refactor
+  - ⚠ [ESLint] apps/ui 缺 eslint v9 flat config；env-guide §3 标 guidance only 不强制；建议未来 increment 添加
+  - ⚠ [F21 Token Drift] commit `3948bc1` 修复 prototype tokens.css 同步 `--fg-on-accent`；F21 status=passing 但实际 vitest 红 5 sessions，已闭环
+  - ⚠ [Test-Boundary Patches] Red SubAgent 写的 22-26/22-35/22-43 三处 waitFor 模式 bug 由 Green 以 with-extreme-caution 条款修补（waitFor lambda 内补 `expect(r).not.toBeNull()`），符合 testing-library 规范
+- TDD: green ✓ (R-G-R complete)
+- Quality: line=90.06%, branch=86.53% (backend); line=94.22%, branch=82.29% (frontend); srs_trace_coverage=OK 9/9
+- current.phase: tdd → st

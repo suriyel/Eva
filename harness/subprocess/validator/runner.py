@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import time
@@ -70,11 +71,26 @@ class ValidatorRunner:
             raise ValidatorScriptUnknown(f"unknown validator script: {script!r}")
 
         script_path = self.plugin_dir / "scripts" / f"{script}.py"
+        if not script_path.exists():
+            # F22: fall back to the harness repo root's scripts/ directory so
+            # arbitrary tmp workdirs (e.g. integration test fixtures) can still
+            # invoke the canonical validate_features.py.
+            repo_root = Path(__file__).resolve().parents[3]
+            fallback = repo_root / "scripts" / f"{script}.py"
+            if fallback.exists():
+                script_path = fallback
         python = sys.executable or shutil.which("python") or "python"
-        argv = [str(python), str(script_path), "--json", req.path]
+        argv = [str(python), str(script_path), req.path]
 
         cwd = str(req.workdir) if req.workdir else None
         timeout_s = req.timeout_s or _DEFAULT_TIMEOUT_S
+
+        # F22 FR-039: when a strict-features signal is propagated through the
+        # request env, run validate_features.py with HARNESS_STRICT_FEATURES=1
+        # so empty features[] surfaces as ok=False to the FE. The route layer
+        # sets this env var only for /api/validate calls; phase_route shells
+        # out separately and keeps the lenient default.
+        env = dict(os.environ)
 
         t0 = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
@@ -82,6 +98,7 @@ class ValidatorRunner:
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_s)

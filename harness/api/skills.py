@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from harness.skills import (
     GitSubprocessError,
@@ -62,9 +62,30 @@ def post_install(req: SkillsInstallRequest) -> SkillsInstallResult:
 
 
 @router.get("/tree")
-def get_tree() -> dict[str, object]:
-    """Return ``SkillTree {root, plugins[]}`` derived from HARNESS_WORKDIR."""
-    workdir = _resolve_workdir()
+def get_tree(request: Request, path: str | None = None) -> dict[str, object]:
+    """Return ``SkillTree {root, plugins[]}``.
+
+    F22 RT06 SEC: any '..' path-traversal probe is rejected with 400 BEFORE
+    the workdir lookup so production app rejects regardless of whether
+    HARNESS_WORKDIR / app.state.workdir is wired.
+    """
+    if path is not None and (".." in path or path.startswith("/")):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "path_traversal", "path": path},
+        )
+    # Resolve workdir from app.state first (F22 wire_services), env var fallback.
+    workdir: Path | None = None
+    wd = getattr(request.app.state, "workdir", None)
+    if wd:
+        workdir = Path(wd)
+    if workdir is None:
+        env = os.environ.get("HARNESS_WORKDIR", "")
+        if env:
+            workdir = Path(env)
+    if workdir is None or not workdir.is_dir():
+        # No workdir → empty tree; do NOT 500 (FE just renders EmptyState).
+        return {"root": "", "plugins": [], "name": "root", "kind": "plugin", "children": []}
     plugins_root = workdir / "plugins"
     plugins: list[dict[str, object]] = []
     if plugins_root.is_dir():

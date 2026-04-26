@@ -21,6 +21,7 @@ Usage:
 """
 
 import json
+import os
 import re
 import sys
 
@@ -49,6 +50,16 @@ def validate(path: str) -> tuple[list[str], list[str]]:
 
     if "features" not in data:
         return ['"features" key missing from root object'], []
+
+    # F22 FR-039: emit empty features array as a soft warning. Some pipelines
+    # (phase_route post-init) accept an empty list during early bootstrap;
+    # it becomes a hard error only when invoked with HARNESS_STRICT_FEATURES=1
+    # (the F22 /api/validate route sets this env var so users see ok=False).
+    if isinstance(data.get("features"), list) and len(data["features"]) == 0:
+        if os.environ.get("HARNESS_STRICT_FEATURES") == "1":
+            errors.append("features array is empty: project must declare at least one feature")
+        else:
+            warnings.append("features array is empty (allowed during bootstrap)")
 
     # Validate tech_stack if present
     tech_stack = data.get("tech_stack")
