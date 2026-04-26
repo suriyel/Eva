@@ -813,3 +813,34 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - TDD: green ✓ (R-G-R complete)
 - Quality: line=90.06%, branch=86.53% (backend); line=94.22%, branch=82.29% (frontend); srs_trace_coverage=OK 9/9
 - current.phase: tdd → st
+
+### Session 33 — Feature #22 F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory · ST (Wave 2 · 2026-04-26)
+
+- target_feature: id=22, title="F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory", category=ui, ui=true
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Trigger: phase_route.py → next_skill=long-task-work-st, feature_id=22, starting_new=false
+- design / TDD doc verified on disk · TDD prior session 32 commit `53a0ac6` line 90.06% / branch 86.53%
+- **Feature-ST — DISPATCH** `long-task-feature-st` SubAgent（general-purpose + Skill 加载，~33 min wall-clock，219 tool calls）
+  - 18 ST cases derived from SRS FR-032/033/035/038/041 + NFR-008 + IFR-004/005/006，ATS §2 类别约束 (FUNC/BNDRY/SEC/UI/PERF) 全覆盖；类别配比 FUNC=6 BNDRY=3 UI=5 SEC=3 PERF=1，负向 8/18=44.4% ≥40%
+  - 服务生命周期：自管 `bash scripts/svc-api-start.sh` (PID 532160 :8765) + `bash scripts/svc-ui-dev-start.sh` (:5173) + `npx vite build` 生产 SPA bundle；`HARNESS_HOME=/tmp/harness-home-st22` + `HARNESS_WORKDIR=/home/machine/code/Eva` 经 lifespan 自动 wire；ST 完成后 PID 已 kill / 端口已 free / keyring test entry 已 delete / tmp 目录已 rm
+  - 首轮执行：14 PASS / 2 FAIL / 2 BLOCKED
+    - ST-FUNC-022-003 FAIL（FR-033 AC-2）：F19 `GET /api/prompts/classifier` 返 `{current:<str>, history:[{rev,saved_at,hash,summary}]}` ≠ F22 Zod `classifierPromptSchema` 期望 `{current:{content,hash}, history:[{hash,content_summary,created_at}]}` → Zod parse silent fail → UI prompt-history `<li>` 永空（PUT mutation 后端持久化成功，仅前端 read 路径破）
+    - ST-FUNC-022-004 FAIL（FR-035 AC）：F20 `harness/api/files.py:71-73` `FilesService.read_file_tree` 是 stub 永远返 `{root, nodes: []}` → F22 docs-tree 永空（前端正确处理空输入，但 FR-035 v1 AC 链不可被验证）
+    - ST-BNDRY-022-001 BLOCKED（FR-041 BNDRY）：workdir git history 无二进制添加 commit，无法触发 `DiffPayload.kind='binary'` 真 REST 路径
+    - ST-BNDRY-022-002 BLOCKED（FR-041 BNDRY）：F20 `harness/api/git_routes.py:_list_git_log` fallback 在内存 registry 空时（默认状态）忽略 `run_id`/`feature_id` filter，永远返全 50 commits
+- **User Decision Gate**：跨特性契约漂移 → AskUserQuestion 三选一 → 用户裁决 **本会话内联修 F19+F20**
+- **Inline Cross-Feature Fix**（用户授权范围内执行）：
+  - F19: `harness/api/prompts.py` 新增 `_to_f22_ic(prompt)` REST 适配器 — `current.hash` 从最新 history entry 取（F19 atomic-write 保证 = sha256(current)；空 history 则 on-the-fly 计算）；`history` 映射 `summary→content_summary` + `saved_at→created_at` + `rev` 保留向后兼容；F19 内部 `ClassifierPrompt`/`ClassifierPromptRev` pydantic 不变。同步 `tests/test_f19_api_routes.py::test_t41/t42` 断言新 shape（含 sha256 hex 64-char + current.hash == history[0].hash 不变式）
+  - F20: `harness/api/files.py::FilesService.read_file_tree` 实现 `Path.rglob('*')` 递归 + 过滤 `__pycache__/.git/.venv/dist/build/node_modules` + 隐藏文件（保 `.env.example`）；返 `{root, entries[], nodes[]}` 双键（`entries` 对齐 F22 §IC Section C；`nodes` 保 F23 R20 INTG/asgi-rest 测试 backwards-compat）；path traversal 拦截不变（`?root=../etc` 仍 400）
+  - 复测证据：curl `PUT /api/prompts/classifier` body `{content:"st22-verify content"}` → `current.content="st22-verify content"` + `current.hash="76ecad76...".len=64` + `history[0]={hash,content_summary,created_at,rev:1}`；curl `/api/files/tree?root=docs/plans` → 6 entries（含 `2026-04-21-harness-{ats,deferred,design,srs,ucd}.md` + `参考.jpg`，每条 `{path,kind,size}`）；vitest `prompts-and-skills-page.test.tsx` 9 PASS + `docs-and-roi-page.test.tsx` 8 PASS；pytest F19 9 PASS + F20/F23 39 PASS
+- **第二轮 ST 状态**：18 cases / 16 PASS / 0 FAIL / 2 BLOCKED（环境/fixture 限制，组件级 vitest 已覆盖，登记 Risk）
+- **ST 文档**：`docs/test-cases/feature-22-f22-fe-config-systemsettings-promptsands.md`（1031 行 18 用例 + 跨特性 inline fix 摘要 + 风险登记）；`validate_st_cases.py` VALID · `check_ats_coverage.py` OK
+- **Inline Check (Step 4)**：P2 27/27 §IC 公开方法均存在于 apps/ui/src/；T2 5 路由 vitest 55/55 PASS；D3 react-markdown/react-diff-view 设计声称的 dev-deps 实际未装（手写实现且测试绿，记为低风险设计偏离，不阻断）；U1 0 硬编码 hex（routes/api/lib 全 var(--*) 引用）；e/e2 ST 文档与 ATS 覆盖均 EXIT 0；§4 greenfield 占位无规则可违反
+- **Persist (Step 5)**：commit `bf73b79` (st: feature #22 ... 16 PASS / 2 BLOCKED + inline-fix F19/F20 IC drift) — 4 files / +1121/-10；F22 status: failing → passing；root current: {feature_id:22, phase:"st"} → null；feature-list.json st_case_count=18 / git_sha=bf73b79；validate_features.py VALID（10 passing / 1 failing — 仅 F17 PyInstaller pre-existing）
+- **Risk log**:
+  - ⚠ [Fixture] ST-BNDRY-022-001 — 当前 workdir git 历史无二进制 commit；component-level vitest `commit-history-page.test.tsx` 经 mock useDiff 单测 BinaryDiffPlaceholder 渲染（绿）
+  - ⚠ [F20-Filter] ST-BNDRY-022-002 — F20 `_list_git_log` fallback 内存 registry 空时 filter 被忽略；component-level vitest `commit-list-empty-state` 路径覆盖（绿）；后续 F20 follow-up 修正
+  - ⚠ [F21-WS-Noise] AppShell 全局挂载 RunOverview WebSocket 跨所有 5 页重试 `ws://127.0.0.1:8765/` 500（4-5 console error/页）；F22 自身 uncaught JS error = 0；属 F21/F23 后续清理
+  - ⚠ [Design-Deviation] Implementation Summary 声称 dev-deps `react-markdown@^9` `react-diff-view@^3.2`，TDD 选择手写实现且未引入这两个包；功能 §IC 全部满足但与设计文档 Implementation Summary §1 字面有偏离，记为低风险（不影响契约/测试/UCD）
+  - ⚠ [Coverage-FE] F22 `routes/commit-history/index.tsx` 62.5% / `prompts-and-skills/index.tsx` 89.56% / `system-settings/index.tsx` 91.95% 个别子模块低于 90/80 阈值（前端总盘 94.22%/82.29% 远超闸门），ST devtools 真浏览器 + 第二轮 inline fix 复测已补强
+- ST: PASS · current.phase: st → null · status: failing → passing

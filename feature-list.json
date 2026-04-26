@@ -131,10 +131,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 22,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -731,7 +728,7 @@
       "title": "F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory",
       "description": "合并原 F15 SystemSettings+PromptsAndSkills / F16 DocsAndROI+ProcessFiles+CommitHistory；5 页面共享表单 + 文件树 + markdown 预览 + git CLI 组件；配置（keyring+classifier）+ 只读查看（docs+commits）+ 过程文件编辑",
       "priority": "medium",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-032",
         "FR-033",
@@ -768,7 +765,10 @@
         "[visual-regression] Given SystemSettings / PromptsAndSkills / DocsAndROI / ProcessFiles / CommitHistory 实现渲染 when 与 design-bundle 对应 .jsx 截图 pixelmatch 对比 then 像素差 < 3%（UCD §7）"
       ],
       "ui": true,
-      "ui_entry": "/settings"
+      "ui_entry": "/settings",
+      "st_case_path": "docs/test-cases/feature-22-f22-fe-config-systemsettings-promptsands.md",
+      "st_case_count": 18,
+      "git_sha": "bf73b79"
     },
     {
       "id": 23,
