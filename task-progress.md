@@ -924,3 +924,19 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - TDD: green ✓ (R-G-R complete)
 - Quality: 跳过（用户授权）；现有证据 vitest 94.86%/82.95% + srs_trace 17/17 PASS + F24 specific 70/70 PASS
 - current.phase: tdd → st
+
+### Feature #24: Fix 打包前 UI↔FastAPI 集成壳 9 项缺陷 + 设计稿控件大幅错位/缺失（B1-B9 合并 · pre-PyInstaller integration QA） — PASS
+- Completed: 2026-04-27
+- TDD: green ✓ (R-G-R 完整 · 用户授权跳过 Quality 关卡)
+- Quality Gates: vitest line 94.86% / branch 82.95%（已采证 · srs_trace 17/17 PASS）
+- Feature-ST: 53 cases (1:1 映射 Test Inventory 41 行 + 跨 B INTG 整合 + B8 BNDRY 合法 path)，全 PASS · 41.5% negative · 0 manual · 0 blockers · validate_st_cases VALID（41 advisory · 非阻断）· check_ats_coverage --strict OK · 无 [MANUAL_TEST_REQUIRED] / [SRS-MISSING] / [ATS-CATEGORY-MISSING-ST]
+- Inline Check: PASS (P2: 9/9 methods · T2: 12/12 test files · 65 test blocks ≥ 41 inventory rows · D3: 无新依赖 · UCD U1: 仅 F12 既有遗留 hex 非 #24 引入 · ATS 类别 OK · §4: greenfield vacuous PASS)
+- Service lifecycle: SubAgent 自管 — uvicorn @ 127.0.0.1:8765 启动 + health 200 验证 + 完成后 stop（端口 8765/5173 已清）
+- Git: 458dd32 fix: feature #24 fix-bugfix-b1-b9-pre-pyinstaller — st: B8 _validate_safe_arg 守卫 + ST 53 cases (fixes #23)
+- ST 文档: docs/test-cases/feature-24-fix-pre-pyinstaller-9bugs.md（ISO/IEC/IEEE 29119-3）
+#### Risks
+- ⚠ [Implementation-Drift] B8 守卫在 TDD/Refactor commit `77d4357` 后丢失 — SubAgent 在 ST 开端发现 6/6 unit test entry FAIL，按设计 §IS B8 就地补齐；建议未来工作流加 "Worker 出 commit 前自动跑一遍最近一阶段 unit test 验证 commit 完整性"。
+- ⚠ [UCD-Debt] phase-stepper.tsx / sidebar.tsx 中的裸 `#0A0D12` `#15100A` 是 F12 既有遗留（commit `21c26c87`），不在 #24 scope；下次专项 UCD pass 中清理。
+- ⚠ [Build-Pipeline] `npm run build` (`tsc && vite build`) 当前因测试 mock TS 错误失败（与 #24 无关）；ST 阶段以 `npx vite build` 直接生成 dist 通过。建议 increment 立项修复 tsc 关卡。
+- ⚠ [F18-Increment-Pending] F18 路由穿刺穿刺出 claude CLI 2.1.119 上 `--include-partial-messages` argparse 拦截 / TUI 模式忽略 `--output-format=stream-json`；reference/f18-tui-bridge/ ADR 草稿已就位；FR-008/016 修订 + JsonLinesParser 废弃需走 increment 流程，不在 #24 scope。
+- current: {feature_id:24, phase:"st"} → null · status: failing → passing
