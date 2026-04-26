@@ -63,20 +63,20 @@
 
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
-| FR-008 | pty 包装交互模式运行 Claude | 观察进程 argv 不含 `-p` / pty 通道建立后 tool_use 可捕获 / CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | SEC：env 白名单（不透传 HOME 默认值） |
-| FR-009 | 监听 stream-json 捕获 AskUserQuestion | tool_use=AskUserQuestion → hil.detected=true / 缺字段默认补齐 + warning / 半行 JSON 缓冲正确续解析 | FUNC, BNDRY, SEC | Critical | Auto | SEC：防 stream-json 恶意大对象 DoS（>10MB 截断） |
+| FR-008 | pty 包装交互模式运行 Claude（hooks 通道捕获 HIL）[Wave 4 MOD] | 观察进程 argv 不含 `-p` / `--print` / `--output-format` / `--include-partial-messages` 任一禁用 flag / pty 通道仅承载 TUI 字节流 / 隔离 ~/.claude/settings.json 注册 PreToolUse(AskUserQuestion) 钩子 / CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | SEC：env 白名单（不透传 HOME 默认值）；argv 严格 5+1 项断言 |
+| FR-009 | hook stdin JSON → POST /api/hook/event [Wave 4 MOD] | hook 子进程从 stdin 读取 JSON envelope / harness HookEventMapper 解析 PreToolUse(AskUserQuestion) → HilQuestion / 缺字段默认补齐 + warning / 大 payload (>10MB) 截断 / hook bridge POST 失败 → exit≠0 阻塞 Claude TUI | FUNC, BNDRY, SEC | Critical | Auto | SEC：防 hook envelope 恶意大对象 DoS；IAPI-020 happy + error |
 | FR-010 | UI 渲染 3 种 HIL 控件 | multiSelect=false + options≥2 → Radio / multiSelect=true → Checkbox / allowFreeform=true + options=0 → Textarea / allowFreeform + options>0 → Radio+其他 | FUNC, BNDRY, SEC, UI | Critical | Auto | SEC：XSS（用户提交 freeform 到 UI 渲染）。UI：Chrome DevTools 三层检测 |
-| FR-011 | pty stdin 回写原会话 | 答案写入后同 pid 续跑 / pty 关闭尝试写入 → failed + 答案保留 / 答案含特殊字符正确 escape | FUNC, BNDRY, SEC | Critical | Auto | SEC：命令注入防护（answer bytes 禁 `\x03` 等信号） |
+| FR-011 | TUI 键序回写原会话（TuiKeyEncoder 协议）[Wave 4 MOD] | 单选索引 N → 字节序列 `<N>\r` 注入 pty / 自由文本走 bracketed paste（`ESC[200~ ... ESC[201~`）/ 多选索引集合编码（按顺序按键 + space + enter）/ pty 关闭尝试写入 → failed + 答案保留 / 文本字节级守恒（byte-equal） | FUNC, BNDRY, SEC | Critical | Auto | SEC：禁注入控制字符（`\x03`/`\x04` 等）；IAPI-021 happy + error |
 | FR-012 | OpenCode HIL hooks 捕获 | hooks 注册成功 skill 调 Question → HIL 控件生成 / 版本不兼容注册失败 → ticket failed 并提示升级 | FUNC, BNDRY | Critical | Auto | — |
-| FR-013 | HIL pty 穿透 PoC | PoC 脚本 20 次 HIL 循环成功率 ≥ 95% / 失败率 > 5% → 冻结 HIL FR 并上报 | FUNC, BNDRY, PERF | Critical | Auto | PERF：20 次 round-trip + 统计 |
-| FR-014 | 终止横幅 + 未答 HIL 冲突优先 HIL | 末尾同时有 banner + AskUserQuestion → state=hil_waiting / 答完后调 phase_route 而非 completed | FUNC, BNDRY | Critical | Auto | BannerConflictArbiter ≥10 fixture |
+| FR-013 | HIL hook bridge + 键序回写 PoC（文字保留）| PoC 脚本 20 次 HIL 循环成功率 ≥ 95% / 失败率 > 5% → 冻结 HIL FR 并上报 | FUNC, BNDRY, PERF | Critical | Auto | PERF：20 次 round-trip + 统计；Wave 4 在新 hook bridge + TuiKeyEncoder 实现下重跑（不改 AC 文字） |
+| FR-014 | ~~终止横幅 + 未答 HIL 冲突优先 HIL~~ [DEPRECATED - Wave 4] | ~~末尾同时有 banner + AskUserQuestion → state=hil_waiting / 答完后调 phase_route 而非 completed~~ → AC 改为：代码路径 BannerConflictArbiter 已移除；grep 项目源码 0 引用 | FUNC | Low | Auto | DEPRECATED：hooks 通道下 HIL 与终止判定解耦；保留行供历史可追，新 AC = "类与调用 0 残留" |
 
 #### D. Tool Adapter
 
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
-| FR-015 | ToolAdapter Protocol 定义 | **Happy**：mypy 严格检查 Claude+OpenCode Adapter 通过 / Mock Provider 实现 Protocol 可被 orchestrator dispatch / **Error**：Mock Provider 缺实现某方法 → mypy --strict 报错 + orchestrator 运行时 TypeError 拒绝注册 | FUNC, BNDRY | Critical | Auto | 静态 + 运行时；6 方法残缺场景覆盖 |
-| FR-016 | ClaudeCodeAdapter argv | argv 必含全部 FR-016 列表 flag / 未指定 model → 无 `--model` | FUNC, BNDRY | Critical | Auto | argv 等值断言 |
+| FR-015 | ToolAdapter Protocol 新签名（含 prepare_workdir / map_hook_event）[Wave 4 MOD] | **Happy**：mypy 严格检查 Claude+OpenCode Adapter 通过新 8 方法 Protocol（含 prepare_workdir / map_hook_event）/ Mock Provider 实现 Protocol 可被 orchestrator dispatch / **Error**：Mock 缺 prepare_workdir 或 map_hook_event → mypy --strict 报错 + 运行时 TypeError 拒绝注册 | FUNC, BNDRY | Critical | Auto | 静态 + 运行时；新增 2 方法残缺场景覆盖 |
+| FR-016 | ClaudeCodeAdapter argv（严格 5+1 项）[Wave 4 MOD] | argv 必为 `["claude", "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", "<path>", "<prompt>"]` 6 项；指定 model 时插入 `--model <name>` 成 7 项 / 不允许任何 -p / --print / --output-format / --include-partial-messages flag 出现 | FUNC, BNDRY | Critical | Auto | argv 等值断言（白名单极简） |
 | FR-017 | OpenCodeAdapter argv + hooks | argv 首 `opencode` + 可选 model/agent / v1 指定 mcp_config 降级 + UI 提示 | FUNC, BNDRY | Critical | Auto | — |
 | FR-018 | 适配器接口稳定性 | **Happy**：Mock Provider 实现 6 方法可注册并 dispatch / **Error**：ToolAdapter 新增可选方法（未来）不破坏现有 Claude/OpenCode Adapter（向后兼容断言）| FUNC, BNDRY | High | Auto | 向后兼容 regression |
 
@@ -150,6 +150,16 @@
 | FR-049 | PyInstaller 三平台打包 | 无 Python Linux 运行二进制启动 UI / macOS Apple Silicon 启动 UI / Windows 启动 UI | FUNC, BNDRY, PERF | Critical | Auto | PERF：冷启动 < 10s；CI matrix 3 job |
 | FR-050 | 首启自动建 ~/.harness + keyring | 首启 → `~/.harness/config.json` 存在 / 保存 API key → config.json 不含明文 key | FUNC, BNDRY, SEC | Critical | Auto | SEC：NFR-008 共轨 |
 
+#### N. Wave 4 协议层重构新增（F18 TUI + Hook Bridge）
+
+> 占位 ID（FR-051 / FR-052 / FR-053）—— SRS 增量阶段（Step 6）将由 long-task-increment-srs subagent 校准最终 ID 并回写本表。
+
+| Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
+|---|---|---|---|---|---|---|
+| FR-051 (NEW MUST) | prepare_workdir 三件套预置（隔离 ~/.claude/settings.json + ~/.claude.json + .mcp.json）[Wave 4 NEW] | spawn 前 ToolAdapter.prepare_workdir(workdir) 在 `<workdir>/.harness-workdir/` 写入三文件 / settings.json 含 PreToolUse(AskUserQuestion) hook 注册 hook bridge / sha256(~/.claude/settings.json) + sha256(~/.claude.json) run 前后字节级守恒 / .mcp.json 仅含必要 server 列表 | FUNC, BNDRY, SEC | Critical | Auto | SEC：filesystem audit (lsof + sha256 diff)；NFR-009 强化 |
+| FR-052 (NEW SHOULD) | HIL 应答唯一通道 = harness UI [Wave 4 NEW] | hook stdin JSON → POST /api/hook/event → HilQuestion → harness UI POST /api/hil/:ticket_id/answer → TuiKeyEncoder → POST /api/pty/write → claude TUI 续跑 / 旁路尝试（直接对 claude TUI 键入）→ harness UI 不响应 + audit warning / 同 ticket 同 HIL 二次提交 → 409 Conflict | FUNC, BNDRY, SEC | High | Auto | SEC：通道唯一性断言；audit log 记录所有应答源 |
+| FR-053 (NEW MUST) | TuiKeyEncoder 协议 [Wave 4 NEW] | encode_radio(index) → `b"<N>\r"` / encode_checkbox(indices) → 多按键序列 + space + enter / encode_freeform(text) → bracketed paste 包裹 (`ESC[200~ <text> ESC[201~ \r`) / 文本含特殊 UTF-8 / emoji / 控制字符过滤（拒 `\x03`/`\x04`）/ POST /api/pty/write 写入 byte-equal | FUNC, BNDRY, SEC | Critical | Auto | SEC：bracketed paste 边界标记防注入；自由文本字节守恒 |
+
 ### 2.2 非功能需求（NFR）
 
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
@@ -176,7 +186,7 @@
 
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
-| IFR-001 | Claude Code CLI pty+argv+stream-json | 完整 argv 包含 FR-016 flag / stream-json 事件 kind 5 种全解 / CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-008/016 |
+| IFR-001 | Claude Code CLI PTY + hooks 通道 + TUI 键序（含 HookEventPayload schema）[Wave 4 MOD] | argv 严格 5+1 项（含 FR-016 极简白名单）/ pty 通道仅承载 TUI 字节流（不再解析 stream-json）/ hook 子进程 stdin JSON envelope 符合 HookEventPayload schema（hook_event_name + tool_name + tool_input + ticket_id）/ TUI 键序回写经 TuiKeyEncoder 编码（radio/checkbox/freeform 三型）/ CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-008/009/011/016；ASM-009/010 引用（hook schema + TUI 键序在 v2.1.119 稳定） |
 | IFR-002 | OpenCode CLI pty+hooks | argv `opencode ...` 正确构造 / hooks.json 注入成功 Question 工具被捕获 / **hooks.json 写入路径限 `<isolated>/.opencode/` 防目录逃逸** / **Question name 超长（>256B）截断不崩** | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-012/017；SEC：hooks.json 作第三方 JSON 需防注入边界 |
 | IFR-003 | phase_route.py subprocess --json | 松弛 JSON 解析增减字段均可 / exit≠0 → 暂停 + 呈 error / stdout 非 JSON → parse_error + 暂停 | FUNC, BNDRY, SEC | Critical | Auto | SEC：subprocess argv 不拼接用户输入 |
 | IFR-004 | OpenAI-compat HTTP | GLM/MiniMax/OpenAI/custom 4 preset 均能发起成功 POST / 401 → 降级 rule + audit / response_format strict schema 外返回值拒收 | FUNC, BNDRY, SEC, PERF | Critical | Auto | SEC：SSRF 防（base_url domain 白名单校验）；PERF：10s timeout; Wave 3：effective_strict=False 时 body 不含 response_format，URL/method/Authorization 不变；real_external_llm smoke (MiniMax) 验证 ASM-008 |
@@ -300,7 +310,7 @@
 
 | 场景 ID | 场景描述 | 涉及 Features | 数据流路径（Contract IDs） | 验证要点 | ST 阶段 |
 |---|---|---|---|---|---|
-| **INT-001** | **HIL full round-trip**：Claude skill 触发 AskUserQuestion → UI 渲染控件 → 用户提交答案 → pty 续跑 | F18, F21, F20, F02 | CLI stream → IAPI-006 byte_queue → StreamParser → IAPI-008 StreamEvent → HilEventBus → IAPI-001 `/ws/hil` push → UI → `POST /api/hil/:ticket_id/answer` (IAPI-002) → HilWriteback → IAPI-007 pty stdin → CLI 续跑 → IAPI-009 AuditWriter | 整链 p95 < 3s；同 pid 续跑；ticket.hil.answers 持久化；FR-013 PoC 门（≥95% 成功率 / 20 轮）| System ST |
+| **INT-001** | **HIL full round-trip（hooks + TUI 键序）[Wave 4 REWRITE]**：spawn claude → 1× PreToolUse(AskUserQuestion) hook fire → harness HookEventMapper → HilQuestion → harness UI 渲染控件 → 用户提交 → TuiKeyEncoder → POST /api/pty/write → claude TUI 续跑 | F18, F21, F20, F02 | claude pty 子进程触发 PreToolUse(AskUserQuestion) hook → hook 子进程 stdin JSON envelope → POST /api/hook/event (IAPI-020) → HookEventMapper → HilQuestion → HilEventBus → IAPI-001 `/ws/hil` push → UI → POST /api/hil/:ticket_id/answer (IAPI-002 [Wave 4 MOD]) → HilWriteback (IAPI-007 [Wave 4 MOD]) → TuiKeyEncoder.encode_* → POST /api/pty/write (IAPI-021) → IAPI-006 byte_queue（仅 PTY 字节通道，不再 StreamParser.events 解析）→ claude TUI 续跑 → IAPI-009 AuditWriter | 整链 p95 < 3s；同 pid 续跑；ticket.hil.answers 持久化；FR-013 PoC gate (≥95% 成功率 / 20 轮跨 user_turn HIL × hook + 键序回写真测试，新 hook bridge 实现下重跑)；**SEC**: sha256(~/.claude/settings.json) + sha256(~/.claude.json) run 前后字节级守恒（NFR-009 强化 + FR-051 AC）；**SEC**: bracketed paste 自由文本 byte-equal 守恒（FR-053 AC）| System ST |
 | **INT-002** | **Run Start 流**：用户点 Start → workdir 校验 → phase_route → 第一张 ticket spawn | F01, F20, F10, F18 | `POST /api/runs/start` (IAPI-002) → BindGuard 通过 → RunLock acquire → IAPI-017 EnvironmentIsolator.setup_run → IAPI-003 phase_route JSON → IAPI-004 TicketCommand → IAPI-005 ToolAdapter.spawn → IAPI-006 DispatchSpec → PTY spawn | 5s 内 UI 进 running；隔离目录生成；argv 含全部 FR-016 flag；head_start 记录 git sha | System ST |
 | **INT-003** | **非 git repo Start 错误**：用户指定非 git 目录 → 拒启动并提示 | F01, F20 | `POST /api/runs/start` → `git status --porcelain` exit=128 → Gateway 返 400 → UI Modal 展示错误 | error_code 正确；filelock 未被占用；UI error Modal 可读 | Feature ST |
 | **INT-004** | **Anomaly context_overflow 自愈链**：stderr 匹配 → Classifier RETRY → 新 ticket 继承 skill_hint → 3 次后 escalate | F19, F20, F18 | StreamParser → Classifier (IAPI-010) Verdict=RETRY → IAPI-004 Supervisor.reenqueue_ticket → 新 DispatchSpec 含 skill_hint → spawn → 第 4 次同 skill stderr 匹配 → EscalationEmitter → IAPI-001 `/ws/anomaly` escalated 事件 | retry_count 累加 1/2/3；第 4 次 `RecoveryDecision.kind="escalate"`；run 状态 paused；UI 显示上报 | System ST |
@@ -340,13 +350,13 @@
 | IAPI | happy-path 场景 | error-path 场景 | 一致性场景 |
 |---|---|---|---|
 | IAPI-001（WS）| INT-001, INT-006, INT-014 | INT-014（断线） | — |
-| IAPI-002（REST）| INT-002, INT-009, INT-010, INT-011, INT-012, INT-019 | INT-003, INT-007, INT-015, INT-016 | — |
+| IAPI-002（REST）[Wave 4 MOD]（envelope rename）| INT-002, INT-009, INT-010, INT-011, INT-012, INT-019 | INT-003, INT-007, INT-015, INT-016 | — |
 | IAPI-003（phase_route）| INT-002, INT-017 | INT-003, Err-A | — |
 | IAPI-004（TicketCommand）| INT-002, INT-004 | — | — |
-| IAPI-005（ToolAdapter）| INT-002, INT-013 | Err-B（CLI 缺失）, Err-J（未 auth） | — |
-| IAPI-006（PTY handle）| INT-001, INT-014 | Err-C | — |
-| IAPI-007（pty write）| INT-001 | INT-001 分支（pty 关闭时写入失败） | — |
-| IAPI-008（StreamEvent）| INT-001, INT-014 | Err-D | — |
+| IAPI-005（ToolAdapter）[Wave 4 MOD]（spawn 语义）| INT-002, INT-013 | Err-B（CLI 缺失）, Err-J（未 auth） | — |
+| IAPI-006（PTY handle）[Wave 4 MOD]（byte_queue 字段语义）| INT-001, INT-014 | Err-C | — |
+| IAPI-007（HilWriteback）[Wave 4 MOD]（payload 改 TuiKey 序列）| INT-001 | INT-001 分支（pty 关闭时写入失败） | — |
+| ~~IAPI-008（StreamEvent）~~ [REMOVED - Wave 4] | ~~INT-001, INT-014~~ | ~~Err-D~~ | — |
 | IAPI-009（AuditWriter）| INT-001, INT-004 | Err-E | — |
 | IAPI-010（Classifier）| INT-001, INT-004, INT-012 | INT-005, INT-025（test 401/502/DNS 错误） | — |
 | IAPI-011（TicketRepo）| INT-008, INT-011, INT-014 | INT-008 | INT-021 |
@@ -358,19 +368,23 @@
 | IAPI-017（EnvironmentIsolator）| INT-002 | — | — |
 | IAPI-018（SkillsInstaller）| INT-009 | INT-009 | — |
 | IAPI-019（RunControlBus）| INT-023 | INT-007 | — |
+| IAPI-020（POST /api/hook/event）[Wave 4 NEW] | INT-001（hook envelope happy-path）| INT-001 分支（hook bridge POST 失败 → 阻塞 Claude TUI）；Err-D' (envelope schema 不合法) | — |
+| IAPI-021（POST /api/pty/write）[Wave 4 NEW] | INT-001（TuiKeyEncoder 键序写入）| INT-001 分支（pty 关闭时写入失败 / 控制字符注入被拒） | — |
 
 ### 5.3 场景总数与类别分布
 
-- **INT-001 .. INT-025**：25 个常规集成场景（含新增 INT-025 test-connection 错误路径）
-- **Err-A, B, C, D, E, F, H, I, J**：9 个错误路径场景（Err-G 已并入 INT-003；新增 Err-J "CLI 存在但未 auth"）
+- **INT-001 .. INT-025**：25 个常规集成场景（含 INT-025 test-connection 错误路径；INT-001 已 Wave 4 整段重写为 hooks + TUI 键序）
+- **Err-A, B, C, D, E, F, H, I, J**：9 个错误路径场景（Err-G 已并入 INT-003；Err-J "CLI 存在但未 auth"）
 - **合计：34 个集成场景**（System ST：9 + Feature ST：25）
 
 类别覆盖：
 - FUNC: 34 / 34
 - BNDRY: 16 / 34（并发、重试次数、路径边界）
-- SEC: 7 / 34（INT-015, INT-016, INT-009, INT-012, INT-025, Err-H, Err-J）
+- SEC: 7 / 34（INT-015, INT-016, INT-009, INT-012, INT-025, Err-H, Err-J；INT-001 Wave 4 新增三件套 sha256 守恒 + bracketed paste 字节守恒两条 SEC 验证点，仍归 INT-001 SEC 计数）
 - PERF: 4 / 34（INT-001 时延、INT-014 fan-out、INT-017 整 run 时长、INT-018 冷启动）
 - UI: 8 / 34
+
+**Wave 4 增量 Δ**：FR/NFR/IFR 计数 48 → 51 active FR（+3 NEW: FR-051/052/053；FR-014 标 DEPRECATED 不计）+ 17 NFR + 7 IFR = 75 行（弃用 FR-014 保留行不计入分母）；映射表行修订：FR-008/009/011/015/016/IFR-001 = 6 行 MODIFY；新增 3 行（FR-051/052/053）；弃用 1 行（FR-014）。集成场景：INT-001 整段重写、IAPI 自检 +2 行（IAPI-020/021）/ -1 行（IAPI-008 标 REMOVED 保留）/ 4 行 [Wave 4 MOD] 标注（IAPI-002/005/006/007）。
 
 ### 5.4 Wave 2 Feature 重组对 ATS 覆盖的影响（2026-04-24）
 
@@ -406,6 +420,73 @@ Wave 3 响应 MiniMax OpenAI-compat 严格 schema 兼容性问题（increment-re
   - IFR-004 OpenAI-compat HTTP：body 条件发送 response_format；URL/method/Authorization 不变。
 
 结论：Wave 3 为纯 Additive 扩展，映射表 0 新增 / 3 原地扩展 Coverage Hint / 0 弃用；0 新 category；0 新集成场景；0 breaking 契约。ats-reviewer **无需重跑**（categories 不动、场景数不动、IAPI 覆盖自检不动）。
+
+### 5.6 Wave 4 增量（2026-04-27，F18 协议层 TUI + Hook Bridge 重构）
+
+Wave 4 响应 increment-request：放弃 stream-json 解析路径，改走 PTY + claude code hooks 通道（PreToolUse(AskUserQuestion)）+ TUI 键序回写（radio/checkbox/freeform 三型）。属于 F18 内协议层重构（局部 INT-001 重写），但牵动 6 条需求 + 3 条新需求 + 2 条新契约 + 4 条修改契约。对 ATS 覆盖的影响：
+
+#### 需求行变更摘要
+
+- **MODIFY（6 行原地重写 AC）**：
+  - **FR-008**：禁 -p / --print / --output-format / --include-partial-messages；HIL 改 hooks 通道
+  - **FR-009**：hook stdin JSON → POST /api/hook/event（取代 stream-json 解析）
+  - **FR-011**：TUI 键序回写（`<N>\r` + bracketed paste）
+  - **FR-015**：ToolAdapter 新签名（含 prepare_workdir / map_hook_event）
+  - **FR-016**：argv 严格 5+1 项（含可选 --model）
+  - **IFR-001**：PTY + hooks 通道 + TUI 键序；schema 含 HookEventPayload
+- **PRESERVED（1 行文字保留）**：FR-013 PoC gate 文字不动，但在新 hook bridge + TuiKeyEncoder 实现下重跑 20-round ≥95% 验证。
+- **DEPRECATED（1 行标注保留）**：FR-014 BannerConflictArbiter 弃用；新 AC = "代码路径已移除，grep 项目源码 0 引用"；保留行供历史可追。
+- **NEW（3 行追加，§2.1.N 节）**：
+  - **FR-051 (NEW MUST)**：prepare_workdir 三件套预置（隔离 ~/.claude/settings.json + ~/.claude.json + .mcp.json）
+  - **FR-052 (NEW SHOULD)**：HIL 应答唯一通道 = harness UI
+  - **FR-053 (NEW MUST)**：TuiKeyEncoder 协议（radio/checkbox/freeform）
+- **占位 ID 说明**：FR-051/052/053 由本 ATS 增量阶段先行占位；SRS 增量阶段（Step 6，long-task-increment-srs subagent）将分配最终 ID（可能为 FR-051+）并回写本表。
+
+#### 集成场景变更
+
+- **INT-001 整段重写**（详见 §5.1）：
+  - 旧路径：StreamParser → IAPI-008 StreamEvent → HilEventBus
+  - 新路径：hook 子进程 stdin JSON → POST /api/hook/event (IAPI-020) → HookEventMapper → HilQuestion → HilEventBus → UI → POST /api/hil/:ticket_id/answer (IAPI-002 [Wave 4 MOD]) → HilWriteback (IAPI-007 [Wave 4 MOD]) → TuiKeyEncoder → POST /api/pty/write (IAPI-021) → IAPI-006 byte_queue（仅 PTY 字节通道）→ claude TUI 续跑
+  - 跨 6 个 feature 列正确：F18 (hook bridge + TuiKeyEncoder + ToolAdapter)、F21 (HIL UI + WebSocket)、F20 (Orchestrator 续跑触发)、F02 (AuditWriter / TicketRepository) — F22 不涉及 INT-001
+  - 新增 SEC 验收点（2 条，归入 INT-001 SEC 范畴）：
+    - sha256(~/.claude/settings.json) + sha256(~/.claude.json) run 前后字节级守恒（NFR-009 强化 + FR-051 AC）
+    - bracketed paste 自由文本 byte-equal 守恒（FR-053 AC）
+- **其他 INT 场景**：INT-002..INT-025 / Err-A..J 全部不动（INT-012 keyring 等 F22 已 passing）。
+
+#### IAPI 合规自检变更
+
+- **新增（2 条，至少 1 happy + 1 error each）**：
+  - **IAPI-020 (POST /api/hook/event)**：happy 落 INT-001（hook envelope 派 HilQuestion）；error 落 INT-001 分支（POST 失败阻塞 Claude TUI）+ Err-D'（envelope schema 不合法）
+  - **IAPI-021 (POST /api/pty/write)**：happy 落 INT-001（TuiKeyEncoder 键序写入）；error 落 INT-001 分支（pty 关闭时写入失败 / 控制字符注入被拒）
+- **修改标注（4 条 [Wave 4 MOD]，签名/语义局部变更）**：IAPI-002（envelope rename）、IAPI-005（spawn 语义）、IAPI-006（byte_queue 字段语义）、IAPI-007（HilWriteback payload 改 TuiKey 序列）
+- **移除标注（1 条 [REMOVED - Wave 4]，保留行供历史可追）**：IAPI-008（StreamEvent）—— stream-json 解析路径已废弃；旧 Err-D（非法 JSONL）改用于 hook envelope schema 错误（Err-D'）
+
+#### NFR 影响
+
+- **NFR-009（不写 ~/.claude）强化**：原 AC = "stat mtime 不变" 升级为 "sha256 字节级守恒"，覆盖 FR-051 AC；§4 NFR Matrix 可在工具栏增列 sha256 比对（不视为 row change，原行 PERF 工具仍兼容）。
+- **NFR-002（Stream-json 事件 p95 < 2s）**：旧"Stream-json"语义已废，但 PERF 阈值与负载参数继续适用于"PTY byte → UI WebSocket"链路；§4 NFR-002 行不动（同 IFR-001 重写后 Coverage Hint 透传）。
+
+#### 测试用例 markdown + pytest 整体重写说明
+
+> **用户额外指令**：tests/integration/test_f18_real_cli.py 整体重写（不是 patch）—— T29/T30 测试用例 markdown 与 pytest 实现都需在 Worker TDD 阶段重写，不再保留旧 stream-json 解析路径。
+
+- **T29（HIL full round-trip）**：旧 stream-json 解析 fixture 全部丢弃；改为 spawn claude → PreToolUse(AskUserQuestion) hook fire → POST /api/hook/event → HilQuestion → harness UI 应答 → TuiKeyEncoder → POST /api/pty/write → claude TUI 续跑的真测试链路。
+- **T30（20-round HIL PoC ≥95% 成功率）**：跨 user_turn HIL × hook + 键序回写真测试，新实现下重跑；FR-013 PoC gate 文字不变但底层实现完全切换。
+- **整体重写理由**：Wave 4 已删除 IAPI-008（StreamEvent）契约；保留旧 stream-json 解析测试将构成 dead code 且与 IFR-001 [Wave 4 MOD] 矛盾。
+
+#### 类别与覆盖率影响
+
+- **新 category**：无（FR-051/052/053 + IAPI-020/021 全部复用 FUNC/BNDRY/SEC；INT-001 新增 SEC 验收点归入既有 SEC 计数）。
+- **§2.4 覆盖统计**：分母 72 → 75 active（+3 NEW；FR-014 DEPRECATED 不计入分母 = 51 active FR + 17 NFR + 7 IFR = 75）；FUNC/BNDRY/SEC/PERF/UI 占比由 SRS 增量阶段最终回写后重算（本表保留 Wave 3 数字 + Wave 4 Δ 提示，待 long-task-increment-srs 阶段精算）。
+
+#### 再评审判定
+
+- 变更影响 6 行 MODIFY + 3 行 NEW + 1 行 DEPRECATED + 2 行 IAPI NEW + 4 行 IAPI MOD = 共触动 16 个表行；
+- INT-001 整段重写但仍是局部修订（不引入新测试类别、不破坏 §6 风险矩阵 / §5.2 IAPI 自检结构）；
+- 用户指令明确"局部修订，无需 ats-reviewer 二审"；
+- 因此 `needs_reviewer_rerun: false`，进入 Step 6 (long-task-increment-srs)。
+
+结论：Wave 4 为协议层重构（非 Additive，含 1 个弃用 + 1 个移除 IAPI），映射表 6 行 MODIFY / 3 行 NEW / 1 行 DEPRECATED；INT-001 整段重写；IAPI 自检 +2/-1/~4；0 新 category。ats-reviewer **无需重跑**（局部修订，类别 0 新增）。
 
 ---
 
