@@ -844,3 +844,44 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - ⚠ [Design-Deviation] Implementation Summary 声称 dev-deps `react-markdown@^9` `react-diff-view@^3.2`，TDD 选择手写实现且未引入这两个包；功能 §IC 全部满足但与设计文档 Implementation Summary §1 字面有偏离，记为低风险（不影响契约/测试/UCD）
   - ⚠ [Coverage-FE] F22 `routes/commit-history/index.tsx` 62.5% / `prompts-and-skills/index.tsx` 89.56% / `system-settings/index.tsx` 91.95% 个别子模块低于 90/80 阈值（前端总盘 94.22%/82.29% 远超闸门），ST devtools 真浏览器 + 第二轮 inline fix 复测已补强
 - ST: PASS · current.phase: st → null · status: failing → passing
+
+## Hotfix Session — 2026-04-26: 打包前 UI↔FastAPI 集成壳 9 项缺陷 + 设计稿控件大幅错位/缺失（B1-B9 合并）
+
+- **Severity**: Critical
+- **Bugfix Feature ID**: #24
+- **Fixed Feature**: #23 Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend
+- **Root Cause**: 打包前 UI↔FastAPI 集成壳缺乏端到端 QA 且实施未严格对照 docs/design-bundle/eava2/project/{pages,components}/*.jsx 真相源 —— 9 类缺陷集中暴露：F21/F22 frontend IC 实施缺口（B1 Start 按钮缺 onClick；B5 5 Tab 标签全英文 + 'model'/'auth' Tab 完全缺设计 SettingsSection + 'classifier' 缺 enabled/provider/model_name/api_key_ref + 'mcp'/'ui' 占位；B6 缺 file chips/三 h3 分块/右 340px 校验面板/header 双按钮 + 错误态卡 loading；B7 缺 v1.0.0 chip/当前 Run selector/Runtime status card + collapsed 缺 a11y 标签）+ F21/F23 跨特性契约漂移（B2 tickets fetch 漏 run_id；B3 单连根路径 WS vs 5 路径架构错配）+ F23 production wiring 缺 SPA fallback 与 cache TTL 治理（B4 StaticFiles html=True 不覆盖子路径；B9 _lifespan _health_cache 永不刷新）+ 外部 plugin installer 将 argparse 标志名（--version）/ 子命令名（status）当目录写入仓库根而 init_project.py 缺前缀守卫（B8）。
+- **Status**: Enqueued — Worker will handle Design/TDD/Quality/ST/Review
+
+### Session 34 — Feature #24 Bugfix B1-B9 合并 · Design (2026-04-26)
+
+- target_feature: id=24, category=bugfix, ui=true, dependencies=[23]
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- Trigger: phase_route.py → next_skill=long-task-work-design, feature_id=24, starting_new=true
+- current lock: feature-list.json `current = {feature_id:24, phase:"design"}` · commit `7d082b2`
+- Section pointers（供 SubAgent 引用）：
+  - SRS srs_trace 行号：FR-001(L136) · FR-010(L224) · FR-019(L310) · FR-020(L319) · FR-021(L329) · FR-031(L437) · FR-032(L446) · FR-034(L468) · FR-035(L477) · FR-038(L512) · FR-049(L616) · NFR-007/010/011/013(§5 L734-753) · IFR-006/007(§6 L776-777)
+  - Design 关键章节：§3 Architecture(L81-290) · §4.6 F21 Fe-RunViews(L512-549) · §4.7 F22 Fe-Config(L550-595) · §4.10 F17 PyInstaller(L648-668) · §6.1 External Interfaces(L937-1101) · §6.2 Internal API Contracts(L1103-1438)
+  - UCD 全文(L1-216) · §2.1 a11y(L35-46) · §2.6 状态色映射(L78-93) · §4 页面指针(L126-142)
+  - ATS 关键章节：§2.1 FR 表(L43-152) · §2.2 NFR 表(L153-198) · §2.3 IFR 表(L175-185) · §5.1 INT-025(L336)
+  - env-guide §4 存量代码库约束：greenfield 占位无规则可违反
+- 影响源文件清单（B1-B9 直接命中点）：
+  - apps/ui/src/routes/run-overview/index.tsx（B1 btn-start-run）
+  - apps/ui/src/routes/hil-inbox/index.tsx + ticket-stream/index.tsx（B2 /api/tickets 漏 run_id）
+  - apps/ui/src/app/app-shell.tsx + apps/ui/src/ws/client.ts（B3 WS 路径错配）
+  - harness/api/__init__.py（B4 StaticFiles 子路径 fallback + B9 health cache TTL）
+  - apps/ui/src/routes/system-settings/index.tsx（B5 5 Tab 中文化 + 控件全集）
+  - apps/ui/src/routes/process-files/index.tsx（B6 file chips + 三 h3 + 340px 校验面板 + header 双按钮）
+  - apps/ui/src/components/sidebar.tsx（B7 v1.0.0 chip + 当前 Run selector + Runtime card + a11y）
+  - scripts/init_project.py + 仓库根 `--version/` `status/`（B8 前缀守卫 + 清理 untracked）
+  - 设计真相源对照：docs/design-bundle/eava2/project/pages/{SystemSettings,ProcessFiles,RunOverview}.jsx + components/Sidebar.jsx
+- **Feature Design — DISPATCH** `long-task-feature-design` SubAgent（general-purpose + Skill 加载）
+  - status=pass · 0 blockers · 0 assumptions · 34 tool calls · 471 行 / 57.8 KB
+  - 产物：`docs/features/24-fix-打包前-ui-fastapi-集成壳-9-项缺陷-设计稿控件大幅错位-缺.md`
+  - bugfix 精简模式：§1 根因记录（B1-B9 逐条引用 SRS/Design 章节 + 当前实施行号 + 偏差描述） · §2 定向修复方案（每条 B 最小变更 patch sketch + 命中模块/类型/方法签名 + 与设计 §6.1/§6.2 契约吻合证明） · §3 §IC 影响表 · §4 测试清单 · §5 视觉保真义务 · §6 风险与回滚策略
+  - 跨特性契约影响：IAPI-001（5 WS 路径） / IAPI-002（runs/start, tickets, health, settings/*, files/read, validate/:file） / IAPI-019（RunControlBus start）schema/method/path **0 变更** —— SPA fallback handler 不属契约面（production deployment 治理）
+  - Test Inventory：41 行 / 22 negative = 53.7%（≥40%） · 类别覆盖 FUNC/BNDRY/SEC/UI/PERF/INTG
+  - UML：1 张 sequenceDiagram（B3 WS 5 路径直连 handshake）；不画 classDiagram（系统设计 §3.3 等价）
+- **Approval Gate**: 跳过（assumption_count=0）
+- Design: DONE (docs/features/24-fix-打包前-ui-fastapi-集成壳-9-项缺陷-设计稿控件大幅错位-缺.md)
+- current.phase: design → tdd
