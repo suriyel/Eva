@@ -69,8 +69,37 @@ class FilesService:
             }
 
     async def read_file_tree(self, root: str = "docs") -> dict[str, Any]:
+        """Recursively scan ``root`` (resolved under workdir) and return entries.
+
+        Response shape (F22 §IC Section C):
+            ``{root: <abs path>, entries: [{path, kind, size?}], nodes: [...]}``
+        Both ``entries`` and ``nodes`` carry the same payload — ``entries`` is
+        F22 design IC; ``nodes`` is preserved for F23 R20 INTG/asgi-rest test
+        backwards-compat (test_f23_feature_23_r20_get_files_tree_returns_filetree).
+        Hidden dotfiles and ``__pycache__`` / ``node_modules`` directories are
+        skipped to keep the payload bounded.
+        """
         resolved = self._resolve(root)
-        return {"root": str(resolved), "nodes": []}
+        entries: list[dict[str, Any]] = []
+        if resolved.exists() and resolved.is_dir():
+            base = self.workdir
+            skip_dirs = {"__pycache__", "node_modules", ".git", ".venv", "dist", "build"}
+            for path in sorted(resolved.rglob("*")):
+                name = path.name
+                if name.startswith(".") and name not in (".env.example",):
+                    continue
+                rel = path.relative_to(base).as_posix()
+                if any(seg in skip_dirs for seg in rel.split("/")):
+                    continue
+                if path.is_dir():
+                    entries.append({"path": rel, "kind": "dir"})
+                elif path.is_file():
+                    try:
+                        size = path.stat().st_size
+                    except OSError:
+                        size = 0
+                    entries.append({"path": rel, "kind": "file", "size": size})
+        return {"root": str(resolved), "entries": entries, "nodes": entries}
 
 
 def _is_relative_to(path: Path, base: Path) -> bool:

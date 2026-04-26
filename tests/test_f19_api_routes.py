@@ -107,9 +107,14 @@ async def test_t41_get_prompts_classifier_returns_default_with_empty_history(
 
     assert resp.status_code == 200, f"prompt GET must succeed on first-run, got {resp.status_code}"
     body = resp.json()
+    # F22 §IC Section B: current is {content, hash}
+    assert isinstance(body.get("current"), dict), f"current must be object {{content,hash}}, got {body.get('current')!r}"
     assert (
-        isinstance(body.get("current"), str) and body["current"].strip()
-    ), "current must be the built-in default prompt (non-empty)"
+        isinstance(body["current"].get("content"), str) and body["current"]["content"].strip()
+    ), "current.content must be the built-in default prompt (non-empty)"
+    assert (
+        isinstance(body["current"].get("hash"), str) and len(body["current"]["hash"]) == 64
+    ), "current.hash must be sha256 hex (64 chars)"
     assert body.get("history") == [], "history must start empty"
 
 
@@ -130,6 +135,13 @@ async def test_t42_put_prompts_classifier_appends_history_rev(
 
     assert put_resp.status_code == 200
     body = get_resp.json()
-    assert body["current"] == "new prompt"
+    # F22 §IC Section B shape
+    assert body["current"]["content"] == "new prompt"
     assert len(body["history"]) == 1, f"history length must be 1, got {body['history']!r}"
-    assert body["history"][0]["rev"] == 1
+    item = body["history"][0]
+    assert item["rev"] == 1, "history item retains rev for backwards compat"
+    assert item.get("hash") and len(item["hash"]) == 64, "history item must carry sha256 hash"
+    assert item.get("content_summary"), "history item must carry content_summary (F22 §IC)"
+    assert item.get("created_at"), "history item must carry created_at (F22 §IC)"
+    # current.hash must equal latest history hash post-put (F19 atomic-write invariant)
+    assert body["current"]["hash"] == item["hash"]
