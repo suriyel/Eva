@@ -761,3 +761,25 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - Cleanup: `kill 474534` + `lsof -ti :8765 | xargs -r kill -9` 兜底；`lsof -i :8765` 0 lines；PID 文件已删
 - Inline Check: PASS (P2: 19/19 contract methods + `RunControlBus.broadcast_stream_event` 新增 + 12 routers `app.include_router()`, T2: 47/47 ST cases validated · 88 tests collectable, D3: `uvicorn[standard]==0.44.0` → `websockets==16.0` + `wsproto==1.3.2` importable, U1: N/A (ui:false), ATS Category: PASS strict, §4: 0 violations · greenfield placeholders)
 - Persist: commit `9b1e8f2` (`fix: ... (#20)`) → RELEASE_NOTES ### Fixed 追加 [Critical] 条目 → feature-list.json #23 status: failing→passing · git_sha=9b1e8f2 · st_case_path · st_case_count=47 · current=null → validate_features.py VALID (9 passing, 2 failing, 12 deprecated)
+
+
+### Session 31 — Feature #22 F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory · Design (Wave 2 · 2026-04-26)
+
+- target_feature: id=22, title="F22 · Fe-Config — SystemSettings + PromptsAndSkills + DocsAndROI + ProcessFiles + CommitHistory", category=ui, ui=true, ui_entry=/settings, wave=2
+- Trigger: phase_route.py → next_skill=long-task-work-design, feature_id=22, starting_new=true → current 写入 {22, design} commit `24ebd79`
+- env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
+- srs_trace: FR-032 (SystemSettings Must) · FR-033 (PromptsAndSkills Should v1 基础编辑) · FR-035 (DocsAndROI Should v1 文件树+MD) · FR-038 (ProcessFiles Must) · FR-041 (CommitHistory Must) · NFR-008 (API key 仅 keyring) · IFR-004 (OpenAI-compat HTTP + Wave 3 effective_strict) · IFR-005 (git CLI subprocess) · IFR-006 (平台 keyring + keyrings.alt fallback)
+- design_section: docs/plans/2026-04-21-harness-design.md §4.7 (lines 550–595) + §6.2.2 IAPI-002 REST routes (1133–1167) + §6.2.4 schemas
+- ucd_section: docs/plans/2026-04-21-harness-ucd.md §4.3/§4.4/§4.6/§4.7/§4.8 (page index 134–139) + §6 文档引用禁令 (176–190) + §7 视觉回归 SOP (194–206)；视觉真相源 `docs/design-bundle/eava2/project/pages/{SystemSettings,PromptsAndSkills,DocsAndROI,ProcessFiles,CommitHistory}.jsx`
+- dependencies (all passing): F01(1) · F10(3) · F12(12) · F19(19) · F20(20)
+- Config Gate: SKIP（required_configs=[]，无连接串键）
+- Bootstrap: env-guide §4 greenfield 占位无约束；设计阶段无需启动业务服务
+- **Feature Design — DISPATCH** `long-task-feature-design` SubAgent（general-purpose + Skill 加载）
+  - status=pass · 0 blockers · 1 assumption · 41 tool calls / 58 KB 468 行
+  - 产物：`docs/features/22-f22-fe-config-systemsettings-promptsands.md`（5 页面 25 公开 React hook/组件、Test Inventory 44 行 negative=18/44=40.9%、§Visual Rendering Contract 13 视觉元素、Existing Code Reuse 8 项 from F12/F19）
+  - Internal API Contract: F22 仅 Consumer — IAPI-002 REST 路由（settings/general · model_rules · classifier · classifier/test · prompts/classifier · skills/tree · skills/install · skills/pull · files/tree · files/read · git/commits · git/diff/:sha · validate/:file），契约根与 design §6.2.4 schemas 一致 0 偏差
+  - 关键设计落点：(1) NFR-008 全链路 keyring reference，明文不入 DOM/config/LocalStorage/WS/audit log（MaskedKeyInput 显示 `***abc`，gcTime:0 防 cache）；(2) IFR-006 keyring fallback Toast 横幅；(3) FR-033/035 `..` 路径穿越 SEC 后端 400 + 前端 toast；(4) FR-038/039 Zod + 后端 validate 双层校验，错误内联红 + Save 禁用；(5) FR-041 BNDRY 二进制 diff `{kind:"binary",placeholder:true}` 占位不崩；(6) IFR-005 非 git 目录 exit=128 → 502 + `{kind:"not_a_git_repo"}` Toast；(7) FR-033 v1 prompt diff 历史保存追加，FR-033b diff viewer Won't v1.1；(8) FR-035 ROI 按钮 disabled tooltip "v1.1 规划中"；(9) Wave 3 IFR-004 `strict_schema_override: bool|null` 三态控件
+  - Test Inventory 类别: [HAPPY] [SEC×3 DOM 扫描/路径穿越/keyring 明文] [BNDRY 二进制 diff/空 commits] [ERR 502/not_a_git_repo] [devtools×5 各页 snapshot 断言] [visual-regression×5 pixelmatch < 3%]
+- **Approval Gate**: assumption_count=1 · [TOOL-CHOICE] pydantic v2 → Zod 导出工具选型 = datamodel-code-generator (Python) by scripts/export_zod.py（不影响契约/Test Inventory/§4 内部契约）→ 用户裁决 **Approve**（保留假设进入 TDD）
+- Design: DONE (docs/features/22-f22-fe-config-systemsettings-promptsands.md)
+- current.phase: design → tdd
