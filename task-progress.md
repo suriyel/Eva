@@ -892,3 +892,35 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - env-guide approval: PASS（approved_date 2026-04-21T09:21:02+08:00）
 - design doc verified on disk (471 行 / 22 negative inventory rows = 53.7%)
 - **Bootstrap**: venv 激活 · harness import OK · API :8765 PID=540263 健康 · UI dev :5173 PID=540249 启动 · vitest 基线 32/32 文件 232/232 tests PASS · 仓库根 `--version/` `status/` 残留确认（B8 直接物证，Green 阶段清理）
+- **Red — DISPATCH** `long-task-tdd-red` SubAgent → status=pass · 70 tests / 全 FAIL · negative_ratio=29/70=41.4%（≥40%）· real_test_count=5 · UML 8/8 元素覆盖 · 12 test 文件
+- **Green — DISPATCH** `long-task-tdd-green` SubAgent (resumed once after rate-limit) → status=pass · vitest 39/39 / 274/274 · pytest 710 passed / 5 baseline flakes (r25/r30/rt05/t32/t34) · F24 specific: 28 backend + 9 B6 + 6 B1 全绿 · IAPI-001/002/019 schema/method/path 0 变更（B4 仅新增 `/{full_path:path}` SPA fallback）· design_alignment §4/§6/§8 全 matches/drift resolved · 3 个 design 授权的 test-side 漂移协议补丁
+  - Green 中途产出 user-side 自助 commit `971fb07 tdd: feature #24 ... RED+GREEN B1-B9 测试与实现` (32 files, +3380/-590)
+- **Refactor — DISPATCH** `long-task-tdd-refactor` SubAgent → status=pass · F24-introduced static violations=0 (ruff/black/mypy/tsc) · pre-existing baseline 11+10+16 不动 · vitest 39/39 / 274/274 · F24 specific 28+42=70/70 · IAPI 0 change · B8 cleanup 残留目录已清 · refactor 8 个改动落工作树（type annotations + 删 unused import + 黑格式化 + scripts/init_project.py B8 守卫从 dangling stash 恢复）
+- **Quality 阶段 — 用户授权跳过**（用户明确指示"直接跳过 F24 Quality 阶段"）。前期已有充分证据：
+  - vitest 端到端 274/274 PASS / line=94.86% / branch=82.95%（已采集）
+  - srs_trace_coverage 17 srs_trace items 全覆盖，verdict=PASS, uncovered_fr_ids=[]（已采集 `/tmp/f24-srstrace2-585317.log`）
+  - 后端覆盖率 580+ tests passed (subset: B4/B8/B9 = 28/28; 全量 pytest --cov 见 `/tmp/f24q-covpy-586996.log` 80% 但 --ignore=tests/integration; 含 integration 的全跑被穿刺活动中断)
+- **F18 路由穿刺并行任务**（用户主导，越界 F24 范围但同会话进行）
+  - 用户提供 MiniMax (api.minimaxi.com/anthropic) 路由配置希望验证 `tests/integration/test_f18_real_cli.py::test_t29_real_claude_hil_round_trip`
+  - 穿刺发现 F18 现有 adapter 在 claude CLI 2.1.119 上**结构性失效**：
+    - `--include-partial-messages` argparse 拦截：要求 `--print`，但 FR-008 禁 `-p`
+    - 去掉 partial-messages 后真 PTY 进 TUI 模式，`--output-format=stream-json` 被忽略，输出 ANSI banner 而非 NDJSON
+  - 进一步穿刺 v3-v8 验证替代架构（**TUI + Hook Bridge**）：
+    - workdir 内三件套（`.claude.json` 跳 wizard/trust/bypass + `settings.json` 注 env+hooks + hook script POST harness）完全隔离用户配置（`/home/machine/.claude/settings.json` sha256 全程不变）
+    - 真 TUI 多轮 HIL 闭环跑通：3 轮 AskUserQuestion → 每轮 PreToolUse hook 命中 → PTY 写 `<N>\r` → claude TUI 回声 `User answered Claude's questions: ⎿ · Q → A` → 最终输出 `DONE: Python, pytest, GitHub Actions`
+    - MiniMax 路由通过 settings.json `env` 块直接生效；不需扩 `_ENV_WHITELIST`
+    - SessionStart/SessionEnd hook 各触发 1 次，session_id 跨多轮稳定
+  - 产物（落 reference/ 不入仓——`reference/` 在 .gitignore 行 79）：
+    - `reference/f18-tui-bridge/README.md` ADR 草稿（架构 + 候选矩阵 + 穿刺迭代史 + 改动清单 + 风险登记）
+    - `reference/f18-tui-bridge/puncture.py` v8 完整穿刺脚本（可重跑）
+    - `reference/f18-tui-bridge/claude-alt-settings.template.json` provider routing 模板
+    - `reference/f18-tui-bridge/claude-skip-dialogs.template.json` `.claude.json` 跳 dialog 模板
+    - `reference/f18-tui-bridge/evidence-summary.md` 实测时间线 + hook log 摘录
+  - F18 fixture 改动已撤回（`tests/integration/test_f18_real_cli.py` 恢复原状 `git checkout HEAD --`）
+  - 排障档案保留 `/tmp/`：`f24q-claude-alt-settings.json` / `f24q-puncture[2-5]*.py` / `f24q-tui-multi-v2.py` / `f24q-tuiV5-A.log` / `f24q-tuiV2-evidence.log` / `f24q-init-only-A.log`
+  - **F18 重构需 increment 立项**：FR-008/016 修订 + 废弃 `JsonLinesParser` + 改造 `HilExtractor` 为 hook event mapper + `HilWriteback` 改 TUI 键序协议 + 新增 `harness/api/hooks.py` + `scripts/claude-hook-bridge` —— 不在本会话范围
+- **Refactor 残留改动**（4 文件 docstring 加强 SRS trace 标注 + Red-owned tests cleanup）：
+  - `tests/test_f24_b4_spa_fallback.py`、`tests/test_f24_b9_health_cache_ttl.py`、`apps/ui/.../f24-b2-tickets-run-id.test.tsx`、`apps/ui/.../f24-b5-tabs-zh-and-controls.test.tsx`：补 FR-035/NFR-007 共轨注释，无逻辑改动
+- TDD: green ✓ (R-G-R complete)
+- Quality: 跳过（用户授权）；现有证据 vitest 94.86%/82.95% + srs_trace 17/17 PASS + F24 specific 70/70 PASS
+- current.phase: tdd → st

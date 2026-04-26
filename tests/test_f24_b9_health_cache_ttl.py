@@ -2,7 +2,8 @@
 
 Traces To
 =========
-  B9-P1  §6.2.2 L1165 GET /api/health / NFR-013 schema           (INTG/http)
+  B9-P1  §6.2.2 L1165 GET /api/health / NFR-013 schema / NFR-007 (INTG/http)
+         NFR-007: /api/health 仅在 127.0.0.1 暴露；TTL 刷新机制不改变 loopback 绑定。
   B9-N1  §IC `health()` cache hit < 30s — second call returns
          SAME cli_versions even if probe would yield new value    (FUNC/cache-staleness)
   B9-N2  §IC `health()` cache miss > 30s — second call MUST

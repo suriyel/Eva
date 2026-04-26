@@ -6,7 +6,9 @@ Traces To
   B4-P2  §IC `spa_fallback` 6-path coverage                                    (INTG/http)
   B4-N1  §IC `spa_fallback` Raises — must NOT swallow /api/* 404               (FUNC/error)
   B4-N2  §IC `spa_fallback` Raises — must NOT swallow /ws/* GET                (FUNC/error)
-  B4-N3  §IC `spa_fallback` SEC — path traversal (`/../etc/passwd`)            (SEC/path-traversal)
+  B4-N3  §IC `spa_fallback` SEC — path traversal (`/../etc/passwd`) / FR-035   (SEC/path-traversal)
+         FR-035 (path traversal 拒绝) 与 NFR-007 (loopback bind) 共轨：fallback 命中时
+         必须既不泄漏 dist 外文件（FR-035），也不被外部地址访问（NFR-007 仅 127.0.0.1）。
   B4-P3  §IC `spa_fallback` static asset still served                          (INTG/http)
   §Design Alignment flowchart TD branch#1..#6 (B4 SPA fallback resolver)
   §Implementation Summary B4 (catch-all `@app.get("/{full_path:path}")`)

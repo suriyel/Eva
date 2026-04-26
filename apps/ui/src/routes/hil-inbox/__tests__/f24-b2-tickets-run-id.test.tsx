@@ -7,6 +7,8 @@
  *   B2-P2  §VRC HILInbox EmptyState                                    UI/render
  *   B2-N1  §IC `HilInbox.useTicketsQuery` postcondition                FUNC/error
  *   B2-P3  IAPI-001 /ws/hil hil_question_opened invalidate              INTG/ws
+ *   FR-010 — HIL ticket render 视觉变体 (radio/checkbox/textarea) 由 HilInbox 列表入口承接；
+ *            B2 的 fetch contract 是 FR-010 渲染前提（无 run_id → 不进入 ticket 视觉变体路径）
  *   §Implementation Summary B2 (currentRunId from useCurrentRun)
  *
  * Rule 4 wrong-impl challenge:

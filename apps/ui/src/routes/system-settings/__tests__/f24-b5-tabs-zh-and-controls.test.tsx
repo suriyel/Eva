@@ -9,7 +9,10 @@
  *   B5-P4  §VRC classifier tab / FR-021 / FR-023 Wave 3          UI/render
  *   B5-P5  §VRC mcp tab                                          UI/render
  *   B5-P6  §VRC ui tab / UCD §2.8 ui_density                     UI/render
- *   B5-N1  NFR-008 / FR-032 SEC — auth tab DOM 不含明文 key       SEC/api-key-leak
+ *   B5-N1  NFR-008 / FR-032 / IFR-006 SEC — auth tab DOM 不含明文 key       SEC/api-key-leak
+ *          IFR-006: KeyringFallbackBanner（Linux 无 Secret Service）由 B5 SystemSettings
+ *          'API Key 与认证' Tab 复用既有组件承接；本测试断言 auth tab DOM 不泄漏明文
+ *          api key 是 IFR-006 keyring 路径正确启用的间接验证。
  *   B5-N2  FR-021 SSRF / IFR-004                                  FUNC/error
  *   B5-P7  IAPI-002 PUT /api/settings/classifier                  INTG/api
  *   §Implementation Summary B5
