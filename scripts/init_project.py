@@ -38,6 +38,42 @@ from datetime import datetime
 
 CLAUDE_MD_MARKER = "<!-- long-task-agent -->"
 
+
+# B8 (feature #24) — pre-PyInstaller-integration guard against external
+# plugin installers passing argparse flag names as positional arguments
+# (project_name / --path). Without this guard, an installer that does
+# `python init_project.py -- --version` would write a directory named
+# "--version" into the repo root that PyInstaller --add-data later sweeps
+# into the artefact. See feature design §Implementation Summary B8.
+_RESERVED_FLAGS = {
+    "--version", "--help", "--path", "-h", "--lang",
+    "--test-framework", "--coverage-tool",
+    "--line-cov", "--branch-cov",
+}
+
+
+def _validate_safe_arg(value, name):
+    """Reject argparse-flag-shaped tokens used as positional arguments.
+
+    Raises SystemExit(2) with a stderr diagnostic mentioning either
+    'argparse flag' (dash-prefixed) or 'reserved' (whitelist match).
+    No-ops on empty/None inputs (argparse handles required-presence).
+    """
+    if not isinstance(value, str) or value == "":
+        return
+    if value.startswith("-"):
+        sys.stderr.write(
+            f"error: {name} '{value}' looks like an argparse flag; refuse "
+            f"to create directory\n"
+        )
+        sys.exit(2)
+    if value in _RESERVED_FLAGS:
+        sys.stderr.write(
+            f"error: {name} '{value}' is a reserved argparse keyword; refuse "
+            f"to create directory\n"
+        )
+        sys.exit(2)
+
 _LONG_TASK_REFERENCE_BODY = (
     "\n\n<!-- long-task-agent -->\n"
     "## Long-Task Agent\n\n"
@@ -213,7 +249,114 @@ Usage examples for external developers and AI Code Agents. Generated after Syste
 
 
 
+_KNOWN_OPTIONS = {
+    "-h", "--help", "--path", "--lang",
+    "--test-framework", "--coverage-tool",
+    "--line-cov", "--branch-cov",
+}
+
+
+def _preflight_argv_guard(argv):
+    """Inspect raw argv before argparse to surface a targeted diagnostic
+    when a flag-shaped token is passed as the positional ``project_name``
+    or as the value of ``--path``.
+
+    Two separate scans:
+
+    1. **Path value scan** — for ``--path <token>``, if ``token`` starts
+       with ``-`` or is in :data:`_RESERVED_FLAGS`, refuse with an
+       ``error: --path '...' looks like an argparse flag`` message.
+    2. **Positional scan** — locate the first positional after stripping
+       known options. If it begins with ``-`` or is in
+       :data:`_RESERVED_FLAGS`, refuse with an ``error: project_name '...'
+       looks like an argparse flag``. Special handling: when a single
+       unknown flag-shaped token is the *only* positional candidate (e.g.,
+       ``init_project.py --version``), treat it as the project_name to
+       trigger the guard, since argparse would otherwise just print a
+       generic ``missing required`` banner and the rogue ``--version/``
+       directory risk remains plausible if a downstream caller wraps argv.
+
+    Test Inventory B8-N1/N2/N3/P2 require stderr to contain "argparse
+    flag" / "reserved" / "looks like" / "refuse".
+    """
+    args = list(argv)
+
+    # 1) Path value scan
+    for i, tok in enumerate(args):
+        if tok == "--path" and i + 1 < len(args):
+            nxt = args[i + 1]
+            if nxt.startswith("-") or nxt in _RESERVED_FLAGS:
+                sys.stderr.write(
+                    f"error: --path '{nxt}' looks like an argparse flag; "
+                    f"refuse to create directory\n"
+                )
+                sys.exit(2)
+
+    # 2) Positional scan — find the first non-option token.
+    idx = 0
+    saw_double_dash = False
+    positional_tok = None
+    unknown_flag_tok = None
+    while idx < len(args):
+        tok = args[idx]
+        if not saw_double_dash and tok == "--":
+            saw_double_dash = True
+            idx += 1
+            continue
+        if not saw_double_dash and tok.startswith("-"):
+            if tok in _KNOWN_OPTIONS:
+                value_taking = {
+                    "--path", "--lang", "--test-framework",
+                    "--coverage-tool", "--line-cov", "--branch-cov",
+                }
+                if tok in value_taking:
+                    if idx + 1 < len(args):
+                        idx += 2
+                        continue
+                    # Bare value-taking flag with no value supplied: the
+                    # caller likely intended `--lang` as a project_name
+                    # (B8-P2 reproducer). Surface guard message naming it
+                    # as a reserved keyword.
+                    unknown_flag_tok = tok
+                    idx += 1
+                    continue
+                idx += 1
+                continue
+            # Unknown flag-shaped token — record it; argparse would later
+            # reject, but we want our guard message first.
+            unknown_flag_tok = tok
+            idx += 1
+            continue
+        # First positional.
+        positional_tok = tok
+        break
+
+    if positional_tok is None and unknown_flag_tok is not None:
+        # Only an unknown flag was supplied — surface guard message
+        # (test B8-N1/N2 reproducer: `init_project.py --version`).
+        positional_tok = unknown_flag_tok
+
+    if positional_tok is None:
+        return  # let argparse handle "missing required"
+
+    if positional_tok.startswith("-") or positional_tok in _RESERVED_FLAGS:
+        kind = (
+            "argparse flag" if positional_tok.startswith("-") and positional_tok not in _RESERVED_FLAGS
+            else "reserved argparse keyword"
+        )
+        sys.stderr.write(
+            f"error: project_name '{positional_tok}' looks like an {kind}; "
+            f"refuse to create directory\n"
+        )
+        sys.exit(2)
+
+
 def main():
+    # B8 (feature #24) — pre-argparse guard. Without this, an external
+    # plugin installer doing `init_project.py -- --version` produces a
+    # rogue `--version/` directory in the repo root.
+    _preflight_argv_guard(sys.argv[1:])
+
     parser = argparse.ArgumentParser(description="Initialize a long-task-agent project")
     parser.add_argument("project_name", help="Name of the project")
     parser.add_argument("--path", default=".", help="Output directory (default: current dir)")
@@ -233,6 +376,17 @@ def main():
                         help="Min branch coverage %% (default: 80)")
 
     args = parser.parse_args()
+
+    # B8 (feature #24) — guard against external plugin installers passing
+    # argparse flag names (e.g., "--version") or reserved keywords as
+    # positional arguments. Reproducer: when an installer invokes
+    # `python init_project.py -- --version`, argparse stops parsing at `--`
+    # and accepts `--version` as `project_name`, which then becomes a
+    # directory in the repo root (and gets collected by PyInstaller). The
+    # guard rejects any value starting with `-` or matching a known reserved
+    # CLI flag name.
+    _validate_safe_arg(args.project_name, "project_name")
+    _validate_safe_arg(args.path, "--path")
 
     out_dir = os.path.abspath(args.path)
     os.makedirs(out_dir, exist_ok=True)
