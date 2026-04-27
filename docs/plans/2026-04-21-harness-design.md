@@ -39,10 +39,10 @@
 - **CON-003** UI 仅桌面 PyWebView + 仅简体中文 → 锁定前端壳
 - **CON-006** FastAPI 绑 127.0.0.1 only → 锁定网络边界
 - **CON-007** Harness 不写 `~/.claude/` → 锁定环境隔离策略
-- **CON-008** 路由由 `scripts/phase_route.py` 单一事实源 → 不重新实现路由
+- **CON-008** [Wave 5 MOD · 2026-04-27] 路由由 Harness 内部 `harness.orchestrator.phase_route_local` 模块单一事实源（参考 longtaskforagent plugin `scripts/phase_route.py` v1.0.0 语义内化为同进程 Python 函数）→ plugin 仍是 skill 仓库但不再提供 routing entry；`PhaseRouteInvoker.build_argv` 标 [DEPRECATED Wave 5] 保留作 fallback
 
 ### 1.4 接口需求（驱动 §6.1 External Interfaces）
-7 个 IFR：Claude Code CLI / OpenCode CLI / phase_route.py subprocess / OpenAI-compatible HTTP / git CLI / keyring / WebSocket（内部）
+7 个 IFR：Claude Code CLI / OpenCode CLI / **phase_route 内部模块**（Wave 5 由 subprocess 转内化为 `harness.orchestrator.phase_route_local` 同进程模块；`build_argv` 兼容 fallback 保留作 [DEPRECATED]） / OpenAI-compatible HTTP / git CLI / keyring / WebSocket（内部）
 
 ### 1.5 用户画像
 单一 persona **Harness User**（中高技术水平，已装 Claude Code CLI 且完成 `claude auth login`），所有设计决策（错误信息、日志详略、CLI 透传）以此画像为基线。
@@ -190,7 +190,7 @@ graph LR
     UI[React UI]
     GW[FastAPI Gateway]
     ORCH[Run Orchestrator]
-    PRI[phase_route.py<br/>subprocess]
+    PRI[phase_route_local<br/>internal module<br/>Wave 5]
     SUP[Ticket Supervisor]
     TA[ToolAdapter]
     PTY[PTY Worker Thread]
@@ -209,7 +209,7 @@ graph LR
 
     UI <-->|IAPI-001 REST + WS| GW
     GW <-->|IAPI-002 CommandBus| ORCH
-    ORCH -->|IAPI-003 subprocess JSON| PRI
+    ORCH -->|IAPI-003 in-proc await asyncio.to_thread| PRI
     ORCH -->|IAPI-004 TicketCommand| SUP
     SUP -->|IAPI-005 Protocol call| TA
     TA -->|IAPI-006 DispatchSpec| PTY
@@ -357,7 +357,7 @@ graph LR
 - `harness.adapter.DispatchSpec` — pydantic（FR-007 dispatch 字段）
 - `harness.adapter.HookEventPayload` **[NEW]** — pydantic：`{ session_id: str, transcript_path: str, cwd: str, hook_event_name: Literal["PreToolUse","PostToolUse","SessionStart","SessionEnd"], tool_name: str | None, tool_use_id: str | None, tool_input: dict | None, ts: float }`，与 `/api/hook/event` request body 同 schema。
 - `harness.adapter.CapabilityFlags` — enum
-- `harness.adapter.claude.ClaudeCodeAdapter` **[MOD]** — 实现新 Protocol 全集；argv 模板锁定为 SRS FR-016 严格白名单 `claude --dangerously-skip-permissions --plugin-dir <bundle> --settings <isolated.settings.json> --setting-sources project [--model <alias>]`（永禁 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`）；`prepare_workdir` 写三件套；`map_hook_event` 处理 PreToolUse `tool_name in {AskUserQuestion, Question}`。
+- `harness.adapter.claude.ClaudeCodeAdapter` **[MOD / Wave 5 MOD]** — 实现新 Protocol 全集；argv 模板锁定为 SRS FR-016 严格白名单 `claude --dangerously-skip-permissions --plugin-dir <plugin_root> --settings <isolated.settings.json> --setting-sources project [--model <alias>]`（永禁 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`）。**Wave 5 (2026-04-27) MOD**：argv 白名单从 8 项扩为 10 项**强制**含 `--plugin-dir <path>`，且 `<path>/.claude-plugin/plugin.json` 必须存在（缺失抛 `InvalidIsolationError`）；与 `--setting-sources project` 必须同时存在（前者切断 user-scope 插件注册表，后者补 plugin 来源——puncture_wave5 第 1 次失败实证；FR-016 修订承接）。`prepare_workdir` 写三件套；`map_hook_event` 处理 PreToolUse `tool_name in {AskUserQuestion, Question}`；**`spawn(spec, paths)` Wave 5 内部新增 inject 阶段**——PtyWorker.start 后等待 TUI boot 稳定（默认 ≤8s 超时），随后通过 PTY bracketed paste 协议写 `ESC + ESC[200~ + "/" + skill_hint + ESC[201~ + CR` 序列触发 plugin slash command（FR-055 / API-W5-04）；`skill_hint` 来自 `PhaseRouteResult.next_skill`，slash 形式为短格式 `'/' + skill_hint`（实测 puncture_wave5 验证 plugin TUI 接受短格式）；boot 不稳定 / write 失败 / SKILL.md `"I'm using <skill>"` opening line marker ≤30s 未命中 → 抛 `SpawnError` 子类 `SkillDispatchError`，supervisor 不得继续到 `ticket_stream.events()`（ticket 进 ABORTED）；spawn 签名稳定（仍 `spec, paths → TicketProcess`），调用方透明。
 - `harness.adapter.opencode.OpenCodeAdapter` **[MOD]** — 实现新 Protocol 全集；`prepare_workdir` 写 `.opencode/hooks.json`；`map_hook_event` 解析 OpenCode hooks 输出格式。
 - `harness.adapter.opencode.HookConfigWriter` / `HookQuestionParser` / `McpDegradation` / `VersionCheck` — 沿用（FR-012/017）
 
@@ -515,25 +515,28 @@ Wave 4 协议层重构使 **FR-013 PoC 必须重跑**（旧 PoC 基于 stream-js
 
 > **Consolidates**: 旧 F06（Run Orchestrator & Phase Router）+ 旧 F09（Anomaly Recovery & Watchdog）+ 旧 F11（Subprocess Integrations：git tracker + validator runner）。这是后端主回路——Orchestrator / Recovery / Subprocess 三子模块共享 RunContext 与 Ticket 状态机，合并后端到端 dry-run 可以在一个 feature 内闭环 TDD。
 
-**4.5.1 Overview**：单 Run 主循环（phase_route.py 调用、signal file 感知、pause/cancel、14-skill 覆盖、depth ≤2）+ 5 类异常识别与恢复（context_overflow、rate_limit、auth、network、crash）+ Skip/ForceAbort 人为覆写 + Watchdog（30 分钟 SIGTERM → 5s → SIGKILL）+ ticket 级 git HEAD 追踪 + validate_*.py subprocess 执行。满足 FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048 + NFR-003/004/015/016。提供 IFR-003（`scripts/phase_route.py` subprocess）与 IFR-005（git CLI）的客户端。
+**4.5.1 Overview**：单 Run 主循环（**Wave 5 (2026-04-27) phase_route 内化**为同进程 `phase_route_local.route()` 函数调用、signal file 真集成 watcher、pause/cancel、14-skill 覆盖、depth ≤2、**spawn-inject-stream 三步序**且 1 ticket = 1 PTY = 1 TUI 进程不变量）+ 5 类异常识别与恢复（context_overflow、rate_limit、auth、network、crash）+ Skip/ForceAbort 人为覆写 + Watchdog（30 分钟 SIGTERM → 5s → SIGKILL）+ ticket 级 git HEAD 追踪 + validate_*.py subprocess 执行。满足 FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048 + **FR-054 / FR-055 (Wave 5 NEW)** + NFR-003/004/015/016。提供 IFR-003（**Wave 5 内化为 `harness.orchestrator.phase_route_local` 同进程模块**；`PhaseRouteInvoker.build_argv` 标 [DEPRECATED Wave 5] 保留作 fallback）与 IFR-005（git CLI）的客户端。
 
 **4.5.2 Key Types**
 
+> Legend：**[Wave 5 NEW]** = Wave 5 新增模块；**[Wave 5 MOD]** = Wave 5 修改语义/集成；未标注 = 沿用。
+
 *Orchestrator 子模块*
-- `harness.orchestrator.RunOrchestrator` — 单 Run 主状态机
-- `harness.orchestrator.TicketSupervisor` — 单 ticket asyncio.Task
-- `harness.orchestrator.PhaseRouteInvoker` — subprocess 调用 phase_route.py
-- `harness.orchestrator.PhaseRouteResult` — 松弛 JSON
-- `harness.orchestrator.SignalFileWatcher` — watchdog observer（signal files + docs/plans + feature-list.json）
+- `harness.orchestrator.RunOrchestrator` **[Wave 5 MOD]** — 单 Run 主状态机；主循环改造见 §4.5.4.x（route 内化 + signal watcher 真集成 + retry 集成）
+- `harness.orchestrator.TicketSupervisor` **[Wave 5 MOD]** — 单 ticket asyncio.Task；`run_ticket` 改造为 `prepare_workdir → spawn(内含 inject /<next_skill>) → ticket_stream.events()` 三步序；明示禁止 1:N session 复用（spawn_model_invariant 锁定：1 ticket = 1 PTY = 1 TUI 进程）；retry 集成调 `RetryPolicy.next_delay + RetryCounter.inc/value/reset`，递归重入 `_run_ticket_impl`（next_action='retry' 时）
+- `harness.orchestrator.phase_route_local` **[Wave 5 NEW]** (`harness/orchestrator/phase_route_local.py`) — 同进程 Python 函数 `route(workdir: Path) → dict`；返回字段集合 `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}`，与 plugin v1.0.0 stdout JSON 等价；决议优先级与 plugin 完全一致（bugfix-request.json > increment-request.json > feature-list.json (current/_select_next/ST) > docs/plans/*-{ats,design,ucd,srs}.md 阶梯 > brownfield 启发 > 默认 long-task-requirements）；耗时 ≤ 50ms（feature-list.json ≤ 100KB 时 ≤ 5ms）；调用栈中无 `subprocess.Popen` / `asyncio.create_subprocess_exec`（FR-054 / API-W5-01）
+- `harness.orchestrator.PhaseRouteInvoker` **[Wave 5 MOD]** — `invoke(workdir) → PhaseRouteResult` 签名稳定；body 重写为 `await asyncio.to_thread(phase_route_local.route, workdir)`；`build_argv` 标 [DEPRECATED Wave 5] 但保留作 fallback（plugin 仍存在场景下可手工切换），默认禁用（IFR-003 修订承接 / API-W5-02 / API-W5-03）
+- `harness.orchestrator.PhaseRouteResult` — 松弛 JSON（schema 不变）
+- `harness.orchestrator.SignalFileWatcher` **[Wave 5 MOD · 真集成]** — watchdog observer（signal files + docs/plans + feature-list.json）；Wave 5 由 [INLINED] 升级为正式契约（IAPI-012）；`on_signal(event)` 重新实装为 `rt.signal_dirty.set() + broadcast_signal(/ws/signal)`；watcher.events() 与 `phase_route_local.route` 在 `_run_loop` 中竞争 wait（cooperative interrupt point）；保留 `_broadcast_signal` 推 `/ws/signal`（FR-048 双 AC 拆 / API-W5-06 / API-W5-10）
 - `harness.orchestrator.RunControlBus` — WebSocket 指令路由
 - `harness.orchestrator.DepthGuard` — 嵌套深度 ≤2
 - `harness.orchestrator.RunLock` — filelock `.harness/run.lock`
 
-*Recovery 子模块*
+*Recovery 子模块（Wave 5：在 supervisor.run_ticket 真正集成，非纯函数验证）*
 - `harness.recovery.AnomalyClassifier` — 5 类异常识别
-- `harness.recovery.RetryPolicy` — 30s/120s/300s 指数退避
+- `harness.recovery.RetryPolicy` **[Wave 5 真集成]** — 30s/120s/300s 指数退避；Wave 5 在 `supervisor.run_ticket` 中真正集成调用 `next_delay(skill_hint)`（不再仅纯函数单测）；T22/T23/T25 测试粒度从单元升集成
 - `harness.recovery.Watchdog` — 超时 SIGTERM → SIGKILL
-- `harness.recovery.RetryCounter` — 按 skill_hint 聚合
+- `harness.recovery.RetryCounter` **[Wave 5 真集成]** — 按 skill_hint 聚合；Wave 5 在 `supervisor.run_ticket` 中真正集成调用 `inc/value/reset`（非纯函数验证）
 - `harness.recovery.EscalationEmitter` — ≥3 次升级用户
 - `harness.recovery.UserOverride` — Skip / ForceAbort
 
@@ -544,10 +547,14 @@ Wave 4 协议层重构使 **FR-013 PoC 必须重跑**（旧 PoC 基于 stream-js
 - `harness.subprocess.validator.ValidationReport` — 统一报告 schema
 - `harness.subprocess.validator.FrontendValidator` — pydantic → TS/Zod 导出
 
+*Utils 子模块（Wave 5 NEW）*
+- `harness.utils.feature_list_io` **[Wave 5 NEW]** (`harness/utils/feature_list_io.py`) — plugin `scripts/count_pending.py` + `scripts/validate_features.py` 浅端口为 harness 内部函数；行为对等 plugin v1.0.0；plugin 后续版本演进若改 schema 视为 SRS 修订事件（ASM-011 新增 / API-W5-07）
+
 **4.5.3 Module Layout 建议**
-- `harness/orchestrator/` — 主循环 + supervisor + phase_route invoker + run lock + signal watcher
+- `harness/orchestrator/` — 主循环 + supervisor + phase_route invoker + **`phase_route_local.py` [Wave 5 NEW]** + run lock + signal watcher
 - `harness/recovery/` — anomaly classifier + retry policy + watchdog + user override
 - `harness/subprocess/` — `git/` + `validator/` 两子包
+- `harness/utils/` **[Wave 5 NEW]** — `feature_list_io.py`（count_pending / validate_features 端口）
 
 **4.5.4 Integration Surface**
 
@@ -570,11 +577,12 @@ Wave 4 协议层重构使 **FR-013 PoC 必须重跑**（旧 PoC 基于 stream-js
 | Provides | F21 | IAPI-019 | RunControlBus REST + WS | `RunControlCommand`, `RunControlAck` |
 | Provides | F22 | IAPI-002 | REST `GET /api/git/commits` · `GET /api/git/diff/:sha` · `GET /api/files/tree` · `GET /api/files/read` | `GitCommit[]`, `DiffPayload`, `FileTree`, `FileContent` |
 | Provides | F22 | IAPI-016 | REST `POST /api/validate/:file` | `ValidationReport` |
-| Provides | F20（内聚） | IAPI-004 | `TicketSupervisor.reenqueue_ticket` ← `AnomalyRecovery.decide` | `TicketCommand`, `RecoveryDecision` |
-| Provides | F20（内聚） | IAPI-012 | `SignalFileWatcher` → `Orchestrator` | `SignalEvent` |
+| ~~Provides~~ | ~~F20（内聚）~~ | ~~IAPI-004 reenqueue_ticket~~ **[Wave 5 REMOVED]** | ~~`TicketSupervisor.reenqueue_ticket` ← `AnomalyRecovery.decide`~~ | ~~`TicketCommand`, `RecoveryDecision`~~（行为已 inlined；表行删除，源码保留 [INLINED] 标记） |
+| ~~Provides~~ | ~~F20（内聚）~~ | ~~IAPI-004 cancel_ticket~~ **[Wave 5 REMOVED]** | ~~`TicketSupervisor.cancel_ticket`~~ | ~~`TicketCommand`~~（行为已 inlined；表行删除，源码保留 [INLINED] 标记） |
+| Provides | F20（内聚） | IAPI-012 **[Wave 5 升正式]** | `SignalFileWatcher` → `Orchestrator`：`on_signal(event) → rt.signal_dirty.set() + broadcast_signal /ws/signal`；watcher.events() 与 phase_route_local.route 在 `_run_loop` 中 cooperative wait | `SignalEvent` |
 | Provides | F20（内聚） | IAPI-013 | `GitTracker.begin/end(ticket)` → orchestrator | `GitContext` |
-| Requires | phase_route.py | IAPI-003 | subprocess | `PhaseRouteResult` |
-| Requires | F18 | IAPI-005 **[MOD]** | `ToolAdapter.prepare_workdir(spec) → IsolatedPaths` 前置 + `spawn(spec, paths)` | `DispatchSpec`, `IsolatedPaths`, `TicketProcess` |
+| Requires | F20 internal | IAPI-003 **[Wave 5 MOD]** | `phase_route_local.route(workdir) → dict`（同进程函数；`PhaseRouteInvoker.invoke` body 内 `await asyncio.to_thread(route, workdir)`；`build_argv` [DEPRECATED Wave 5] fallback 保留） | `PhaseRouteResult` |
+| Requires | F18 | IAPI-005 **[Wave 4 MOD · Wave 5 拓宽]** | `ToolAdapter.prepare_workdir(spec) → IsolatedPaths` 前置 + `spawn(spec, paths) → TicketProcess`（**Wave 5 spawn 内部新增 inject `/<next_skill>` 阶段**：bracketed paste + CR 注入 plugin slash command；boot 不稳 / inject 失败抛 `SkillDispatchError <: SpawnError`；签名稳定调用方透明） | `DispatchSpec`, `IsolatedPaths`, `TicketProcess` |
 | Requires | F18 | IAPI-020 **[NEW, indirect]** | hook event 数据源（外部 Claude TUI → `/api/hook/event` → `HookEventToStreamMapper`） → 内部消费者 supervisor 通过 HilEventBus / TicketStream 订阅 | `HookEventPayload` → `HilQuestion[]` / `TicketStreamEvent` |
 | ~~Requires~~ | ~~F18~~ | ~~IAPI-008~~ **[REMOVED]** | ~~`StreamParser.events(proc)` async iterator~~ | ~~`StreamEvent`（旧 stdout 解析）~~ |
 | Requires | F19 | IAPI-010 | Classifier.classify | `Verdict` |
@@ -600,12 +608,61 @@ async for evt in ticket_stream.events(proc.ticket_id):  # MOD 数据源 hook →
     ...
 ```
 
+**4.5.4.y Wave 5 supervisor 主循环改造（必读 · 2026-04-27）**
+
+Wave 5 五项变更（[F] route 内化 + [G] skill inject + [A] retry 集成 + [B] watcher 真集成 + [C] cosmetic 清理）必须在 F20 supervisor / RunOrchestrator 层一次落地。**改造点定位**（基于 Step 3 impact 分析与 puncture_wave5.py 实证）：
+
+| 文件 | 函数 / 行 | 旧行为 | 新行为（Wave 5） |
+|---|---|---|---|
+| `harness/orchestrator/phase_route_local.py` | NEW MODULE | — | 实现 `route(workdir: Path) → dict`；同进程优先级判定（bugfix-request → increment-request → feature-list current/_select_next/ST → docs/plans 阶梯 → brownfield → 默认 long-task-requirements）；返回字段集合等价 plugin v1.0.0；耗时 ≤ 50ms（FR-054 / API-W5-01） |
+| `harness/orchestrator/phase_route_invoker.py` | `PhaseRouteInvoker.invoke` body | `asyncio.create_subprocess_exec("python", "scripts/phase_route.py", "--json", cwd=workdir)` + stdout JSON 解析 | `await asyncio.to_thread(phase_route_local.route, workdir)` → `PhaseRouteResult`（签名稳定）；`build_argv` 标 [DEPRECATED Wave 5] 保留 1 条 fallback 用例（API-W5-02 / API-W5-03 / IFR-003 修订） |
+| `harness/orchestrator/run.py` | `_run_loop` | watcher 事件未 wired；signal 写入仅推 /ws/signal（[INLINED]） | watcher.events() 与 phase_route_local.route 在 `_run_loop` 中 `asyncio.wait(..., FIRST_COMPLETED)` 协作中断；signal 触发后 `rt.signal_dirty.set()` 强制下一圈重 route（命中 hotfix/increment 优先级），dispatch 切换 ≤ 当前 ticket 剩余时长 + 200ms（FR-048 AC-2 / API-W5-06） |
+| `harness/orchestrator/supervisor.py` | `run_ticket` 主流程 | 仅 spawn → ticket_stream | spawn-inject-stream **三步序**（inject 在 `ClaudeCodeAdapter.spawn` 内部完成，supervisor 视角调用透明）；**禁止** 1:N session 复用：每张 ticket 独立 spawn 独立 PTY，不允许在已有 PTY 内通过连续 slash 切换 skill（context 爆炸防护 / spawn_model_invariant 锁定 / FR-001 AC-3/AC-4） |
+| `harness/orchestrator/supervisor.py` | `run_ticket` retry 接线 | RetryPolicy / RetryCounter 仅纯函数单测 | anomaly_classifier.classify 返回 `next_action='retry'` 后调 `retry_policy.next_delay(skill_hint) → await asyncio.sleep` + `retry_counter.inc(skill_hint) / value(skill_hint)`；递归重入 `_run_ticket_impl`；≥3 次触发 `EscalationEmitter`（NFR-003/004/T22/T23/T25 集成验证）|
+| `harness/orchestrator/run.py:447-454` + `harness/orchestrator/supervisor.py` 8 处调用点 | `RunOrchestrator.record_call` | 公开 helper（无 `_` 前缀） | 重命名为 `_record_call`（私有化）；rg 全仓确认无外部 feature 引用（Breaking-internal · 仅 F20 自洽 / API-W5-09 / [C] cosmetic） |
+| `harness/utils/feature_list_io.py` | NEW MODULE | — | 端口 plugin `scripts/count_pending.py` + `scripts/validate_features.py`；与 plugin v1.0.0 行为对等；plugin 后续版本演进若改 schema 视为 SRS 修订事件（ASM-011 / API-W5-07） |
+
+**Wave 5 spawn-inject-stream 三步序**（supervisor 透视）：
+
+```
+paths = await adapter.prepare_workdir(spec)              # 沿用 Wave 4
+proc  = await adapter.spawn(spec, paths)                 # Wave 5 内部新增 inject /<next_skill>；
+                                                         # 失败抛 SkillDispatchError 不进入 stream
+async for evt in ticket_stream.events(proc.ticket_id):   # 沿用 Wave 4
+    ...
+# 每张 ticket 一条 PTY 一条 TUI；不复用 session
+```
+
+**Wave 5 主循环 cooperative interrupt**（RunOrchestrator 透视）：
+
+```
+while True:
+    decision = await phase_route_invoker.invoke(workdir)   # 内化函数；非 subprocess
+    if decision.next_skill is None:
+        break
+    ticket_task = asyncio.create_task(supervisor.run_ticket(decision))
+    signal_task = asyncio.create_task(signal_watcher.next_event())
+    done, _ = await asyncio.wait({ticket_task, signal_task},
+                                 return_when=asyncio.FIRST_COMPLETED)
+    if signal_task in done:
+        rt.signal_dirty.set()                              # 下一圈重 route（hotfix/increment 优先）
+        # ticket_task 自然结束后再回到顶部；不强制 cancel（cooperative）
+```
+
+> **不变量**：spawn_model_invariant = `1 ticket = 1 PTY = 1 TUI 进程`；Wave 5 显式禁止任何 "session 复用" 暗示（puncture_wave5.py 实证 plugin TUI 接受短格式 `/skill_hint`，但每次 dispatch 必须新 PTY 起进程）。F23/F24 系统级 ST 加 PTY 数 == ticket 数的断言（详见 ATS）。
+
 **4.5.5 Test Inventory Hint**
-- Orchestrator：phase_route.py 输入/输出矩阵（正常 / missing feature / depth>2） + pause/cancel 状态合法性 + signal file event fan-out
-- Recovery：5 类异常分类器 × 3 次退避 + 升级门槛；Watchdog SIGTERM→SIGKILL 时序
+- Orchestrator：**phase_route_local.route 输入/输出矩阵 [Wave 5]**（正常 / missing feature / depth>2 / bugfix-request 优先 / increment-request 优先 / docs/plans 阶梯 / brownfield 启发）+ pause/cancel 状态合法性 + signal file event fan-out + cooperative wait（watcher / ticket FIRST_COMPLETED）
+- Recovery：5 类异常分类器 × 3 次退避 + 升级门槛；Watchdog SIGTERM→SIGKILL 时序；**[Wave 5] supervisor.run_ticket 集成 RetryPolicy/RetryCounter**（T22/T23/T25 升集成）
 - Subprocess：GitTracker begin/end × 非 git 目录 exit=128 降级；ValidatorRunner schema 错误 / 超时
-- 端到端 dry-run（**Wave 4 重写**）：一次 `/api/runs/start` → phase_route → `prepare_workdir` → `spawn` → 模拟 hook event POST → `HookEventToStreamMapper` → ticket_stream 消费 → classify → recovery → persist
-- supervisor.py L95–L100 改造的回归断言：替换后 `orch.record_call` trace 序列含 `"TicketStream.subscribe"` 而非 `"StreamParser.events()"`；`_FakeTicketStream` 与旧 `_FakeStreamParser` 行为等价（空迭代）
+- **[Wave 5 NEW]** `phase_route_local` 与 plugin v1.0.0 fixture 交叉验证：返回字段集合 `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}` 等价（FR-054 AC-2/AC-4）；耗时 ≤ 50ms（AC-3）；调用栈无 subprocess（AC-1）
+- **[Wave 5 NEW]** spawn-inject-stream 三步序集成测试：spawn 内部 inject 后命中 SKILL.md `"I'm using <skill>"` marker ≤ 30s（FR-055 AC-3）；boot 不稳 / inject 失败 → `SkillDispatchError` 抛出 → ticket ABORTED（FR-055 AC-2）；slash 短格式 `/<skill_hint>` 接受性验证（puncture_wave5 fixture）
+- **[Wave 5 NEW]** SignalFileWatcher 真集成 / FR-048 双 AC：(a) signal 写入 → /ws/signal toast ≤ 2s；(b) signal 写入 → 内化 route 重判 → dispatch 切换 ≤ 当前 ticket 剩余 + 200ms（hotfix/increment priority-1 命中）
+- **[Wave 5 NEW]** spawn_model_invariant 1:1 断言：N tickets 必产 N 个独立 PTY 进程（pid 集合 size == N）；不允许已有 PTY 内连续 slash 切换 skill
+- **[Wave 5 NEW]** `harness.utils.feature_list_io` 与 plugin scripts/count_pending.py + validate_features.py 跨实现对等性 fixture
+- **[Wave 5 cosmetic]** `_record_call` 私有化回归：rg 扫全仓无外部 feature 引用 `record_call`（无 `_` 前缀）剩余调用点
+- 端到端 dry-run（**Wave 4 重写 + Wave 5 修订**）：一次 `/api/runs/start` → **phase_route_local.route**（同进程函数；非 subprocess）→ `prepare_workdir` → `spawn`（**含内部 inject /<next_skill>**）→ 模拟 hook event POST → `HookEventToStreamMapper` → ticket_stream 消费 → classify → recovery → persist
+- supervisor.py 主循环改造回归断言：替换后 `orch._record_call` trace 序列含 `"TicketStream.subscribe"` 而非 `"StreamParser.events()"`；`_FakeTicketStream` 与旧 `_FakeStreamParser` 行为等价（空迭代）
 
 ### 4.6 F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream
 
@@ -843,6 +900,26 @@ F18 由 stream-json stdout 解析迁移到 Claude Code Hook 协议；以下 FR /
 - F03 / F10 `IsolatedPaths`：unchanged（仍由 F10 `EnvironmentIsolator.setup_run` 提供给 F18 `prepare_workdir` 消费）。
 - F21 TicketStream 数据源 envelope rename：wire schema 字段集合等价，前端 zod 重新生成即可，组件视觉/交互**不需重做**。
 - F23 router include：在主路由文件追加 1 条 `app.include_router(hook_router)` + 1 条 `app.include_router(pty_writer_router)`（详见 §4.5.4 wiring）。
+
+### 4.13 Wave 5 · 2026-04-27 路由内化 + skill inject + 集成接线
+
+> **Hard impact**: F20（唯一）。**Soft impact**: F18（spawn 拓宽 + build_argv `--plugin-dir`）/ F21（/ws/signal 频次提升消费方）/ F22 / F23 / F24（系统 ST 加 PTY 数 == ticket 数 invariant）。**Unaffected**: 其他 18 个 feature。puncture 实证：`reference/f18-tui-bridge/puncture_wave5.py` (2026-04-28 PASS) — F1 内化 0.02ms × G1 inject marker × 隔离 sha256 等价 × MiniMax 路由。
+
+**Wave 5 五大范围（[F]/[G]/[A]/[B]/[C] 全合并入 F20 Hard 重置）**
+
+| 代号 | 范围 | 实施模块 / 行为 | 影响契约 |
+|---|---|---|---|
+| **[F]** | phase_route 内化 | `harness/orchestrator/phase_route_local.py` (NEW) — 同进程 `route(workdir) → dict`；`PhaseRouteInvoker.invoke` body 重写为 `await asyncio.to_thread(route, workdir)`；`build_argv` [DEPRECATED Wave 5] fallback 保留 | API-W5-01 (NEW) / API-W5-02 (MOD) / API-W5-03 (Deprecated) / IFR-003 修订 / FR-054 NEW / CON-008 修订 / ASM-001 修订 |
+| **[G]** | skill inject in spawn | `ClaudeCodeAdapter.spawn` 内部新增 inject `/<next_skill>` 阶段（PTY bracketed paste + CR）；`SkillDispatchError <: SpawnError`；SKILL.md `"I'm using <skill>"` marker ≤30s 验证 | API-W5-04 (MOD-Additive) / API-W5-05 (MOD-Additive: argv +`--plugin-dir`) / FR-001 修订 / FR-016 修订 / FR-055 NEW |
+| **[A]** | retry 集成 | `supervisor.run_ticket` 真正接线 `RetryPolicy + RetryCounter`（next_action='retry' → next_delay → inc/value/reset → 递归重入）；T22/T23/T25 升集成 | implementation_only · FR-024/025/026 + NFR-003/004 AC 不变 |
+| **[B]** | watcher 真集成 | `SignalFileWatcher.on_signal` 升正式契约（IAPI-012）；`_run_loop` cooperative wait；signal_dirty 事件驱动重 route + broadcast /ws/signal | API-W5-06 (MOD) / API-W5-10 (MOD) / FR-048 双 AC 拆 |
+| **[C]** | cosmetic 清理 | `RunOrchestrator.record_call → _record_call` 私有化（API-W5-09 Breaking-internal · 仅 F20 自洽）；§6.2 表删 reenqueue_ticket / cancel_ticket 两行（行为已 inlined） | API-W5-08 (MOD) / API-W5-09 (Breaking-internal) |
+
+**spawn_model_invariant 锁定**：1 ticket = 1 PTY = 1 TUI 进程；**禁止任何 1:N session 复用**（已在 §4.5.4.y 与 FR-001 AC-3/AC-4 锁定）。F23/F24 系统级 ST 加 `PTY 进程数 == ticket 数` 断言。
+
+**新增 utils**：`harness/utils/feature_list_io.py`（API-W5-07 / ASM-011）— plugin `scripts/count_pending.py + validate_features.py` 浅端口为内部函数，行为对等 plugin v1.0.0。
+
+**版本演进治理**：plugin v1.0.0 fixture 作为内化模块的对等性测试基准；plugin 后续版本若改 routing 优先级 / feature_list schema → 视为 SRS 修订事件触发新一轮 increment（ASM-001 / ASM-011 联合约束）。
 
 ---
 
@@ -1196,19 +1273,32 @@ Hook 输出：OpenCode stdout `{"kind":"hook","channel":"harness-hil","payload":
 
 **故障模式**：hooks 注册失败 → ticket `failed` + `skill_error`，提示用户升级 OpenCode。
 
-#### 6.1.3 IFR-003 · `scripts/phase_route.py` subprocess
+#### 6.1.3 IFR-003 · phase_route 路由调用（Wave 5 修订 · 2026-04-27）
 
-**方向**：Harness → subprocess outbound
-**协议**：`asyncio.create_subprocess_exec("python", "scripts/phase_route.py", "--json", cwd=workdir)`
-**Request**：无 stdin；仅 workdir 作 cwd
-**Response**：stdout JSON（松弛解析）——schema 见 §6.2 `PhaseRouteResult`
-**Timeout**：30s；超时 SIGTERM → SIGKILL
+> **Wave 5 修订（2026-04-27）**：本接口由原 plugin `scripts/phase_route.py` subprocess wire 协议**内化**为 Harness 内部 Python 模块调用（`harness.orchestrator.phase_route_local.route`）。CON-008 单一事实源由 plugin 转移至 harness 内部模块；plugin 仍保留 skill 仓库职责但不再提供 routing entry。`PhaseRouteInvoker.build_argv` 标 [DEPRECATED Wave 5] 保留作 fallback。
+
+**方向**：Harness 主进程 → 内部模块（同进程函数调用）
+**协议**：`await asyncio.to_thread(harness.orchestrator.phase_route_local.route, workdir)`（CPU-bound 路由判定卸载到 default ThreadPoolExecutor，避免阻塞 asyncio 事件循环）
+**Request**：`workdir: Path`（参数，无 stdin / 无 argv）
+**Response**：`dict` → 由 `PhaseRouteInvoker` 包装为 §6.2 `PhaseRouteResult` pydantic 模型；字段集合 `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}` 与 plugin v1.0.0 stdout JSON **语义对等**（fixture 交叉验证锁定 / ASM-001 修订承接）
+**Timeout**：N/A（同进程函数，目标耗时 ≤ 50ms；feature-list.json ≤ 100KB 时 ≤ 5ms / FR-054 AC-3）；如出现异常退化 supervisor 主循环可加 wall-clock 软监控
+**调用栈合规**：实现内**禁止** `subprocess.Popen` / `asyncio.create_subprocess_exec` / `os.execve`（FR-054 AC-1）
+
+**决议优先级**（与 plugin v1.0.0 完全一致）：
+1. `bugfix-request.json`（priority-1 → long-task-hotfix）
+2. `increment-request.json`（priority-1 → long-task-increment）
+3. `feature-list.json`（current lock 阶段路由 / `_select_next` 选 dep-ready failing / 全 passing → long-task-st）
+4. `docs/plans/*-{ats,design,ucd,srs}.md` 阶梯（缺什么补什么）
+5. brownfield 启发（仓库已有源码 → long-task-brownfield-scan）
+6. 默认 → long-task-requirements
 
 **故障模式**：
-- exit ≠ 0 → Orchestrator 暂停 run，UI 显示 stderr（FR-002 AC）
-- stdout 非 JSON → 暂停 + 记 audit `phase_route_parse_error`
+- 函数抛异常（IO 错误 / JSON schema 不合 / depth 越界）→ Orchestrator 暂停 run，UI 显示 traceback（FR-002 AC）；audit `phase_route_internal_error`
+- 返回字段缺失 / 类型不合 → `PhaseRouteResult.parse` 抛 `ValidationError` → audit `phase_route_parse_error`（沿用旧错误码以保持 audit 兼容）
 
-**约束**：`phase_route.py` 在 plugin bundle 的 `scripts/`；F10 setup_run 将 `plugin_dir/scripts/phase_route.py` 绝对路径透传。
+**Fallback（Deprecated）**：`PhaseRouteInvoker.build_argv` + subprocess fallback 路径保留 1 条单元测试，确保 plugin 仍存场景下可手工切换；默认禁用，开关由 RunContext flag 控制（不暴露 UI）。
+
+**约束**：内化模块 `harness/orchestrator/phase_route_local.py` 由 F20 owner 维护；plugin v1.0.0 fixture 作对等性测试基线（plugin 后续版本演进 → 视为 SRS 修订事件，ASM-001 / ASM-011 联合约束）。
 
 #### 6.1.4 IFR-004 · OpenAI-compatible HTTP（Classifier）
 
@@ -1321,21 +1411,28 @@ effective_strict = (
 > - **REMOVED · 1 条**：IAPI-008（StreamParser.events async iterator 整体废弃，由 hook event 替代）。
 > - **NEW · 2 条**：IAPI-020（`POST /api/hook/event`） / IAPI-021（`POST /api/pty/write`）。
 > - 同步影响：FR-014 BannerConflictArbiter 弃用、JsonLinesParser / HilExtractor / BannerConflictArbiter 物理删除（详见 §4.12）。
+>
+> **Wave 5 路由内化 + skill inject + 集成接线（2026-04-27）**：
+> - **MODIFY · 3 条**：IAPI-003（phase_route 由 plugin subprocess wire 改为内部模块 `await asyncio.to_thread(phase_route_local.route, workdir)`，Provider 由外部 plugin 转为 F20 internal）/ IAPI-005（**Wave 5 拓宽**：spawn 内部新增 inject `/<next_skill>` 阶段，签名稳定，Additive；调用方 supervisor 透明）/ IAPI-012（**Wave 5 升正式**：`SignalFileWatcher → Orchestrator` 由 [INLINED] 升级为正式契约：`on_signal(event) → rt.signal_dirty.set() + broadcast_signal(/ws/signal)`；与 phase_route_local.route 在 `_run_loop` 中 cooperative wait）。
+> - **REMOVED · 2 行（IAPI-004 表行收敛）**：`TicketSupervisor.reenqueue_ticket` 表行删除 / `TicketSupervisor.cancel_ticket` 表行删除（行为已 inlined；源码保留 [INLINED] 标记，调用方早已不依赖；API-W5-08）。
+> - **MODIFY · 1 条 Breaking-internal**：API-W5-09 — `RunOrchestrator.record_call → _record_call`（私有化；rg 实证仅 F20 自洽，无外部 feature 引用，Breaking 标签但 impact_features 仅 F20）。
+> - **NEW Wave 5 内部 API 编号（详见 §6.2.x Wave 5 Internal API Contracts）**：`API-W5-01` (route_local.route) / `API-W5-04` (spawn 拓宽) / `API-W5-05` (build_argv +`--plugin-dir`) / `API-W5-06` (IAPI-012 升正式) / `API-W5-07` (feature_list_io) / `API-W5-09` (record_call 私有化)。
+> - 同步影响：CON-008 修订（v1 路由内化于 Harness）/ FR-001/016/048 修订 / FR-054/055 NEW / ASM-001 修订 + ASM-011 NEW（详见 §4.13）。
 
 | Contract ID | Provider | Consumer(s) | Endpoint / Method | Request | Response | Errors |
 |---|---|---|---|---|---|---|
 | **IAPI-001** | F12 | F21 | WebSocket multi-channel | `SubscribeMsg` | `WsEvent` union | close 1008/1011 |
 | **IAPI-002** **[Wave4 MOD]** | F12 | F21, F22 | REST（详 §6.2.2） | 各 route | 各 route（`GET /api/tickets/:id/stream` 响应 envelope 改名 `TicketStreamEvent`，schema 字段集合等价） | 400/404/409/500 |
-| **IAPI-003** | F20 | `scripts/phase_route.py` | `subprocess.exec([...])` | — | stdout `PhaseRouteResult` JSON | exit≠0 → `PhaseRouteError` |
+| **IAPI-003** **[Wave5 MOD]** | F20 | F20（internal: `phase_route_local` module） | `await asyncio.to_thread(phase_route_local.route, workdir)`（同进程函数；非 subprocess） | `workdir: Path` | `PhaseRouteResult` (dict → pydantic) | 内部异常 → `PhaseRouteError` / `phase_route_internal_error` audit；Deprecated subprocess fallback 保留 |
 | **IAPI-004** | F20 | F20（internal: Orchestrator↔TicketSupervisor） | in-proc asyncio | `TicketCommand` | `TicketOutcome` async | `TicketError` |
-| **IAPI-005** **[Wave4 MOD · Breaking]** | F18 | F18, F20 | Python Protocol | `DispatchSpec, IsolatedPaths`（`prepare_workdir(spec)` 必须前置） | `TicketProcess` | `SpawnError`, `AdapterError`, `WorkdirPrepareError` |
+| **IAPI-005** **[Wave4 MOD · Wave5 拓宽]** | F18 | F18, F20 | Python Protocol | `DispatchSpec, IsolatedPaths`（`prepare_workdir(spec)` 必须前置） | `TicketProcess`（**Wave 5**: spawn 内部新增 inject `/<next_skill>` 阶段；签名稳定 Additive） | `SpawnError`, `AdapterError`, `WorkdirPrepareError`, **`SkillDispatchError <: SpawnError`（Wave 5）** |
 | **IAPI-006** **[Wave4 MOD]** | F18 | F18（internal: Adapter↔PtyWorker） | Protocol | `DispatchSpec` | `PtyHandle { pid, write }`（**byte_queue 字段降级**为 stdout 镜像归档，不再供下游消费；保留为 backward compat 占位） | `PtyError` |
 | **IAPI-007** **[Wave4 MOD · Breaking]** | F18 | F18（internal: HilWriteback↔PtyWorker via IAPI-021） | method + REST | `bytes`（**TUI 键序，经 `TuiKeyEncoder` 编码**；旧 JSON payload 废弃） | None | `PtyClosedError` |
 | ~~**IAPI-008**~~ **[Wave4 REMOVED]** | ~~F18~~ | ~~F18, F20~~ | ~~async iterator~~ | ~~—~~ | ~~`StreamEvent` union（旧 stdout 解析）~~ | ~~—~~ |
 | **IAPI-009** | F02 | F18, F20 | method | `AuditEvent` | None | `IoError`（降级 stderr） |
 | **IAPI-010** | F19 | F20 | async method | `ClassifyRequest` | `Verdict` | `ClassifierHttpError`（rule 降级后抛） |
 | **IAPI-011** | F02 | F18, F20 | DAO | `Ticket \| partial` | `Ticket \| None \| list[Ticket]` | `DaoError` |
-| **IAPI-012** | F20 | F20（internal: FileWatcher↔Orchestrator） | asyncio.Queue | — | `SignalEvent` | — |
+| **IAPI-012** **[Wave5 升正式]** | F20 | F20（internal: SignalFileWatcher↔Orchestrator） | asyncio.Queue + `on_signal(event)` callback | `SignalFileChangedEvent` | `rt.signal_dirty.set()` + `broadcast_signal(/ws/signal)`（cooperative wait 触发下一圈重 route） | — |
 | **IAPI-013** | F20 | F20, F22 | method | `run_id \| ticket_id` | `GitContext \| GitCommit[] \| DiffPayload` | `GitError` |
 | **IAPI-014** | F01 | F19, F22 | method | `(service, user)` | `str \| None` | `KeyringError` |
 | **IAPI-015** | F19 | F18 | method | `ModelOverrideContext` | `ResolveResult` | — |
@@ -1671,6 +1768,25 @@ class ClassifierPromptRev(BaseModel):
     hash: str
     summary: str
 ```
+
+#### 6.2.5.W5 Wave 5 Internal API Contracts（2026-04-27）
+
+> Wave 5 在 F20 内部新增/修改 9 条 API 契约。除 API-W5-09 (record_call 私有化) 标 Breaking-internal 外，其余均 Additive 或语义对等替换；调用方签名稳定。
+
+| ID | Signature / Location | Change Type | Strategy | Impact Features | Notes |
+|---|---|---|---|---|---|
+| **API-W5-01** | `harness.orchestrator.phase_route_local.route(workdir: Path) -> dict` · `harness/orchestrator/phase_route_local.py` (NEW) | NEW | Additive | F20 | 同进程函数；返回 `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}` 与 plugin v1.0.0 stdout JSON 等价；耗时 ≤ 50ms（≤ 5ms typical） |
+| **API-W5-02** | `harness.orchestrator.PhaseRouteInvoker.invoke(workdir) -> PhaseRouteResult` · existing | MODIFY | Additive（调用方语义不变；body 从 subprocess 改 in-proc thread offload） | F20 | IFR-003 wire 协议从 subprocess 改为内部 Python 调用 |
+| **API-W5-03** | `harness.orchestrator.PhaseRouteInvoker.build_argv(...)` · existing | MODIFY | **Deprecated** (Wave 5；保留 fallback 默认禁用) | F20 | 测试套保留 1 条 fallback 用例 |
+| **API-W5-04** | `harness.adapter.claude.ClaudeCodeAdapter.spawn(spec, paths) -> TicketProcess` · existing | MODIFY | Additive（spawn 内部新增 inject `/<next_skill>` 阶段；返回类型与外部签名不变） | F18, F20 | inject 失败统一抛 `SkillDispatchError <: SpawnError`；FR-055 实装承接 |
+| **API-W5-05** | `harness.adapter.claude.ClaudeCodeAdapter.build_argv(...)` — 模板新增 `--plugin-dir <path>` · existing | MODIFY | Additive（argv 白名单 8 → 10 项；`<path>/.claude-plugin/plugin.json` 必须存在；与 `--setting-sources project` 必须同时存在） | F18, F20 | FR-016 修订承接；argv whitelist 单测更新；缺失抛 `InvalidIsolationError` |
+| **API-W5-06** | `harness.orchestrator.SignalFileWatcher.on_signal(event)` · existing → `_run_loop` wiring | MODIFY | Additive（on_signal 从内联 noop 升级为 `rt.signal_dirty.set + broadcast_signal /ws/signal`；同进程内部契约） | F20, F21 | IAPI-012 由 [INLINED] 升级为正式 §6.2 契约；F21 作 /ws/signal 既有消费方不需修改 |
+| **API-W5-07** | `harness.utils.feature_list_io.*` (count_pending, validate_features 端口) · `harness/utils/feature_list_io.py` (NEW) | NEW | Additive | F20 | ASM-011 新增；plugin `scripts/count_pending.py + validate_features.py` 浅端口 |
+| **API-W5-08** | `TicketSupervisor.reenqueue_ticket / cancel_ticket` — 删除 §4.5.4 表两行 · existing | MODIFY | Additive（公开方法表收敛；行为已 inlined，调用方早已不依赖） | F20 | [C] cosmetic；删表行不删源码（已 inlined） |
+| **API-W5-09** | `harness.orchestrator.RunOrchestrator.record_call → _record_call`（仅 1 个 helper 私有化）· `harness/orchestrator/run.py:447-454` + `harness/orchestrator/supervisor.py` 8 处调用点 | MODIFY | **Breaking-internal**（重命名为 `_` 前缀 — F20 自洽；rg 全仓确认无外部 feature 引用） | F20 | Step 3.5 修正：原描述 5 个 helper 失真。grep 实证：build_argv 是 ToolAdapter Protocol 方法；head_sha / log_oneline 是 GitTracker 公开方法；broadcast_signal 是 RunControlBus 公开方法（F23 集成测试消费）。仅 record_call 真为 supervisor 内部 trace helper |
+| **API-W5-10** | `[B] watcher 集成 — IAPI-012 SignalFileWatcher → Orchestrator` · §6.2 IAPI-012 (existing) | MODIFY | Additive（升级为正式契约 — 之前注释为 [INLINED]，现在为正式 row） | F20 | 纯文档级契约提升；新增不是破坏 |
+
+**Breaking-internal 唯一项**（API-W5-09）的 brownfield-adaptation §D 合规说明：唯一 impact_feature 是 F20 — 已在 Wave 5 进入 Hard 重置（status=failing）；rg 实证全仓无外部 feature 引用 `record_call`（无 `_` 前缀）；改名同步 8 处调用点。其余 FR-001/FR-016/IFR-003/IAPI-005 修订均为 Additive 或 Deprecated（fallback 保留），调用方签名稳定 — 非 Breaking。
 
 #### 6.2.5 错误码规范
 

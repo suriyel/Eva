@@ -1,7 +1,7 @@
 ---
-version: 1.3
+version: 1.4
 approved_by: godsuriyel@gmail.com
-approved_date: 2026-04-27T18:00:00+08:00
+approved_date: 2026-04-28T00:00:00+08:00
 approved_sections: ["§3", "§4"]
 ---
 
@@ -289,11 +289,13 @@ mypy harness > /tmp/static-mypy-$$.log 2>&1; echo $? > /tmp/static-mypy-$$.exit
 - 忽略清单参考：`.gitignore`
 - 依赖锁文件：_(empty — greenfield project)_
 
-### §4.5 Claude TUI 隔离三件套（Wave 4 · 2026-04-26）
+### §4.5 Claude TUI 隔离三件套（Wave 4 · 2026-04-26 / Wave 5 · 2026-04-27 补 plugin_dir 读规则）
 
 > Claude Code CLI（≥ 2.1.119）按 cwd 加载 `.claude/settings.json` 与 `.claude.json`；F18 `ToolAdapter.prepare_workdir` 在 spawn 前**幂等**写入下列三件套到 `<workdir>/.harness-workdir/<run-id>/`，是 IFR-001 协议的本地承载。
 
 **写路径白名单**：仅允许 `<cwd>/.harness-workdir/<run-id>/.claude*`（即 `.claude/` 目录与 `.claude.json` 文件）。任何写入路径越界（写到 `~/.claude/` 或 cwd 之外）违反 NFR-009 / NFR-006，必须 `EnvError` 中止。
+
+**Wave 5 补充 · plugin_dir 读但不写规则**（2026-04-27）：argv `--plugin-dir <path>` 指向插件根（含 `.claude-plugin/plugin.json`），harness 进程对该路径仅 **READ-only** 访问（以校验 `plugin.json` 存在性、计算 absolute path 透传给 spawn argv）；**禁止任何写入**到 `<plugin_dir>` 目录树（包括日志、缓存、临时文件）。设计依据：plugin 是 skill 仓库，harness 由 longtaskforagent v1.0.0 fixture 内化路由后只把 plugin 当作 skill 资源源（FR-016 修订 / API-W5-05 / IFR-001 argv 白名单）。违例（写入 `<plugin_dir>` 任何路径）视为 NFR-009 隔离破坏，CI 静态扫描应直接 fail。
 
 **1. `<isolated_cwd>/.claude/settings.json` — 字段依赖清单**
 
