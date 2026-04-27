@@ -1,119 +1,133 @@
-"""F18 · Bk-Adapter — HilWriteback (Design §4 + state machine §6.2).
+"""F18 Wave 4 · HilWriteback (Design §Interface Contract HilWriteback row).
 
-Pipes a HilAnswer back through the live PtyWorker's stdin so the original
-agent session continues. Implements:
-  - White-list escape for freeform_text (Design §6 散文 (5))
-  - PtyClosedError handling (FR-011 AC-2: preserve answer + ticket → failed)
-  - State transitions hil_waiting → classifying / hil_waiting → failed
-  - Audit emit hil_answered on success (IAPI-009)
+Wave 4 changes:
+  - payload is **TUI key-sequence bytes** (no longer JSON)
+  - bytes are emitted via ``POST /api/pty/write`` (IAPI-021) — caller injects a
+    ``pty_write_client`` adapter so we don't take a hard FastAPI dep here
+  - HilEventBus.publish_answered fires on success
+  - PtyClosedError → preserve answer in ``pending_answers`` + ticket → failed
+
+Per Design §Interface Contract HilWriteback.write_answer postcondition:
+  (1) HilQuestion.kind drives TuiKeyEncoder.encode_*;
+  (2) base64 encode + POST /api/pty/write;
+  (3) success → publish_answered + ticket transition hil_waiting → classifying;
+  (4) PtyClosedError → pending_answers[ticket_id] += answer + ticket → failed.
 """
 
 from __future__ import annotations
 
-import json
+import base64
 import logging
-from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from harness.adapter.errors import EscapeError
-from harness.domain.ticket import AuditEvent, HilAnswer
+from harness.domain.ticket import HilAnswer, HilQuestion
+from harness.hil.tui_keys import TuiKeyEncoder
 from harness.pty.errors import PtyClosedError
 
 _log = logging.getLogger(__name__)
 
 
-class _PtyWriter(Protocol):
-    def write(self, data: bytes) -> None: ...
+class _PtyWriteClient(Protocol):
+    def post(self, ticket_id: str, payload_b64: str) -> int: ...
 
 
-class _AuditAppender(Protocol):
-    def append(self, event: AuditEvent) -> Any: ...
+class _EventBus(Protocol):
+    def publish_answered(self, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class _TicketRepo(Protocol):
-    def transition(self, ticket_id: str, to_state: str) -> Any: ...
-
-
-# White-list of safe control bytes (Design §6 散文 (5)):
-#   - \t (0x09)  - \n (0x0a)  - \r (0x0d)
-# Anything else < 0x20 (NUL, SIGINT 0x03, ESC 0x1b, ...) is forbidden.
-_SAFE_LOW: frozenset[int] = frozenset({0x09, 0x0A, 0x0D})
-
-
-def _validate_escape(text: str) -> None:
-    for ch in text:
-        b = ord(ch)
-        if b < 0x20 and b not in _SAFE_LOW:
-            raise EscapeError(f"freeform_text contains forbidden control byte 0x{b:02x}")
+    def transition(self, ticket_id: str, new_state: str) -> Any: ...
 
 
 class HilWriteback:
-    """Translate a HilAnswer → bytes → pty stdin (with audit + state mgmt)."""
+    """Translate a HilAnswer → TUI key bytes → IAPI-021 POST."""
 
     def __init__(
         self,
         *,
-        worker: _PtyWriter,
-        audit: _AuditAppender | None,
-        ticket_repo: _TicketRepo | None,
-        ticket_id: str,
-        run_id: str = "",
+        pty_write_client: _PtyWriteClient,
+        event_bus: _EventBus | None = None,
+        ticket_repo: _TicketRepo | None = None,
+        encoder: TuiKeyEncoder | None = None,
     ) -> None:
-        self._worker = worker
-        self._audit = audit
+        self._client = pty_write_client
+        self._bus = event_bus
         self._repo = ticket_repo
-        self._ticket_id = ticket_id
-        self._run_id = run_id
-        # FR-011 AC-2: failed write_answer must preserve the answer here.
-        self.pending_answers: list[HilAnswer] = []
+        self._encoder = encoder or TuiKeyEncoder()
+        # FR-011 AC-4: failed write_answer must preserve the answer here.
+        self.pending_answers: dict[str, list[HilAnswer]] = {}
 
     # ------------------------------------------------------------------
-    def write_answer(self, answer: HilAnswer) -> None:
-        # 1. Escape validation BEFORE any I/O (T23: writer must NOT be called)
-        if answer.freeform_text is not None:
-            _validate_escape(answer.freeform_text)
-
-        # 2. Build the bytes payload. Keep it simple/JSON so the round-trip
-        #    is round-trippable; agents tend to read a single line and parse.
-        payload = {
-            "selected_labels": list(answer.selected_labels),
-            "freeform_text": answer.freeform_text,
-        }
-        data = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
-        # Also include the bare label bytes inline so naive byte-search asserts
-        # (T21 checks `b"yes" in worker.writes[0]`) succeed even if the agent
-        # later changes the wire shape.
-        # (json.dumps already includes the labels in plain ASCII form.)
-
-        # 3. Attempt to write. On PtyClosedError → preserve + transition failed.
+    def write_answer(
+        self,
+        *,
+        ticket_id: str,
+        question: HilQuestion,
+        answer: HilAnswer,
+    ) -> None:
+        # 1. Encode using HilQuestion.kind to pick the right TuiKeyEncoder method.
         try:
-            self._worker.write(data)
+            payload_bytes = self._encode(question, answer)
+        except EscapeError:
+            # Forbidden control bytes → propagate to caller; do not transition.
+            raise
+
+        # 2. base64 encode + POST /api/pty/write (IAPI-021).
+        payload_b64 = base64.b64encode(payload_bytes).decode("ascii")
+        try:
+            self._client.post(ticket_id, payload_b64)
         except PtyClosedError:
-            self.pending_answers.append(answer)
+            # FR-011 AC-4: preserve answer + ticket → failed; do NOT publish_answered.
+            self.pending_answers.setdefault(ticket_id, []).append(answer)
             if self._repo is not None:
-                self._repo.transition(self._ticket_id, "failed")
+                self._repo.transition(ticket_id, "failed")
             _log.warning(
                 "HilWriteback: PTY closed before answer could be written; "
                 "answer preserved for ticket=%s",
-                self._ticket_id,
+                ticket_id,
             )
             raise
 
-        # 4. Success path: audit + state transition.
-        if self._audit is not None:
-            self._audit.append(
-                AuditEvent(
-                    ts=datetime.now(timezone.utc).isoformat(),
-                    ticket_id=self._ticket_id,
-                    run_id=self._run_id,
-                    event_type="hil_answered",
-                    payload={
-                        "answer": answer.model_dump(mode="json"),
-                    },
+        # 3. Success → publish_answered + ticket → classifying.
+        if self._bus is not None:
+            try:
+                self._bus.publish_answered(ticket_id=ticket_id, answer=answer)
+            except TypeError:
+                # Tolerate alternate signatures; older callers may use run_id keyword.
+                self._bus.publish_answered(
+                    ticket_id=ticket_id, run_id="", answer=answer
                 )
-            )
         if self._repo is not None:
-            self._repo.transition(self._ticket_id, "classifying")
+            self._repo.transition(ticket_id, "classifying")
+
+    # ------------------------------------------------------------------
+    def _encode(self, question: HilQuestion, answer: HilAnswer) -> bytes:
+        """Pick TuiKeyEncoder method based on question.kind + answer payload."""
+        if answer.freeform_text is not None:
+            # Freeform text path (single-shot bracketed paste).
+            return self._encoder.encode_freeform(answer.freeform_text)
+
+        if question.kind == "multi_select":
+            indices = self._labels_to_indices(question, answer.selected_labels)
+            return self._encoder.encode_checkbox(indices)
+
+        # single_select / fall-through: pick the first selected label index (1-based).
+        if answer.selected_labels:
+            indices = self._labels_to_indices(question, answer.selected_labels)
+            if indices:
+                return self._encoder.encode_radio(indices[0])
+        # No selection at all → bare CR confirms whatever the TUI default is.
+        return b"\r"
+
+    @staticmethod
+    def _labels_to_indices(question: HilQuestion, labels: list[str]) -> list[int]:
+        order = {opt.label: i + 1 for i, opt in enumerate(question.options)}
+        indices: list[int] = []
+        for label in labels:
+            if label in order:
+                indices.append(order[label])
+        return indices
 
 
 __all__ = ["HilWriteback"]

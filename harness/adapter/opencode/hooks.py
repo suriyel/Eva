@@ -101,19 +101,21 @@ class HookQuestionParser:
 
 
 class McpDegradation:
-    """Records that a UI degradation toast has been pushed (FR-017)."""
+    """Records UI degradation toasts that have been pushed (FR-017).
+
+    Wave 4 contract (T04 / T04b): ``toast_pushed`` is a **list of message strings**
+    so callers can index ``toast_pushed[0]`` (was a bool flag in Wave 3).
+    """
 
     def __init__(self) -> None:
-        self.toast_pushed: bool = False
-        self._toasts: list[str] = []
+        self.toast_pushed: list[str] = []
 
     def push_toast(self, msg: str) -> None:
-        self.toast_pushed = True
-        self._toasts.append(msg)
+        self.toast_pushed.append(msg)
 
     @property
     def messages(self) -> list[str]:
-        return list(self._toasts)
+        return list(self.toast_pushed)
 
 
 class VersionCheck:

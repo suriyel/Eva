@@ -1,8 +1,18 @@
-"""F18 · Bk-Adapter — ClaudeCodeAdapter (FR-008/015/016, IFR-001).
+"""F18 Wave 4 · ClaudeCodeAdapter (FR-008/015/016/051, IFR-001).
 
-Implements ToolAdapter for the Claude Code CLI. Strict argv equality (not
-subset) per FR-016 design rationale: any future careless edit that adds
-``-p`` is caught by T01.
+Implements ``ToolAdapter`` for the Claude Code CLI. Wave-4 contract:
+
+  argv: strict 8-item whitelist (or 10-item with optional --model).
+        Banned flags: -p / --print / --output-format /
+                      --include-partial-messages /
+                      --mcp-config / --strict-mcp-config.
+
+  prepare_workdir: writes the Wave-4 isolation triplet into <paths.cwd>:
+        .claude.json (skip dialogs) +
+        .claude/settings.json (env + 4 hook entries + flags) +
+        .claude/hooks/claude-hook-bridge.py (chmod 0o755)
+
+  map_hook_event: hook stdin payload → HilQuestion[] (delegates to HookEventMapper).
 """
 
 from __future__ import annotations
@@ -12,22 +22,30 @@ import os
 import shutil
 import uuid
 from datetime import datetime, timezone
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any, Callable
 
 from harness.adapter.errors import (
     InvalidIsolationError,
     SpawnError,
+    WorkdirPrepareError,
 )
+from harness.adapter.hook_payload import HookEventPayload
 from harness.adapter.process import TicketProcess
 from harness.adapter.protocol import CapabilityFlags
+from harness.adapter.workdir_artifacts import (
+    HookBridgeScriptDeployer,
+    SettingsArtifactWriter,
+    SkipDialogsArtifactWriter,
+)
 from harness.domain.ticket import (
     AnomalyInfo,
     DispatchSpec,
     HilQuestion,
     OutputInfo,
 )
-from harness.hil.extractor import HilExtractor
+from harness.env.models import IsolatedPaths
+from harness.hil.hook_mapper import HookEventMapper
 from harness.pty.worker import PtyWorker
 from harness.stream.events import StreamEvent
 
@@ -44,7 +62,15 @@ _ANOMALY_RULES: tuple[tuple[str, str], ...] = (
     ("eof", "skill_error"),
 )
 
-# Env whitelist (IFR-001):
+# Env whitelist (IFR-001 SEC):
+# COLUMNS / LINES added 2026-04-27 per Wave 4 Failure Addendum Fix A3 — required
+# by reference/f18-tui-bridge/puncture.py so the TUI sizes its viewport
+# correctly (otherwise claude renders blank screens that look like the wizard
+# dialog never bypassed).
+# *_PROXY added 2026-04-27 per Wave 4 Failure Addendum Fix A6 — claude TUI
+# spawned in restricted networks needs the host's HTTP/HTTPS proxy settings
+# to reach api.anthropic.com. Proxy URL is not a secret (NFR-008 only covers
+# LLM API keys, which still live in keyring / settings.json env block).
 _ENV_WHITELIST: tuple[str, ...] = (
     "PATH",
     "PYTHONPATH",
@@ -54,42 +80,41 @@ _ENV_WHITELIST: tuple[str, ...] = (
     "LOGNAME",
     "TERM",
     "HOME",
-    "CLAUDE_CONFIG_DIR",
+    "COLUMNS",
+    "LINES",
+    "HARNESS_BASE_URL",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
 )
 
 
-def _is_under(path: str, root: str) -> bool:
-    """True iff *path* lives inside *root* (after pure-path normalisation).
-
-    We avoid resolve() / realpath here so that **non-existent** isolated paths
-    in unit tests still pass; the symlink-escape test for OpenCode hooks does
-    use real resolve() — see opencode/__init__.py.
-    """
+def _is_under_workdir(path: str) -> bool:
+    """True iff *path* is under a ``.harness-workdir/`` segment."""
     try:
-        p = os.path.normpath(os.path.abspath(path))
-        r = os.path.normpath(os.path.abspath(root))
+        norm = os.path.normpath(os.path.abspath(path))
     except Exception:
         return False
-    if r in p:
-        return True
-    return PurePath(p).as_posix().startswith(PurePath(r).as_posix() + "/")
+    sep = os.sep
+    return f"{sep}.harness-workdir{sep}" in (norm + sep)
 
 
 def _validate_isolation(spec: DispatchSpec) -> None:
     """Reject argv whose plugin_dir / settings_path escape the isolated workdir.
 
-    Rule (Design §4 row build_argv preconditions + IFR-001 SEC):
-      A path is considered isolated if it lives inside ``.harness-workdir/``
-      (the convention emitted by ``EnvironmentIsolator.setup_run``). Anything
-      under a user home ``.claude/`` is the canonical NFR-009 violation.
+    The convention: each path must live under ``.harness-workdir/`` somewhere
+    along the absolute path. This is the canonical NFR-009 violation guard.
     """
     for label, p in (
         ("plugin_dir", spec.plugin_dir),
         ("settings_path", spec.settings_path),
     ):
-        norm = os.path.normpath(os.path.abspath(p))
-        # Must be under .harness-workdir/ somewhere along the path.
-        if ".harness-workdir" + os.sep not in (norm + os.sep):
+        if not _is_under_workdir(p):
             raise InvalidIsolationError(
                 f"{label}={p!r} not under .harness-workdir/ — "
                 "F10 EnvironmentIsolator.setup_run must produce the path (NFR-009)"
@@ -97,56 +122,109 @@ def _validate_isolation(spec: DispatchSpec) -> None:
 
 
 class ClaudeCodeAdapter:
-    """ToolAdapter implementation for the Claude Code CLI."""
+    """ToolAdapter implementation for the Claude Code CLI (Wave 4)."""
 
     def __init__(
         self,
         *,
         pty_factory: Callable[..., Any] | None = None,
         resolver: Any = None,
+        bridge_source: Path | None = None,
     ) -> None:
         # `pty_factory` is injected in unit tests (FakePty); production code
         # selects PosixPty / WindowsPty by os.name.
         self._pty_factory = pty_factory
         self._resolver = resolver
-        self._extractor = HilExtractor()
+        self._mapper = HookEventMapper()
+        self._skip_dialogs_writer = SkipDialogsArtifactWriter()
+        self._settings_writer = SettingsArtifactWriter()
+        self._bridge_deployer = HookBridgeScriptDeployer()
+        self._bridge_source = bridge_source or _default_bridge_source()
 
     # ------------------------------------------------------------------
     def build_argv(self, spec: DispatchSpec) -> list[str]:
+        """Build the SRS FR-016 strict argv whitelist (8 or 10 items)."""
         _validate_isolation(spec)
-        # FR-016 strict order:
-        #   claude --dangerously-skip-permissions
-        #          --output-format stream-json --include-partial-messages
-        #          --plugin-dir <dir>
-        #          --mcp-config <json> --strict-mcp-config        (only if mcp_config)
-        #          --settings <json>
-        #          --setting-sources user,project
-        #          [--model <alias>]
         argv: list[str] = [
             "claude",
             "--dangerously-skip-permissions",
-            "--output-format",
-            "stream-json",
-            "--include-partial-messages",
             "--plugin-dir",
             spec.plugin_dir,
-        ]
-        if spec.mcp_config is not None:
-            argv += ["--mcp-config", spec.mcp_config, "--strict-mcp-config"]
-        argv += [
             "--settings",
             spec.settings_path,
-            "--setting-sources",
-            "user,project",
         ]
         if spec.model is not None:
             argv += ["--model", spec.model]
-        # FR-008: -p MUST never appear.
+        argv += ["--setting-sources", "project"]
+        # FR-008/016: banned flags must never appear.
         assert "-p" not in argv
+        assert "--print" not in argv
+        assert "--output-format" not in argv
+        assert "--include-partial-messages" not in argv
+        assert "--mcp-config" not in argv
+        assert "--strict-mcp-config" not in argv
         return argv
 
     # ------------------------------------------------------------------
-    def spawn(self, spec: DispatchSpec) -> TicketProcess:
+    def prepare_workdir(
+        self, spec: DispatchSpec, paths: IsolatedPaths
+    ) -> IsolatedPaths:
+        """Idempotently write the Wave-4 isolation triplet under ``paths.cwd``.
+
+        See env-guide §4.5 + FR-051 + Design Implementation Summary §3.
+        """
+        cwd = Path(paths.cwd)
+        # CheckEscape — paths.cwd must live under .harness-workdir/.
+        if not _is_under_workdir(str(cwd)):
+            raise InvalidIsolationError(
+                f"paths.cwd={paths.cwd!r} escapes user-scope; "
+                "must be under .harness-workdir/ (NFR-009)"
+            )
+
+        # DeployBridge precondition — HARNESS_BASE_URL must be available.
+        harness_base_url = (
+            spec.env.get("HARNESS_BASE_URL")
+            or os.environ.get("HARNESS_BASE_URL", "")
+        ).strip()
+        if not harness_base_url:
+            raise WorkdirPrepareError(
+                "HARNESS_BASE_URL must be set in spec.env or os.environ for "
+                "Wave-4 workdir-scoped hook bridge"
+            )
+
+        # Provider-routing env (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL etc.)
+        # is injected via settings.json `env` block — claude TUI reads it
+        # directly without going through the OS env whitelist (puncture.py
+        # validated 2026-04-26). Convention: any spec.env key with prefix
+        # ``ANTHROPIC_`` or ``API_`` is forwarded into settings.json.
+        provider_env: dict[str, str] = {}
+        for key, value in spec.env.items():
+            if key in _ENV_WHITELIST:
+                continue
+            if key.startswith("ANTHROPIC_") or key.startswith("API_") or key in (
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+            ):
+                provider_env[key] = value
+
+        try:
+            self._skip_dialogs_writer.write(cwd)
+            self._settings_writer.write(
+                cwd,
+                harness_base_url=harness_base_url,
+                model=spec.model,
+                extra_env=provider_env or None,
+            )
+            self._bridge_deployer.deploy(cwd, source=self._bridge_source)
+        except WorkdirPrepareError:
+            raise
+        except OSError as exc:
+            raise WorkdirPrepareError(f"prepare_workdir failed: {exc}") from exc
+        return paths
+
+    # ------------------------------------------------------------------
+    def spawn(
+        self, spec: DispatchSpec, paths: IsolatedPaths | None = None
+    ) -> TicketProcess:
         argv = self.build_argv(spec)
         if shutil.which(argv[0]) is None:
             raise SpawnError("Claude CLI not found")
@@ -175,8 +253,9 @@ class ClaudeCodeAdapter:
         )
 
     # ------------------------------------------------------------------
-    def extract_hil(self, event: StreamEvent) -> list[HilQuestion]:
-        return self._extractor.extract(event)
+    def map_hook_event(self, payload: HookEventPayload) -> list[HilQuestion]:
+        """Map a hook stdin payload (or raw dict) to HilQuestion[]."""
+        return self._mapper.parse(payload)
 
     # ------------------------------------------------------------------
     def parse_result(self, events: list[StreamEvent]) -> OutputInfo:
@@ -211,7 +290,12 @@ class ClaudeCodeAdapter:
 
     # ------------------------------------------------------------------
     def supports(self, flag: CapabilityFlags) -> bool:
-        return flag is CapabilityFlags.MCP_STRICT
+        # Wave 4: HOOKS=True; mcp_config is degraded so MCP_STRICT=False.
+        if flag is CapabilityFlags.HOOKS:
+            return True
+        if flag is CapabilityFlags.MCP_STRICT:
+            return False
+        return False
 
     # ------------------------------------------------------------------
     @staticmethod
@@ -228,6 +312,13 @@ class ClaudeCodeAdapter:
             from harness.pty.windows import WindowsPty
 
             return WindowsPty
+
+
+def _default_bridge_source() -> Path:
+    """Locate the repo-root scripts/claude-hook-bridge.py."""
+    here = Path(__file__).resolve()
+    # harness/adapter/claude.py → repo root is parents[2]
+    return here.parents[2] / "scripts" / "claude-hook-bridge.py"
 
 
 __all__ = ["ClaudeCodeAdapter"]

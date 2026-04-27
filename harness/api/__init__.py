@@ -97,6 +97,8 @@ from .files_routes import router as _files_router  # noqa: E402
 from .git_routes import router as _git_router  # noqa: E402
 from .general_settings import router as _general_settings_router  # noqa: E402
 from .validate import router as _validate_router  # noqa: E402
+from .hook import router as _hook_router  # noqa: E402  (F18 Wave 4 IAPI-020)
+from .pty_writer import router as _pty_writer_router  # noqa: E402  (F18 Wave 4 IAPI-021)
 
 app.include_router(_runs_router)
 app.include_router(_tickets_router)
@@ -107,6 +109,8 @@ app.include_router(_files_router)
 app.include_router(_git_router)
 app.include_router(_general_settings_router)
 app.include_router(_validate_router)
+app.include_router(_hook_router)
+app.include_router(_pty_writer_router)
 
 
 def _probe_cli_version(name: str) -> str | None:

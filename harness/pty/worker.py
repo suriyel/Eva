@@ -72,8 +72,17 @@ class PtyWorker:
                 raise PtyError(f"pty start failed: {exc}") from exc
 
         self._state = "running"
-        # Reader thread is only useful when there's a real read() method.
-        if hasattr(self._pty, "read"):
+        # Reader thread is only useful when there's a real read() method AND
+        # there's an asyncio consumer wired (loop + byte_queue). In sync
+        # contexts (no running loop), the reader would consume PTY bytes and
+        # silently drop them — letting integration drivers (T29/T30) reach
+        # down to the underlying fd via select. Start the thread only when
+        # a real consumer is on the other side.
+        if (
+            hasattr(self._pty, "read")
+            and self.byte_queue is not None
+            and self._loop is not None
+        ):
             t = threading.Thread(target=self._reader_loop, name="PtyWorker", daemon=True)
             self._thread = t
             t.start()

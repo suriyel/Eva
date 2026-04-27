@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """Auto-loop script for long-task feature development.
 
+Out-of-scope of SRS FR-008 banned-flag rule:
+    SRS FR-008 / FR-016 forbid `-p / --print / --output-format /
+    --include-partial-messages / --mcp-config / --strict-mcp-config` only on
+    the F18 ticket-spawn path (ClaudeCodeAdapter.build_argv) — see the
+    verification clause "Given spawn Claude ticket, when 检查 argv, then 不含 -p"
+    in docs/plans/2026-04-21-harness-srs.md lines 246-254 (FR-008) and 332-340
+    (FR-016). This script is a USER-FACING batch driver invoked manually from
+    a shell; it neither dispatches harness tickets nor goes through the
+    isolation triplet pipeline. Continuing to use `-p` here is therefore
+    consistent with the SRS scoping clause.
+
 Repeatedly calls `claude -p "go on" --dangerously-skip-permissions` (or opencode)
 until all active features pass, max iterations are reached, or an error occurs.
 

@@ -59,6 +59,8 @@ yarn-error.log*
 /test-results/
 /playwright-report/
 /playwright/.cache/
+apps/ui/test-results/
+apps/ui/playwright-report/
 
 # ─────────────── IDE / OS ───────────────
 .vscode/
@@ -78,3 +80,6 @@ logs/
 # ─────────────── 本地参考物料（不入库） ───────────────
 reference/
 docs/plans/参考.jpg
+
+# ─────────────── Claude Code 运行时（不入库） ───────────────
+.claude/

@@ -28,6 +28,10 @@ class EscapeError(AdapterError):
     """Raised by HilWriteback when freeform answer contains forbidden control chars."""
 
 
+class WorkdirPrepareError(AdapterError):
+    """Raised when ToolAdapter.prepare_workdir mkdir/write/copy fails (FR-051)."""
+
+
 __all__ = [
     "AdapterError",
     "SpawnError",
@@ -35,4 +39,5 @@ __all__ = [
     "HilPayloadError",
     "HookRegistrationError",
     "EscapeError",
+    "WorkdirPrepareError",
 ]

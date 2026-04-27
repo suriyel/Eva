@@ -33,6 +33,9 @@ class HilEventBus:
     ) -> None:
         self._ws_broadcast = ws_broadcast
         self._audit = audit
+        # Wave 4 [NEW] FR-014 replacement logic: track unanswered tool_use_ids
+        # so SessionEnd handler can keep ticket in hil_waiting if non-empty.
+        self.tool_use_id_queue: list[str] = []
 
     # ------------------------------------------------------------------
     def publish_opened(self, *, ticket_id: str, run_id: str, question: HilQuestion) -> None:

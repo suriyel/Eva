@@ -974,3 +974,44 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - Verification: `validate_features.py: VALID — 24 features (9 passing, 3 failing, 12 deprecated) | current=#18(design)`
 - Design: DONE (docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md)
 - current.phase: design → tdd
+
+### Session 37 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · TDD (Wave 4 · 2026-04-27)
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=4
+- env-guide: approved (v1.2 · 2026-04-27 · godsuriyel@gmail.com)
+- Bootstrap: venv active · pytest 8.4.2 · F02 state machine smoke 16 PASS · No services started (required_configs=[]; unit tests use TestClient + mocks)
+- Red SubAgent: pass (61 tests written; categories=FUNC/BNDRY/SEC/UT/INTG; negative_ratio=0.475; real_test_count=5; low_value_ratio≈0; UML coverage 4/4)
+- Green SubAgent: pass (Round 1 + Failure Addendum Round 2; 12 impl files NEW/MOD + 3 W3 files DELETED; design_alignment §4/§6/§8 matches; drift resolved)
+- Failure Addendum (主 agent 内联，未分发额外 SubAgent) — 修复 5 处 deviation vs reference/f18-tui-bridge/puncture.py + 全程 settings/hooks/auth 链路打通：
+  - Settings.json 嵌套 hooks schema (matcher + nested hooks 三件套)
+  - .claude.json 12 字段 (onboarding/migration/userID 等)
+  - settings.json `enabledPlugins: {}` (record) 替代 `[]` (array) — claude 视为"Settings Error"整体忽略 settings.json 的元凶
+  - extra_env 注入 ANTHROPIC_AUTH_TOKEN/BASE_URL → MiniMax routing
+  - prepare_workdir 透传 spec.env 中 ANTHROPIC_*/API_*
+  - TERM=xterm-256color + COLUMNS/LINES/LANG (puncture env 一致)
+  - bridge 命令使用绝对路径 + 显式 ProxyHandler({}) 对 localhost bypass HTTP_PROXY
+  - HookEventPayload `ts: str | None = None` (与 ASM-009 7 字段一致；SRS IFR-001 line 867 列的 `ts` 留待 increment 修订)
+  - PtyWorker reader thread 在 sync context 不启动 (避免 select-based 直接读 fd 时被吞字节)
+  - HOME=cwd puncture mode (fake_home/cwd 合一)
+  - HTTP_PROXY/HTTPS_PROXY/NO_PROXY/ALL_PROXY 加 _ENV_WHITELIST
+  - bypass-permissions 对话框自动接受 (OAuth 路径专属，arrow-down 1s + CR)
+  - prompt 改 PASTE+sleep+CR 三步 (不 wrap encode_freeform)
+- Refactor (主 agent 内联) — 抽象 cli_dialog 模块（按用户提议的"甲方案"，预留 LLM/Delegating fallback 接口）：
+  - 新建 `harness/cli_dialog/` 模块 (5 文件)：models / recognizer (Catalog + LLM 桩 + Chain) / decider (Catalog + LLM 桩 + Delegating 桩) / actuator / catalog
+  - `_split_keystrokes` helper：按 ESC/CSI 边界切单键 chunk (修复 ink 一次只消化一键的 bug)
+  - `run_real_hil_round_trip` 改注入式 (recognizer/decider/actuator 三参数)，硬编码 dialog 处理迁到 catalog
+  - 新增单元测试 59 (models 11 + actuator 14 + recognizer 13 + decider 12 + split_keystrokes 9)
+- 实测穿刺 (3 方案对比，验证 audit 闭环)：
+  - 方案 A (Esc + paste + CR)：通过 PreToolUse + UserPromptSubmit + Stop 三层 audit 闭环；claude DONE 输出 + 不重问；PostToolUse 不 fire (合理预期)
+  - 方案 B (arrow + Type-something + CR)：与 A 等价，PostToolUse 也不 fire
+  - 方案 C (`<N>\r` baseline)：PreToolUse + PostToolUse + Stop；audit 完整
+- T29/T30 实测：
+  - **T29** PASSED (单轮 HIL round-trip via hook bridge with MiniMax routing)
+  - **T30** PASSED 5m07s (FR-013 PoC gate 20 轮 ≥ 95% — actually 100%)
+  - alt-settings.json 已删除 (token 不入库；下次跑 T29/T30 需用户重填)
+- 静态测试：
+  - cli_dialog 单元 59/59
+  - F18 W4 单元 + 集成 65/65
+  - 全量 715 passed + 13 baseline failures (F22/F23/F24/F20，与 F18 无关)
+- TDD R-G-R: green ✓
+- current.phase: tdd (continued; Quality gate + ST 待执行)
+- 后续：用户决策启动 SubAgent 做 unified Esc-text 协议增量 (FR-053 默认协议升级)

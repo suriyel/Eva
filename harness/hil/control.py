@@ -30,7 +30,7 @@ class HilControlDeriver:
             return "free_text"
         if not options and not freeform:
             # Edge per §Boundary: empty options + no freeform → still falls back
-            # to free_text (T10 covers this). The HilExtractor warns separately.
+            # to free_text (T10 covers this). The HookEventMapper warns separately.
             return "free_text"
         # options non-empty → single_select (covers len 1 with freeform "其他",
         # len 1 without freeform, len ≥2)

@@ -1,11 +1,17 @@
-"""F18 · Bk-Adapter — ToolAdapter Protocol + CapabilityFlags enum.
+"""F18 Wave 4 · ToolAdapter Protocol (7 methods) + CapabilityFlags enum.
 
-Per Design §4 row ToolAdapter and rationale (Design §6):
-  - ``typing.Protocol + @runtime_checkable`` (NOT ``abc.ABC``) so future
-    GeminiAdapter classes don't need to inherit a concrete base.
-  - Six methods: build_argv / spawn / extract_hil / parse_result /
-    detect_anomaly / supports.
-  - mypy ``--strict`` is enforced separately in env-guide §3.
+Wave 4 protocol-layer rewrite (Design §4.3 + commit 92538da):
+
+  Methods (in canonical order):
+    build_argv / prepare_workdir / spawn / map_hook_event /
+    parse_result / detect_anomaly / supports
+
+  ``extract_hil`` (Wave 3) is physically removed; replaced by ``map_hook_event``
+  which consumes a ``HookEventPayload`` (the workdir-scoped hook stdin schema)
+  rather than parsed StreamEvent.
+
+NFR-014: ``typing.Protocol + @runtime_checkable`` so future GeminiAdapter does
+not need to inherit a concrete base.
 """
 
 from __future__ import annotations
@@ -13,6 +19,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
+from harness.adapter.hook_payload import HookEventPayload
 from harness.adapter.process import TicketProcess
 from harness.domain.ticket import (
     AnomalyInfo,
@@ -20,11 +27,12 @@ from harness.domain.ticket import (
     HilQuestion,
     OutputInfo,
 )
+from harness.env.models import IsolatedPaths
 from harness.stream.events import StreamEvent
 
 
 class CapabilityFlags(Enum):
-    """Static capability flags reported by ToolAdapter.supports (Design §4)."""
+    """Static capability flags reported by ToolAdapter.supports."""
 
     MCP_STRICT = "mcp_strict"
     HOOKS = "hooks"
@@ -32,13 +40,19 @@ class CapabilityFlags(Enum):
 
 @runtime_checkable
 class ToolAdapter(Protocol):
-    """Six-method contract every backend Agent CLI adapter must satisfy."""
+    """Wave-4 7-method contract every backend Agent CLI adapter must satisfy."""
 
     def build_argv(self, spec: DispatchSpec) -> list[str]: ...
 
-    def spawn(self, spec: DispatchSpec) -> TicketProcess: ...
+    def prepare_workdir(
+        self, spec: DispatchSpec, paths: IsolatedPaths
+    ) -> IsolatedPaths: ...
 
-    def extract_hil(self, event: StreamEvent) -> list[HilQuestion]: ...
+    def spawn(
+        self, spec: DispatchSpec, paths: IsolatedPaths | None = None
+    ) -> TicketProcess: ...
+
+    def map_hook_event(self, payload: HookEventPayload) -> list[HilQuestion]: ...
 
     def parse_result(self, events: list[StreamEvent]) -> OutputInfo: ...
 

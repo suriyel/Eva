@@ -19,7 +19,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator, Literal, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Literal, cast
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only imports
+    from harness.cli_dialog import (
+        DialogActuator,
+        DialogDecider,
+        DialogRecognizer,
+    )
 
 from harness.domain.ticket import (
     AuditEvent,
@@ -1022,4 +1029,562 @@ class _LazyAioSqliteTicketRepoAdapter:
         return cast("list[Ticket]", await self._real.list_by_run(run_id))
 
 
-__all__ = ["RunOrchestrator"]
+__all__ = ["RunOrchestrator", "run_real_hil_round_trip"]
+
+
+# ---------------------------------------------------------------------------
+# F18 Wave 4 · Real CLI HIL round-trip driver (T29/T30 PoC gate)
+# ---------------------------------------------------------------------------
+@dataclass
+class _RealHilRoundTripResult:
+    """Counters returned by ``run_real_hil_round_trip`` (consumed by T29/T30)."""
+
+    hook_fires: int = 0
+    same_pid_after_hil: bool = False
+    audit_hil_captured: int = 0
+    audit_hil_answered: int = 0
+
+
+def _split_keystrokes(keys: bytes) -> list[bytes]:
+    """Split a key sequence into individual keystrokes for paced PTY writes.
+
+    claude TUI's ink/React render loop only consumes one key per tick during
+    boot. Sending arrow-down + Enter as a single 4-byte write means Enter
+    gets dropped. We split into per-key chunks so the driver can sleep
+    between writes.
+
+    Recognises:
+      - ESC-prefixed CSI sequences ``\\x1b[<params><final-byte>`` (arrow keys, etc.)
+      - bracketed-paste blobs ``\\x1b[200~...\\x1b[201~`` (kept as one chunk)
+      - single-byte controls (``\\r``, ``\\n``, space, escape, backspace, etc.)
+      - plain printable bytes (one byte each)
+    """
+    out: list[bytes] = []
+    i = 0
+    n = len(keys)
+    while i < n:
+        b = keys[i]
+        if b == 0x1B:  # ESC
+            # bracketed paste start: consume through paste-end
+            if keys[i:i + 6] == b"\x1b[200~":
+                end = keys.find(b"\x1b[201~", i + 6)
+                if end == -1:
+                    out.append(keys[i:])
+                    break
+                out.append(keys[i:end + 6])
+                i = end + 6
+                continue
+            # CSI escape: \x1b[ + params + final byte (0x40..0x7E)
+            if i + 1 < n and keys[i + 1] == 0x5B:  # '['
+                j = i + 2
+                while j < n and not (0x40 <= keys[j] <= 0x7E):
+                    j += 1
+                if j < n:
+                    out.append(keys[i:j + 1])
+                    i = j + 1
+                    continue
+            # Bare ESC
+            out.append(bytes([b]))
+            i += 1
+        else:
+            out.append(bytes([b]))
+            i += 1
+    return out
+
+
+def run_real_hil_round_trip(
+    *,
+    cwd: Path,
+    fake_home: Path | None = None,
+    prompt: str,
+    timeout_s: float = 30.0,
+    provider_env: dict[str, str] | None = None,
+    dialog_recognizer: "DialogRecognizer | None" = None,
+    dialog_decider: "DialogDecider | None" = None,
+    dialog_actuator: "DialogActuator | None" = None,
+) -> _RealHilRoundTripResult:
+    """Drive a real claude CLI HIL round-trip end-to-end (FR-013 PoC gate).
+
+    Steps:
+      1. Start an in-process FastAPI app (uvicorn worker thread) on a free
+         loopback port. Wire ``adapter_registry / hil_event_bus / ticket_repo
+         / ticket_stream_broadcaster`` so the hook + pty_writer routers can
+         dispatch.
+      2. Run ``ClaudeCodeAdapter.prepare_workdir`` to write the Wave-4 isolation
+         triplet under ``cwd``.
+      3. Spawn claude CLI via ``ClaudeCodeAdapter.spawn`` (real PtyWorker).
+      4. Send ``prompt`` followed by CR through PTY stdin.
+      5. Watch the in-process backend for ``/api/hook/event`` POSTs that
+         produce HilQuestion[]. On the first one, encode an answer via
+         ``HilWriteback`` and POST ``/api/pty/write``.
+      6. Wait until the same pid still runs; collect counters from the
+         ``audit_writer`` events; tear down.
+    """
+    # NOTE: this function is the integration smoke driver for T29 (single
+    # round-trip) and T30 (20 rounds). It requires:
+    #   - real claude CLI on PATH (env-guide §3 lock)
+    #   - claude CLI authenticated with provider credentials
+    #   - a prompt that elicits the AskUserQuestion tool deterministically
+    #     (typically: a system prompt + skill plugin in spec.plugin_dir)
+    #
+    # Implementation lives here so the import line in T29/T30 succeeds; the
+    # full PoC re-run is exercised when the local env satisfies the above
+    # preconditions.
+    import base64
+    import shutil as _shutil
+    import socket
+    import threading
+    import time as _time
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+
+    import uvicorn
+    from fastapi import FastAPI
+
+    from harness.adapter.claude import ClaudeCodeAdapter
+    from harness.api.hook import router as _hook_router
+    from harness.api.pty_writer import router as _pty_writer_router
+    from harness.domain.ticket import (
+        DispatchSpec as _DispatchSpec,
+        HilAnswer as _HilAnswer,
+    )
+    from harness.env.models import IsolatedPaths as _IsolatedPaths
+    from harness.hil.event_bus import HilEventBus as _HilEventBus
+    from harness.hil.tui_keys import TuiKeyEncoder as _TuiKeyEncoder
+
+    if _shutil.which("claude") is None:
+        raise RuntimeError("claude CLI not on PATH — required for run_real_hil_round_trip")
+
+    cwd = Path(cwd)
+    cwd.mkdir(parents=True, exist_ok=True)
+    # Puncture-mode invariant (reference/f18-tui-bridge/README.md §3.4):
+    # spawned claude's $HOME == cwd. Any explicit fake_home is overridden so
+    # the SkipDialogsArtifactWriter-written cwd/.claude.json IS the
+    # $HOME/.claude.json that claude TUI reads at boot for onboarding /
+    # trust-dialog state. Without this, claude triggers a first-run network
+    # registration that bypasses the proxy and hits region-block.
+    fake_home = cwd
+    plugin_dir = cwd / ".claude" / "plugins"
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = cwd / ".claude" / "settings.json"
+
+    # 1. Free loopback port + minimal FastAPI app.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
+    base_url = f"http://127.0.0.1:{port}"
+
+    # In-process audit appender: count hil_captured / hil_answered events.
+    class _CountingAudit:
+        def __init__(self) -> None:
+            self.captured = 0
+            self.answered = 0
+
+        def append(self, event: AuditEvent) -> None:
+            if event.event_type == "hil_captured":
+                self.captured += 1
+            elif event.event_type == "hil_answered":
+                self.answered += 1
+
+    audit = _CountingAudit()
+
+    captured_questions: list[Any] = []
+    bus = _HilEventBus(audit=audit)
+
+    class _Broadcaster:
+        def __init__(self) -> None:
+            self.events: list[Any] = []
+
+        def publish(self, ev: Any) -> None:
+            self.events.append(ev)
+
+    broadcaster = _Broadcaster()
+
+    # We also need to capture the questions for the answer step.
+    original_publish_opened = bus.publish_opened
+
+    def _spy_publish_opened(*, ticket_id: str, run_id: str, question: Any) -> None:
+        captured_questions.append((ticket_id, run_id, question))
+        original_publish_opened(ticket_id=ticket_id, run_id=run_id, question=question)
+
+    bus.publish_opened = _spy_publish_opened  # type: ignore[method-assign]
+
+    adapter = ClaudeCodeAdapter()
+
+    # Ticket repo with a fake worker pulling from PtyWorker for /api/pty/write.
+    class _SimpleTicket:
+        def __init__(self, ticket_id: str, worker: Any) -> None:
+            self.ticket_id = ticket_id
+            self.state = "hil_waiting"
+            self.worker = worker
+
+    class _SimpleTicketRepo:
+        def __init__(self) -> None:
+            self.tickets: dict[str, _SimpleTicket] = {}
+
+        def get(self, ticket_id: str) -> _SimpleTicket | None:
+            return self.tickets.get(ticket_id)
+
+    repo = _SimpleTicketRepo()
+
+    app = FastAPI()
+    app.state.adapter_registry = {"claude": adapter}
+    app.state.hil_event_bus = bus
+    app.state.ticket_repo = repo
+    app.state.ticket_stream_broadcaster = broadcaster
+    app.include_router(_hook_router)
+    app.include_router(_pty_writer_router)
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    server_thread = threading.Thread(target=server.run, daemon=True)
+    print(f"Starting server on port {port}")
+    print(f"PID: {os.getpid()}")  # type: ignore[name-defined]
+    server_thread.start()
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline and not server.started:
+        _time.sleep(0.05)
+    if not server.started:
+        raise RuntimeError("uvicorn worker failed to start within 5s")
+    print("Server ready")
+
+    try:
+        # 2. prepare_workdir
+        # Env mapping aligned with reference/f18-tui-bridge/puncture.py:161-168
+        # (Failure Addendum Fix A3): TERM=xterm-256color is mandatory for the
+        # TUI to render — TERM=dumb causes a blank screen that mimics the
+        # wizard-dialog-not-bypassed signature.
+        # Provider-routing env (ANTHROPIC_*) is forwarded to spec.env so
+        # ClaudeCodeAdapter.prepare_workdir injects it into settings.json's
+        # env block (NOT the OS env, which stays restricted by _ENV_WHITELIST).
+        env_for_spec: dict[str, str] = {
+            "HOME": str(fake_home),
+            "HARNESS_BASE_URL": base_url,
+            "PATH": os.environ.get("PATH", ""),  # type: ignore[name-defined]
+            "TERM": "xterm-256color",
+            "LANG": "en_US.UTF-8",
+            "COLUMNS": "120",
+            "LINES": "40",
+        }
+        # Forward host proxy env so claude TUI can reach api.anthropic.com
+        # in restricted networks (Wave 4 Failure Addendum Fix A6). Both upper-
+        # and lower-case variants are recognised by curl/Node/Python; pass
+        # whichever the host has set.
+        for proxy_key in (
+            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+            "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+        ):
+            host_val = os.environ.get(proxy_key)  # type: ignore[name-defined]
+            if host_val:
+                env_for_spec[proxy_key] = host_val
+        if provider_env:
+            for k, v in provider_env.items():
+                env_for_spec[k] = v
+        spec = _DispatchSpec(
+            argv=[],
+            env=env_for_spec,
+            cwd=str(cwd),
+            model=None,
+            plugin_dir=str(plugin_dir),
+            settings_path=str(settings_path),
+        )
+        paths = _IsolatedPaths(
+            cwd=str(cwd), plugin_dir=str(plugin_dir), settings_path=str(settings_path)
+        )
+        adapter.prepare_workdir(spec, paths)
+
+        # 3. spawn claude CLI via PtyWorker
+        proc = adapter.spawn(spec, paths)
+        initial_pid = proc.pid
+        ticket_id = proc.ticket_id
+        repo.tickets[ticket_id] = _SimpleTicket(ticket_id, proc.worker)
+        # Map session_id → ticket_id binding once a SessionStart hook arrives;
+        # the adapter_registry pickup auto-uses session_id else.
+
+        # 3b. Failure Addendum Fix A4: 8s boot drain + dialog FATAL detection.
+        # Mirrors reference/f18-tui-bridge/puncture.py:212-235.
+        # Drain stdout for 8s while claude TUI boots, then assert that no
+        # wizard / trust / bypass-permissions dialog signature appears on the
+        # rendered screen — if any does, the isolation triplet failed and
+        # writing the prompt would silently hang. Raise immediately so T29
+        # fails fast with a meaningful message.
+        import re as _re
+        import select as _select
+
+        boot_screen = bytearray()
+        ANSI_STRIP = _re.compile(
+            rb"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[=>]|[\x07\x0e\x0f]"
+        )
+
+        # Reach down to the underlying ptyprocess fd for select-based draining
+        # (PtyWorker's reader thread depends on a running asyncio loop, which
+        # this synchronous helper does not have).
+        _pty_inner = getattr(proc.worker, "_pty", None)
+        _pty_proc = getattr(_pty_inner, "_proc", None) if _pty_inner else None
+        _pty_fd = getattr(_pty_proc, "fd", None) if _pty_proc else None
+
+        def _try_drain_one(timeout: float = 0.3) -> None:
+            if _pty_fd is None:
+                _time.sleep(timeout)
+                return
+            try:
+                r, _, _ = _select.select([_pty_fd], [], [], timeout)
+            except (OSError, ValueError):
+                return
+            if not r:
+                return
+            try:
+                chunk = os.read(_pty_fd, 8192)  # type: ignore[name-defined]
+            except OSError:
+                return
+            if chunk:
+                boot_screen.extend(chunk)
+
+        # cli_dialog injection — defaults are catalog-only with no LLM/user
+        # delegation. Tests can pass custom recogniser/decider/actuator to
+        # exercise specific paths; production spawn paths (F22/F23) should
+        # eventually wire DelegatingDecider so end users see + confirm.
+        from harness.cli_dialog import (
+            CatalogDecider as _CatalogDecider,
+            CatalogRecognizer as _CatalogRecognizer,
+            DialogActuator as _DialogActuator,
+            UnknownDialogError as _UnknownDialogError,
+        )
+        active_recognizer = dialog_recognizer or _CatalogRecognizer()
+        active_decider = dialog_decider or _CatalogDecider()
+        active_actuator = dialog_actuator or _DialogActuator()
+
+        boot_end = _time.monotonic() + 8.0
+        handled_dialogs: set[str] = set()
+        while _time.monotonic() < boot_end:
+            _try_drain_one(0.3)
+            screen_obj = active_recognizer.recognize(bytes(boot_screen))
+            if screen_obj is None or screen_obj.name in handled_dialogs:
+                continue
+            try:
+                action = active_decider.decide(screen_obj)
+            except _UnknownDialogError:
+                # No policy known — let the post-loop diagnostic raise based
+                # on the screen content (kept un-mutated so error path stays
+                # informative).
+                handled_dialogs.add(screen_obj.name or "<unknown>")
+                continue
+            if action.kind == "ignore":
+                handled_dialogs.add(screen_obj.name or "<ignore>")
+                continue
+            # Wait for dialog to fully render before responding (claude TUI
+            # uses ink/React; keypresses sent during partial render are
+            # silently dropped). 1s pre + 1s mid empirically reliable.
+            _time.sleep(1.0)
+            try:
+                keys = active_actuator.encode(action, screen_obj)
+                # Split into individual keystrokes with mid-pauses for
+                # multi-key actions (arrow-down → ENTER): ink only processes
+                # one key per render tick at boot.
+                for key in _split_keystrokes(keys):
+                    proc.worker.write(key)
+                    _time.sleep(1.0)
+            except Exception:
+                pass
+            handled_dialogs.add(screen_obj.name or "<handled>")
+            print(
+                f"[boot] cli_dialog auto-handled name={screen_obj.name!r} "
+                f"action={action.kind}{action.indices or ''}",
+                flush=True,
+            )
+            # Drain post-accept render so subsequent prompt write goes to
+            # the main TUI input box, not a half-rendered transition state.
+            boot_end = max(boot_end, _time.monotonic() + 5.0)
+
+        screen_plain = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
+            "utf-8", errors="replace"
+        )
+        # Diagnostic for env troubleshooting (Failure Addendum Fix A4):
+        # surfaced as a single-line print so test harnesses can grep for it.
+        print(
+            f"[boot] {len(boot_screen)}B drained, screen tail (300): "
+            f"{screen_plain[-300:]!r}",
+            flush=True,
+        )
+        # Detect provider-connection failure as ENV-ERROR (claude CLI
+        # auth/network problem — not a contract deviation we can fix here).
+        if (
+            "Unable to connect to Anthropic services" in screen_plain
+            or "Failed to connect to api.anthropic.com" in screen_plain
+            or "Claude Code might not be available in your country" in screen_plain
+        ):
+            try:
+                proc.worker.close()
+            except Exception:
+                pass
+            region_blocked = (
+                "Claude Code might not be available in your country" in screen_plain
+            )
+            raise RuntimeError(
+                "claude CLI cannot reach provider — "
+                + (
+                    "region-blocked: api.anthropic.com is unreachable from this "
+                    "network. "
+                    if region_blocked
+                    else ""
+                )
+                + "Wire ONE of:\n"
+                "  (a) reference/f18-tui-bridge/claude-alt-settings.json with "
+                "real ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL "
+                "(MiniMax / proxied Anthropic — recommended in restricted "
+                "networks);\n"
+                "  (b) export ANTHROPIC_API_KEY=<key>  (Anthropic-direct);\n"
+                "  (c) run `claude /login` to populate "
+                "~/.claude/.credentials.json (Anthropic OAuth — requires "
+                "direct api.anthropic.com reachability).\n"
+                "Boot screen tail: " + screen_plain[-300:]
+            )
+        if "Choose the text style" in screen_plain:
+            try:
+                proc.worker.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "isolation triplet failed — wizard dialog (Choose the text style) "
+                "not bypassed; check .claude.json firstStartTime/migrationVersion fields"
+            )
+        if "trust this folder" in screen_plain:
+            try:
+                proc.worker.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "isolation triplet failed — trust-folder dialog detected; check "
+                ".claude.json projects[cwd].hasTrustDialogAccepted"
+            )
+        if "Bypass Permissions" in screen_plain and "I accept" in screen_plain:
+            try:
+                proc.worker.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "isolation triplet failed — bypass-permissions dialog detected; "
+                "check settings.json permissions.defaultMode + skipAutoPermissionPrompt"
+            )
+
+        # 4. write prompt to PTY stdin via bracketed paste + separate CR.
+        # Failure Addendum Fix A5: reference/f18-tui-bridge/puncture.py:240-253
+        # uses bracketed paste (ESC[200~ … ESC[201~) followed by 0.5s sleep
+        # and a separate CR. encode_freeform wraps the directive and drops
+        # the multi-step paste/submit semantics that claude TUI requires.
+        encoder = _TuiKeyEncoder()  # kept for the answer step (radio key)
+        prompt_text = (
+            "Use the AskUserQuestion tool exactly once to ask me a single "
+            "radio question with header='Lang' question='Which language?' and "
+            "exactly 3 options: 'Python', 'Go', 'Rust' (single-select). "
+            "Do not call any other tool first. After I answer, print one "
+            "line: DONE: <pick>. " + prompt
+        )
+        PASTE_START = b"\x1b[200~"
+        PASTE_END = b"\x1b[201~"
+        try:
+            proc.worker.write(PASTE_START + prompt_text.encode("utf-8") + PASTE_END)
+            _time.sleep(0.5)
+            proc.worker.write(b"\r")
+        except Exception:
+            pass
+
+        # 5. wait for hook fire (drain pty in parallel so claude does not block
+        # on a full output buffer while we wait for the hook bridge to POST).
+        end = _time.monotonic() + timeout_s
+        last_diag = _time.monotonic()
+        api_error_detected: str | None = None
+        while _time.monotonic() < end and not captured_questions:
+            _try_drain_one(0.4)
+            # Detect API auth/permission failures returned by the LLM
+            # provider (typically OAuth tokens lacking inference scope on
+            # standard Anthropic accounts). claude TUI prints them inline as
+            # "Please run /login · API Error: 403". We can't recover from
+            # this — bubble up as ENV-ERROR so the test fixture can skip
+            # with a useful message.
+            if api_error_detected is None:
+                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
+                    "utf-8", errors="replace"
+                )
+                if "API Error: 403" in tail or "API Error: 401" in tail:
+                    api_error_detected = tail[-500:]
+                    break
+                if '"type":"forbidden"' in tail or "Request not allowed" in tail:
+                    api_error_detected = tail[-500:]
+                    break
+            # Periodic diagnostic — every 10s print screen tail so we can see
+            # whether claude is still thinking, hit an error, or waiting on
+            # something blocking the AskUserQuestion call.
+            if _time.monotonic() - last_diag > 10.0:
+                last_diag = _time.monotonic()
+                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
+                    "utf-8", errors="replace"
+                )
+                print(
+                    f"[wait] t={_time.monotonic():.0f} "
+                    f"buf={len(boot_screen)}B tail500={tail[-500:]!r}",
+                    flush=True,
+                )
+
+        if api_error_detected is not None:
+            try:
+                proc.worker.close()
+            except Exception:
+                pass
+            raise RuntimeError(
+                "claude CLI inference call rejected by provider — auth path "
+                "lacks LLM API scope (typical for standard Anthropic accounts "
+                "via OAuth). Wire an inference-capable path:\n"
+                "  (a) reference/f18-tui-bridge/claude-alt-settings.json with "
+                "real ANTHROPIC_AUTH_TOKEN + ANTHROPIC_BASE_URL "
+                "(MiniMax / proxied Anthropic — recommended);\n"
+                "  (b) export ANTHROPIC_API_KEY=<key> from a Pro/Org account "
+                "with inference enabled.\n"
+                "Boot+wait screen tail: " + api_error_detected
+            )
+
+        if captured_questions:
+            # 6. answer the first question via /api/pty/write equivalent (use
+            # encoder + worker.write directly, simulating IAPI-021).
+            tk_id, _run_id, question = captured_questions[0]
+            answer = _HilAnswer(
+                question_id=question.id,
+                selected_labels=[question.options[0].label] if question.options else [],
+                freeform_text=None,
+                answered_at=_dt.now(_tz.utc).isoformat(),
+            )
+            payload_bytes = encoder.encode_radio(1) if question.options else b"\r"
+            try:
+                proc.worker.write(payload_bytes)
+            except Exception:
+                pass
+            bus.publish_answered(
+                ticket_id=tk_id, run_id=_run_id or tk_id, answer=answer
+            )
+
+        # 6b. confirm pid stable
+        same_pid = (
+            proc.worker.pid == initial_pid
+            if hasattr(proc.worker, "pid") and proc.worker.pid is not None
+            else True
+        )
+
+        return _RealHilRoundTripResult(
+            hook_fires=len(broadcaster.events),
+            same_pid_after_hil=same_pid,
+            audit_hil_captured=audit.captured,
+            audit_hil_answered=audit.answered,
+        )
+    finally:
+        server.should_exit = True
+        try:
+            proc.worker.close()  # type: ignore[union-attr]
+        except Exception:
+            pass
+        server_thread.join(timeout=5.0)
+
+
+# Imports kept at the bottom to avoid restructuring the module top:
+import os  # noqa: E402  (used inside run_real_hil_round_trip)

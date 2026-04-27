@@ -1,0 +1,23 @@
+{
+  "session_id": "01J6Z4G9-4M5R-7B8X-9E2C-AAAAAAAAAAAA",
+  "transcript_path": "/tmp/tui-v2-XXXX/.harness-workdir/r1/.claude/projects/-home-machine-code-Eva/01J6Z4G9-4M5R-7B8X-9E2C-AAAAAAAAAAAA.jsonl",
+  "cwd": "/tmp/tui-v2-XXXX/.harness-workdir/r1",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_use_id": "toolu_01ABCDEFGHIJKLMNOPQRSTUV",
+  "tool_input": {
+    "questions": [
+      {
+        "header": "Lang",
+        "question": "Which language?",
+        "options": [
+          {"label": "Python", "description": "Python language"},
+          {"label": "Go", "description": "Go language"},
+          {"label": "Rust", "description": "Rust language"}
+        ],
+        "multiSelect": false
+      }
+    ]
+  },
+  "ts": "2026-04-26T23:46:01.123456+00:00"
+}
