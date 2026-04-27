@@ -45,6 +45,7 @@ from harness.orchestrator.bus import (
     RunEvent,
 )
 from harness.orchestrator.errors import (
+    InvalidRunState,
     InvalidTicketState,
     PhaseRouteError,
     PhaseRouteParseError,
@@ -252,18 +253,30 @@ class _FakeToolAdapter:
         self.spawn_log: list[TicketCommand] = []
         self._next_pid = 1000
 
-    async def spawn(self, cmd: TicketCommand) -> _FakeProc:
-        self.spawn_log.append(cmd)
+    async def prepare_workdir(self, spec: Any) -> Any:
+        # Wave 4: IAPI-005 [MOD] precondition — return a sentinel IsolatedPaths
+        # the test suite can identify; production wiring uses the real
+        # ClaudeCodeAdapter.prepare_workdir.
+        from harness.env.models import IsolatedPaths
+
+        return IsolatedPaths(cwd="", plugin_dir="", settings_path="")
+
+    async def spawn(self, spec: Any, paths: Any = None) -> _FakeProc:
+        self.spawn_log.append(spec)
         self._next_pid += 1
         return _FakeProc(pid=self._next_pid)
 
     def dispatched_skill_hints(self) -> list[str]:
-        return [c.skill_hint or "" for c in self.spawn_log]
+        return [getattr(c, "skill_hint", None) or "" for c in self.spawn_log]
 
 
-class _FakeStreamParser:
-    async def events(self, proc: Any) -> AsyncIterator[Any]:
-        # No-op generator — real one yields HIL / text events.
+class _FakeTicketStream:
+    """Wave 4 [MOD]: rename of _FakeStreamParser; events() takes ticket_id (str)
+    instead of proc. Real wiring uses ``app.state.ticket_stream_broadcaster``.
+    """
+
+    async def events(self, ticket_id: str) -> AsyncIterator[Any]:
+        # No-op generator — real one yields HookEvent-derived TicketStreamEvents.
         if False:  # pragma: no cover
             yield None
 
@@ -331,7 +344,7 @@ class RunOrchestrator:
         phase_route_invoker: PhaseRouteInvoker,
         control_bus: RunControlBus,
         tool_adapter: Any | None = None,
-        stream_parser: Any | None = None,
+        ticket_stream: Any | None = None,
         classifier: Any | None = None,
         anomaly_classifier: AnomalyClassifier | None = None,
         retry_policy: RetryPolicy | None = None,
@@ -348,7 +361,7 @@ class RunOrchestrator:
         self.phase_route_invoker = phase_route_invoker
         self.control_bus = control_bus
         self.tool_adapter = tool_adapter or _FakeToolAdapter()
-        self.stream_parser = stream_parser or _FakeStreamParser()
+        self.ticket_stream = ticket_stream or _FakeTicketStream()
         self.classifier = classifier or _FakeClassifier()
         self.anomaly_classifier = anomaly_classifier or AnomalyClassifier()
         self.retry_policy = retry_policy or RetryPolicy()
@@ -632,6 +645,11 @@ class RunOrchestrator:
         rt = self._runtimes.get(run_id)
         if rt is None:
             raise RunNotFound(run_id)
+        # Wave 4 guard (T16/T60): completed/cancelled/failed runs are terminal
+        # and must NOT be silently mutated by a late cancel request. Raise 409.
+        existing = await self.run_repo.get(run_id)
+        if existing is not None and existing.state in {"completed", "cancelled", "failed"}:
+            raise InvalidRunState(run_id, existing.state)
         rt.cancel_event.set()
         if rt.loop_task is not None:
             try:
@@ -1074,12 +1092,12 @@ def _split_keystrokes(keys: bytes) -> list[bytes]:
         b = keys[i]
         if b == 0x1B:  # ESC
             # bracketed paste start: consume through paste-end
-            if keys[i:i + 6] == b"\x1b[200~":
+            if keys[i : i + 6] == b"\x1b[200~":
                 end = keys.find(b"\x1b[201~", i + 6)
                 if end == -1:
                     out.append(keys[i:])
                     break
-                out.append(keys[i:end + 6])
+                out.append(keys[i : end + 6])
                 i = end + 6
                 continue
             # CSI escape: \x1b[ + params + final byte (0x40..0x7E)
@@ -1088,7 +1106,7 @@ def _split_keystrokes(keys: bytes) -> list[bytes]:
                 while j < n and not (0x40 <= keys[j] <= 0x7E):
                     j += 1
                 if j < n:
-                    out.append(keys[i:j + 1])
+                    out.append(keys[i : j + 1])
                     i = j + 1
                     continue
             # Bare ESC
@@ -1138,7 +1156,6 @@ def run_real_hil_round_trip(
     # Implementation lives here so the import line in T29/T30 succeeds; the
     # full PoC re-run is exercised when the local env satisfies the above
     # preconditions.
-    import base64
     import shutil as _shutil
     import socket
     import threading
@@ -1249,7 +1266,7 @@ def run_real_hil_round_trip(
 
     server_thread = threading.Thread(target=server.run, daemon=True)
     print(f"Starting server on port {port}")
-    print(f"PID: {os.getpid()}")  # type: ignore[name-defined]
+    print(f"PID: {os.getpid()}")
     server_thread.start()
     deadline = _time.monotonic() + 5.0
     while _time.monotonic() < deadline and not server.started:
@@ -1270,7 +1287,7 @@ def run_real_hil_round_trip(
         env_for_spec: dict[str, str] = {
             "HOME": str(fake_home),
             "HARNESS_BASE_URL": base_url,
-            "PATH": os.environ.get("PATH", ""),  # type: ignore[name-defined]
+            "PATH": os.environ.get("PATH", ""),
             "TERM": "xterm-256color",
             "LANG": "en_US.UTF-8",
             "COLUMNS": "120",
@@ -1281,10 +1298,16 @@ def run_real_hil_round_trip(
         # and lower-case variants are recognised by curl/Node/Python; pass
         # whichever the host has set.
         for proxy_key in (
-            "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
-            "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+            "all_proxy",
         ):
-            host_val = os.environ.get(proxy_key)  # type: ignore[name-defined]
+            host_val = os.environ.get(proxy_key)
             if host_val:
                 env_for_spec[proxy_key] = host_val
         if provider_env:
@@ -1344,7 +1367,7 @@ def run_real_hil_round_trip(
             if not r:
                 return
             try:
-                chunk = os.read(_pty_fd, 8192)  # type: ignore[name-defined]
+                chunk = os.read(_pty_fd, 8192)
             except OSError:
                 return
             if chunk:
@@ -1360,6 +1383,7 @@ def run_real_hil_round_trip(
             DialogActuator as _DialogActuator,
             UnknownDialogError as _UnknownDialogError,
         )
+
         active_recognizer = dialog_recognizer or _CatalogRecognizer()
         active_decider = dialog_decider or _CatalogDecider()
         active_actuator = dialog_actuator or _DialogActuator()
@@ -1406,14 +1430,11 @@ def run_real_hil_round_trip(
             # the main TUI input box, not a half-rendered transition state.
             boot_end = max(boot_end, _time.monotonic() + 5.0)
 
-        screen_plain = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
-            "utf-8", errors="replace"
-        )
+        screen_plain = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode("utf-8", errors="replace")
         # Diagnostic for env troubleshooting (Failure Addendum Fix A4):
         # surfaced as a single-line print so test harnesses can grep for it.
         print(
-            f"[boot] {len(boot_screen)}B drained, screen tail (300): "
-            f"{screen_plain[-300:]!r}",
+            f"[boot] {len(boot_screen)}B drained, screen tail (300): " f"{screen_plain[-300:]!r}",
             flush=True,
         )
         # Detect provider-connection failure as ENV-ERROR (claude CLI
@@ -1427,14 +1448,11 @@ def run_real_hil_round_trip(
                 proc.worker.close()
             except Exception:
                 pass
-            region_blocked = (
-                "Claude Code might not be available in your country" in screen_plain
-            )
+            region_blocked = "Claude Code might not be available in your country" in screen_plain
             raise RuntimeError(
                 "claude CLI cannot reach provider — "
                 + (
-                    "region-blocked: api.anthropic.com is unreachable from this "
-                    "network. "
+                    "region-blocked: api.anthropic.com is unreachable from this " "network. "
                     if region_blocked
                     else ""
                 )
@@ -1513,9 +1531,7 @@ def run_real_hil_round_trip(
             # this — bubble up as ENV-ERROR so the test fixture can skip
             # with a useful message.
             if api_error_detected is None:
-                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
-                    "utf-8", errors="replace"
-                )
+                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode("utf-8", errors="replace")
                 if "API Error: 403" in tail or "API Error: 401" in tail:
                     api_error_detected = tail[-500:]
                     break
@@ -1527,9 +1543,7 @@ def run_real_hil_round_trip(
             # something blocking the AskUserQuestion call.
             if _time.monotonic() - last_diag > 10.0:
                 last_diag = _time.monotonic()
-                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode(
-                    "utf-8", errors="replace"
-                )
+                tail = ANSI_STRIP.sub(b"", bytes(boot_screen)).decode("utf-8", errors="replace")
                 print(
                     f"[wait] t={_time.monotonic():.0f} "
                     f"buf={len(boot_screen)}B tail500={tail[-500:]!r}",
@@ -1587,9 +1601,7 @@ def run_real_hil_round_trip(
                     merged_text=merged_text,
                 )
             else:
-                bus.publish_answered(
-                    ticket_id=tk_id, run_id=_run_id or tk_id, answer=answer
-                )
+                bus.publish_answered(ticket_id=tk_id, run_id=_run_id or tk_id, answer=answer)
 
         # 6b. confirm pid stable
         same_pid = (
@@ -1607,7 +1619,7 @@ def run_real_hil_round_trip(
     finally:
         server.should_exit = True
         try:
-            proc.worker.close()  # type: ignore[union-attr]
+            proc.worker.close()
         except Exception:
             pass
         server_thread.join(timeout=5.0)

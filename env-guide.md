@@ -1,7 +1,7 @@
 ---
-version: 1.2
+version: 1.3
 approved_by: godsuriyel@gmail.com
-approved_date: 2026-04-27T00:00:00+08:00
+approved_date: 2026-04-27T18:00:00+08:00
 approved_sections: ["§3", "§4"]
 ---
 
@@ -199,9 +199,9 @@ pytest -q > /tmp/ut-py-$$.log 2>&1; echo $? > /tmp/ut-py-$$.exit
 ### 覆盖率命令
 
 ```bash
-# 后端 —— line ≥ 90% / branch ≥ 80%（quality_gates）
+# 后端 —— line ≥ 85% / branch ≥ 80%（quality_gates）
 pytest --cov=harness --cov-branch --cov-report=term-missing \
-       --cov-fail-under=90 > /tmp/cov-py-$$.log 2>&1; echo $? > /tmp/cov-py-$$.exit
+       --cov-fail-under=85 > /tmp/cov-py-$$.log 2>&1; echo $? > /tmp/cov-py-$$.exit
 
 # 前端
 ( cd apps/ui && npx vitest run --coverage ) > /tmp/cov-ui-$$.log 2>&1; echo $? > /tmp/cov-ui-$$.exit
@@ -427,3 +427,4 @@ pytest -m real_external_llm -v                          # 全部 real-LLM 测试
 | 2026-04-21 | 1.0 | null | 由 `long-task-init-env` 首次生成：§1 双服务（api/ui-dev）、§2 venv + npm、§3 pytest/pytest-cov/ruff/mypy/eslint、§4 greenfield 占位、§5 SQLite + subprocess 替身说明 |
 | 2026-04-21 | 1.1 | godsuriyel@gmail.com | 重新审批 §3 + §4：将 `approved_date` 提升为精确 ISO 时间戳（2026-04-21T09:21:02+08:00），解除 `check_env_guide_approval.py` 同日 commit 误判；内容无变更 |
 | 2026-04-27 | 1.2 | godsuriyel@gmail.com | Wave 4 F18 协议层重构：§3 工具锁定表新增 `claude (Claude Code CLI) >= 2.1.119`；§4 新增 §4.5 "Claude TUI 隔离三件套"（写路径白名单、settings.json / .claude.json 字段依赖清单、hook bridge 部署） |
+| 2026-04-27 | 1.3 | godsuriyel@gmail.com | F20 Wave 4 hard-flush TDD Session 40 Quality 关卡裁决：§3 行覆盖率项目级阈值由 90% 下调至 85%（同步 `feature-list.json` `quality_gates.line_coverage_min` 90 → 85）；动机：Wave 4 supervisor / shutdown-recovery 分支体量大于 §7 Test Inventory 60 case 的边际边界，0.95pp 缺口属可接受 baseline；用户经 AskUserQuestion 显式裁决 |

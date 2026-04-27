@@ -1059,3 +1059,26 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - 用户测试策略约束（IFR-004 真实 LLM 1-2 个 claude-cli + 其余 minimax-http）：**约束不适用** — F20 Classifier 经 `_FakeClassifier` mock 注入 Verdict，UT 不直接触发 IFR-004；§Test Inventory 顶部已显式记录 `mock=51, claude-cli=0, minimax-http=0`，符合用户约束的 fallback 分支（不触发 IFR-004 时记录"约束不适用"）
 - Design: DONE (docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md)
 - current.phase: design → tdd
+
+### Session 40 — Feature #20 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess · TDD (Wave 4 hard-flush · 2026-04-27)
+- target_feature: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=4
+- starting_new=false → router 锁 `{feature_id: 20, phase: "tdd"}`
+- env-guide: approved (2026-04-27 §6)
+- Bootstrap: §1 ui:false 后端编排 "No server processes — environment activation only"；冒烟 F18 W4 子集 `pytest -k "f18_w4 and not real_cli" -q` → 81 passed / 681 deselected
+- 用户特殊指令（Session 40）："需要将存量UT中废弃的用例也一并删除" — 已透传至 Red / Green / Refactor SubAgent；适用范围：IAPI-006/008 REMOVED 的旧 UT、IAPI-005 单段 spawn 语义被破坏的旧 UT、`stream_parser.events` → `ticket_stream.events` 改造前的旧 UT、`_FakeStreamParser` → `_FakeTicketStream` 替换前的旧 UT
+- Workspace 不卫生（继承自 Session 38）：`scripts/init_project.py` 删除了 F24 已交付的 B8 guard（154 行）疑似在制非 F20 工作；本会话 R-G-R 不触碰，commit 仅打包 F20 测试 + 实现 + feature-list.json + task-progress.md + env-guide.md
+- Red SubAgent: PASS — 60 tests written (T01-T60 in tests/test_f20_w4_design.py)；categories=FUNC happy=23 / FUNC error=18 / BNDRY=7 / SEC=1 / PERF=2 / INTG=8；negative_ratio=53.3%；6 RED (T16/T41/T42/T43/T44/T60) 严格对应 design §4.5.4.x 三处改造点 + cancel_run 终态守卫；54 PASS = Wave 3 contracts regression-anchor
+- 用户特殊指令落地：删除 1 例废弃 UT case `tests/test_f20_ticket_supervisor.py::test_t41_run_ticket_call_order_begin_spawn_arm_events_disarm_classify_end_save`（其断言 legacy `StreamParser.events()` trace marker，被 design §6 Wave 4 MOD `TicketSupervisor.run_ticket` 改用 `TicketStream.subscribe` 替代）；既有 F20 11 个 unit 文件 grep 后 IAPI-005 单段 `spawn(spec)` / IAPI-006 byte_queue 消费 / IAPI-008 / `_FakeStreamParser` 实例化均**不存在于** F20 测试范围（`byte_queue` 仅保留于 F18 PtyWorker / Adapter 层，与 IAPI-006 [MOD] downgrade 一致）— 故只删 1 例符合 design 声明的废弃 case，未声明部分按红旗规则不擅自删
+- Green SubAgent: PASS — 实现 5 处 Wave 4 改造：(1) supervisor.py L88-L118 `ticket_stream.events(ticket_id)` + record_call(`TicketStream.subscribe` / `ToolAdapter.prepare_workdir(...)`)；(2) run.py L264 `_FakeTicketStream` rename + `events(ticket_id: str)`；(3) `RunOrchestrator.cancel_run` 在 state ∈ {completed, cancelled, failed} 时 raise `InvalidRunState(409)`；(4) `_FakeToolAdapter prepare_workdir/spawn` 双段；(5) IAPI-005 调用点双段；额外引入 `TicketSupervisor._lock = asyncio.Lock()` 序列化 `_run_ticket_impl`（§4 公开签名不变）；F20 W4 60/60 ✓ EXIT=0；F20 触及 70/70 ✓
+- Refactor SubAgent: PASS — run.py 移除 unused `import base64` + 5 个 obsolete `# type: ignore` 注释 + black reformat；env-guide §3 静态关卡 (impl files 范围)：ruff 0 / black 0 / mypy 0；F20 60/60 仍 GREEN
+- Quality SubAgent (2 轮)：第 1 轮 fail (line=89.05% < 90% 项目级 gate)；用户经 AskUserQuestion 决策**调整阈值至 85**（项目级 gate 调整非 srs_trace 缩水）→ 同步 `feature-list.json` `quality_gates.line_coverage_min: 90 → 85` + `env-guide.md` §3 `--cov-fail-under: 90 → 85` + frontmatter v1.2 → v1.3 + §6 审批表追加 1.3 行；`check_env_guide_approval.py` EXIT=0；第 2 轮 PASS — line=89.05% / branch=83.26% / srs_trace 20/20 covered (uncovered_fr_ids=[])；110 F20 touched tests in isolation 全 GREEN
+- 全量回归: 16 failed / 803 passed / 2 skipped — 与 baseline 完全一致（10 baseline noise: 5 F20 signal_watcher T32/T34/T39/T40/T53 timing-flake 单跑稳定 PASS + 5 unrelated F22/F23/F24；6 F24 b8_init_project_guard 来自 Session 38 工作区脏数据 `scripts/init_project.py` 删除 `_validate_safe_arg`，**不在 F20 范围**）
+- TDD R-G-R: green ✓ (R-G-R complete, 60 W4 tests + 1 deprecated UT removed)
+- Quality: line=89.05% (≥85%), branch=83.26% (≥80%), srs_trace_coverage=20/20 OK
+- current.phase: tdd → st
+
+#### Risks
+- ⚠ [Coverage Margin] line 89.05% 离新阈值 85% 仅 4.05pp 余量；branch 83.26% 离 80% 余量 3.26pp；下一会话 ST + finalize 若引入新 production 行需注意覆盖率不再回退
+- ⚠ [Workspace Inheritance] `scripts/init_project.py` 删除 `_validate_safe_arg` 引发 6 个 F24 b8 guard 测试失败（whole-suite baseline 16 = 10 baseline noise + 6 F24 b8）— 不属于 F20 commit 范围；用户在制 F24 工作待自行处置
+- ⚠ [Test Flakiness] F20 signal_watcher T32/T34/T39/T40/T53 在全量并行下 timing-flake，单跑稳定 PASS；ST 阶段如 timing budget 收紧需评估是否换成 fakefilesystem 或加 retry guard
+- ⚠ [Project Gate Loosening] 项目级 line gate 由 90 → 85 永久下调（v1.3 审批），未来其他 feature 也按 85 判定；如后续希望恢复 90 需走 env-guide §6 重新审批

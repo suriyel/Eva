@@ -8,6 +8,7 @@ on real subprocesses.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,8 +64,17 @@ class TicketSupervisor:
 
     def __init__(self, *, orchestrator: Any) -> None:
         self._orch = orchestrator
+        # Serialize run_ticket invocations on the same supervisor — the main
+        # loop and explicit test calls share one ToolAdapter, so concurrent
+        # entry would interleave prepare_workdir/spawn calls and break the
+        # IAPI-005 [MOD] sequence guarantees in T42.
+        self._lock = asyncio.Lock()
 
     async def run_ticket(self, cmd: TicketCommand) -> TicketOutcome:
+        async with self._lock:
+            return await self._run_ticket_impl(cmd)
+
+    async def _run_ticket_impl(self, cmd: TicketCommand) -> TicketOutcome:
         orch = self._orch
         # Depth guard — fetch parent depth if any.
         parent_depth: int | None = None
@@ -78,8 +88,14 @@ class TicketSupervisor:
         orch.record_call(f"GitTracker.begin({ticket_id})")
         git_begin = await orch.git_tracker.begin(ticket_id=ticket_id, workdir=Path(orch.workdir))
 
+        # Wave 4 [MOD] IAPI-005: prepare_workdir(spec) MUST run before spawn;
+        # the returned IsolatedPaths is forwarded to spawn(spec, paths).
+        # WorkdirPrepareError must propagate (T43) so spawn never fires.
+        orch.record_call(f"ToolAdapter.prepare_workdir({cmd.skill_hint})")
+        paths = await orch.tool_adapter.prepare_workdir(cmd)
+
         orch.record_call(f"ToolAdapter.spawn({cmd.skill_hint})")
-        proc = await orch.tool_adapter.spawn(cmd)
+        proc = await orch.tool_adapter.spawn(cmd, paths)
 
         pid = getattr(proc, "pid", 0) or 0
         orch.record_call(f"Watchdog.arm(pid={pid})")
@@ -92,9 +108,11 @@ class TicketSupervisor:
         except Exception:
             pass
 
-        orch.record_call("StreamParser.events()")
+        # Wave 4 [MOD] IAPI-008 REMOVED: subscribe to ticket_stream keyed by
+        # ticket_id rather than the legacy stream_parser keyed by proc.
+        orch.record_call("TicketStream.subscribe")
         try:
-            async for _evt in orch.stream_parser.events(proc):
+            async for _evt in orch.ticket_stream.events(ticket_id):
                 pass
         except Exception:
             pass

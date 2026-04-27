@@ -1,6 +1,6 @@
 """F20 · TicketSupervisor + IAPI-002 (commits/diff/files) unit tests.
 
-[unit] — ToolAdapter / StreamParser / ClassifierService injected as fakes.
+[unit] — ToolAdapter / TicketStream / ClassifierService injected as fakes.
 T47 (real sqlite end-to-end) lives in tests/integration/test_f20_real_db.py.
 T50 (real REST+WS) lives in tests/integration/test_f20_real_rest_ws.py.
 
@@ -8,11 +8,15 @@ Feature ref: feature_20
 
 Traces To:
   T30 → FR-047 AC-1 14-skill end-to-end dry-run
-  T41 → §Interface Contract `run_ticket` + IAPI-005/008 + seq msg#8-12
   T42 → §Interface Contract `DepthGuard.ensure_within` + Boundary depth=2
   T43 → §Interface Contract `list_commits` (IAPI-002 → F22)
   T44 → §Interface Contract `load_diff` Raises DiffNotFound
   T45 → §Interface Contract `broadcast_signal` (IAPI-001) WS envelope
+
+[Wave 4 deletion 2026-04-27] — old test_t41 (asserted ``StreamParser.events``
+in supervisor call_trace) is deprecated by F20 design Wave 4 (IAPI-008 REMOVED;
+supervisor must subscribe ``ticket_stream.events(ticket_id)`` instead). The
+canonical Wave 4 T41 lives in ``tests/test_f20_w4_design.py``.
 """
 
 from __future__ import annotations
@@ -86,49 +90,11 @@ async def test_t30_run_dispatches_14_skill_subset(tmp_path: Path) -> None:
     ), f"FR-047 AC-1: expected ⊇ 14-skill set; missing={set(fourteen) - set(dispatched)}"
 
 
-# ---- T41 -------------------------------------------------------------------
-async def test_t41_run_ticket_call_order_begin_spawn_arm_events_disarm_classify_end_save(
-    tmp_path: Path,
-) -> None:
-    """T41 FUNC/happy: run_ticket invokes GitTracker.begin → spawn → Watchdog.arm → events → disarm → classify → GitTracker.end → save."""
-    from harness.orchestrator.run import RunOrchestrator
-    from harness.orchestrator.schemas import RunStartRequest, TicketCommand
-
-    _git_init(tmp_path)
-    orch = RunOrchestrator.build_test_default(workdir=tmp_path)
-    s = await orch.start_run(RunStartRequest(workdir=str(tmp_path)))
-
-    cmd = TicketCommand(
-        kind="spawn",
-        skill_hint="long-task-design",
-        tool="claude",
-        run_id=s.run_id,
-        parent_ticket=None,
-    )
-    outcome = await orch.ticket_supervisor.run_ticket(cmd)
-
-    trace = orch.call_trace()  # ordered list[str] of recorded interactions
-    expected_substring_order = [
-        "GitTracker.begin",
-        "ToolAdapter.spawn",
-        "Watchdog.arm",
-        "StreamParser.events",
-        "Watchdog.disarm",
-        "ClassifierService.classify",
-        "GitTracker.end",
-        "TicketRepository.save",
-    ]
-    indices = [
-        next((i for i, c in enumerate(trace) if exp in c), -1) for exp in expected_substring_order
-    ]
-    assert all(
-        i >= 0 for i in indices
-    ), f"missing call(s); expected order {expected_substring_order}; trace={trace}"
-    assert indices == sorted(
-        indices
-    ), f"call order violated; got indices={indices} for {expected_substring_order}; trace={trace}"
-
-    assert outcome.final_state in {"completed", "failed", "aborted", "retrying"}
+# ---- T41 (deprecated 2026-04-27 Wave 4 hard-flush) -------------------------
+# Old supervisor call-trace assertion expected ``StreamParser.events`` — Wave 4
+# (IAPI-008 REMOVED; IAPI-006 byte_queue downgraded) requires the supervisor to
+# subscribe ``ticket_stream.events(ticket_id)`` from the broadcaster instead.
+# The replacement lives in tests/test_f20_w4_design.py::test_t41_*.
 
 
 # ---- T42 -------------------------------------------------------------------
