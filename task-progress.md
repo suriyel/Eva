@@ -940,3 +940,14 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Build-Pipeline] `npm run build` (`tsc && vite build`) 当前因测试 mock TS 错误失败（与 #24 无关）；ST 阶段以 `npx vite build` 直接生成 dist 通过。建议 increment 立项修复 tsc 关卡。
 - ⚠ [F18-Increment-Pending] F18 路由穿刺穿刺出 claude CLI 2.1.119 上 `--include-partial-messages` argparse 拦截 / TUI 模式忽略 `--output-format=stream-json`；reference/f18-tui-bridge/ ADR 草稿已就位；FR-008/016 修订 + JsonLinesParser 废弃需走 increment 流程，不在 #24 scope。
 - current: {feature_id:24, phase:"st"} → null · status: failing → passing
+
+## Session N — Increment Wave 4
+- **Date**: 2026-04-27
+- **Phase**: Increment
+- **Scope**: F18 Bk-Adapter 协议层重构 (stream-json → TUI + Hook Bridge per ADR `reference/f18-tui-bridge/`)
+- **Changes**: Added 0 features, modified 2 features (F18, F20 hard reset failing), deprecated 0 features (FR-014 deprecated；F17/F21/F23 仅 wave_note 不重置)
+- **Documents updated**: SRS (§1.4 ESI 新增 + FR-008/009/011/015/016 EARS 重写 + FR-051/052/053 新增 + FR-014 deprecated + IFR-001 重写 + ASM-009/010), Design (§4.3 整段重写 + §4.5/§4.6 微调 + §4.12 Wave 4 重构清单 + §6.1.1 IFR-001 + §6.2 IAPI-020/021 新增/IAPI-002/005/006/007 MOD/IAPI-008 REMOVED), ATS (§2.1 FR + §2.3 IFR + §5.1 INT-001 + §5.2 IAPI 自检 + §5.6 Wave 4 增量节), env-guide (§3 工具表 + §4 §4.5 隔离三件套，v1.1→v1.2 by godsuriyel@gmail.com), feature-list.json (waves[4] + ASM-009/010 + F18/F20 status reset failing + F17/F21/F23 wave_note), long-task-guide.md (示例引用更新 test_f18_real_cli.py)
+- **Skipped**: UCD (§6 禁令明确不承载文案/视觉细节；FR-NEW-2 文案补字归 prototype + NFR-011 既有规约范畴；zod schema rename 不触 UCD pointer)
+- **Approval**: Step 3/4/4b/6 各 1 轮 approve 通过；env-guide §3/§4 已 godsuriyel@gmail.com 重新审批 (frontmatter v1.2)
+- **Validation**: `validate_features.py: VALID — 24 features (9 passing, 3 failing, 12 deprecated)` · `validate_env_guide.py --strict: OK` · `validate_guide.py: VALID`
+- **Next**: Worker pipeline 由 router 自动接管 — F18 design 重启 (current.phase=design)，随后 tdd → st；F20 等 F18 通过后串行恢复
