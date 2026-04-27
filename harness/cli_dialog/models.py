@@ -8,7 +8,21 @@ from typing import Literal
 
 # Action kinds — kept narrow + Literal-typed so deciders can't invent verbs
 # the actuator doesn't know how to encode.
-ActionKind = Literal["select", "submit", "cancel", "freeform", "ignore"]
+#
+# ``unified_answer`` (Wave 4.1, 2026-04-27): the default HIL answer kind for
+# AskUserQuestion-driven dialogs. Carries a single merged-text payload (single
+# select / multi-select / multi-question / freeform → all flattened to one
+# string) and is encoded by the actuator as
+# ``ESC + bracketed-paste(text) + CR``. Audit closes via the
+# PreToolUse + UserPromptSubmit + Stop hook chain.
+ActionKind = Literal[
+    "select",
+    "submit",
+    "cancel",
+    "freeform",
+    "ignore",
+    "unified_answer",
+]
 
 
 @dataclass(frozen=True)
@@ -58,6 +72,11 @@ class DialogAction:
             raise ValueError("DialogAction(kind='select') requires non-empty indices")
         if self.kind == "freeform" and not self.text:
             raise ValueError("DialogAction(kind='freeform') requires text")
+        if self.kind == "unified_answer" and self.text is None:
+            raise ValueError(
+                "DialogAction(kind='unified_answer') requires text "
+                "(merged answer payload; may be empty string but not None)"
+            )
         for idx in self.indices:
             if idx < 1:
                 raise ValueError(f"DialogAction.indices must be 1-based; got {idx}")

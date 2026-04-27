@@ -169,6 +169,22 @@ DEFAULT_POLICIES: dict[str, DialogAction] = {
             "WorkdirPrepareError rather than play through the wizard."
         ),
     ),
+    # Wave 4.1 (2026-04-27) — default HIL answer policy: unified Esc-text.
+    # The ``text`` field is a placeholder; real driver code constructs the
+    # merged answer payload at runtime (e.g. selected label / multi-select
+    # join / freeform body / multi-question concatenation) and rebuilds the
+    # DialogAction with that text before invoking DialogActuator.encode.
+    "hil-ask-user-question": DialogAction(
+        kind="unified_answer",
+        text="",
+        rationale=(
+            "Default HIL answer protocol: ESC + bracketed-paste(merged_text) "
+            "+ CR. Replaces the legacy `<N>\\r` baseline so audit closes via "
+            "PreToolUse + UserPromptSubmit + Stop hook chain (PostToolUse "
+            "does NOT fire under this path). Driver overrides ``text`` at "
+            "runtime with the actual merged answer payload."
+        ),
+    ),
 }
 
 

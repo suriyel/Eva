@@ -54,6 +54,21 @@ class DialogActuator:
             assert action.text is not None  # validated in DialogAction.__post_init__
             return PASTE_START + action.text.encode("utf-8") + PASTE_END + ENTER
 
+        if action.kind == "unified_answer":
+            # Wave 4.1 (2026-04-27) — default HIL answer encoding.
+            # ESC + bracketed-paste(merged_text) + CR. The leading bare ESC
+            # discards any partial composition the TUI is holding (e.g. menu
+            # highlight in compose mode), the bracketed-paste body delivers
+            # the merged answer in one shot, the trailing CR submits.
+            assert action.text is not None  # validated in DialogAction.__post_init__
+            return (
+                ESCAPE
+                + PASTE_START
+                + action.text.encode("utf-8")
+                + PASTE_END
+                + ENTER
+            )
+
         if action.kind == "select":
             return self._encode_select(action, screen)
 

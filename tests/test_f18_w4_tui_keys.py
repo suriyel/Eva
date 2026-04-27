@@ -127,3 +127,87 @@ def test_t10b_encode_interrupt_returns_etx():
 
     out = TuiKeyEncoder().encode_interrupt()
     assert out == b"\x03"
+
+
+# ---------------------------------------------------------------------------
+# Wave 4.1 (2026-04-27) — unified Esc-text protocol encoder tests.
+#
+# Layout:  ESC + ESC[200~ + text(utf-8) + ESC[201~ + CR
+#   - The leading bare ESC clears any partial composition the TUI is holding
+#   - The bracketed-paste body delivers the merged answer in one shot
+#   - The trailing CR submits
+# ---------------------------------------------------------------------------
+def _expected_unified(merged_text: str) -> bytes:
+    return (
+        b"\x1b"
+        + b"\x1b[200~"
+        + merged_text.encode("utf-8")
+        + b"\x1b[201~"
+        + b"\r"
+    )
+
+
+def test_unified_radio_single_select_encoding() -> None:
+    """T-UNIFIED-RADIO: single-select label → unified bytes."""
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    out = TuiKeyEncoder().encode_unified_answer("Python")
+    assert out == _expected_unified("Python"), f"got {out!r}"
+
+
+def test_unified_multi_select_merged_encoding() -> None:
+    """T-UNIFIED-MULTI-SELECT: ", ".join(labels) → unified bytes."""
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    merged = "Python, Go"
+    out = TuiKeyEncoder().encode_unified_answer(merged)
+    assert out == _expected_unified(merged)
+
+
+def test_unified_multi_question_concatenated_encoding() -> None:
+    """T-UNIFIED-MULTI-QUESTION: 3 questions joined into one merged answer."""
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    # e.g. Lang/Test/CI all answered in one round
+    merged = "Lang: Python; Test: pytest; CI: github-actions"
+    out = TuiKeyEncoder().encode_unified_answer(merged)
+    assert out == _expected_unified(merged)
+    # Spot-check: prefix is bare ESC then bracketed-paste-start
+    assert out.startswith(b"\x1b\x1b[200~")
+    assert out.endswith(b"\x1b[201~\r")
+
+
+def test_unified_freeform_encoding() -> None:
+    """T-UNIFIED-FREEFORM: freeform body → unified bytes (UTF-8 preserved)."""
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    text = "我想要 Rust 语言 — 因为速度"
+    out = TuiKeyEncoder().encode_unified_answer(text)
+    assert out == _expected_unified(text)
+
+
+def test_unified_empty_text_is_legal() -> None:
+    """Empty merged text is permitted — paste of zero bytes + CR submits."""
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    out = TuiKeyEncoder().encode_unified_answer("")
+    assert out == b"\x1b\x1b[200~\x1b[201~\r"
+
+
+def test_unified_rejects_etx_x03() -> None:
+    """SEC: \\x03 inside merged_text → EscapeError (no control-byte injection)."""
+    from harness.adapter.errors import EscapeError
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    with pytest.raises(EscapeError):
+        TuiKeyEncoder().encode_unified_answer("safe\x03injected")
+
+
+def test_unified_rejects_bare_esc_outside_protocol_prefix() -> None:
+    """SEC: \\x1b inside merged_text → EscapeError (the protocol prefix is
+    the only ESC the encoder is allowed to emit)."""
+    from harness.adapter.errors import EscapeError
+    from harness.hil.tui_keys import TuiKeyEncoder
+
+    with pytest.raises(EscapeError):
+        TuiKeyEncoder().encode_unified_answer("color\x1b[31mred")

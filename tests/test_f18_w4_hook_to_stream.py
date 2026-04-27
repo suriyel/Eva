@@ -46,6 +46,11 @@ def _payload(hook_event_name: str, tool_name: str | None = None) -> dict:
         ("PreToolUse", "Question", "tool_use"),
         ("PreToolUse", "Read", "tool_use"),
         ("PostToolUse", "Read", "tool_result"),
+        # Wave 4.1 (2026-04-27) — unified Esc-text protocol audit chain.
+        ("Stop", None, "turn_complete"),
+        ("UserPromptSubmit", None, "user_prompt_submit"),
+        ("SubagentStop", None, "subagent_complete"),
+        ("Notification", None, "notification"),
     ],
 )
 def test_t34_hook_to_stream_kind_matrix(hook_event, tool_name, expected_kind):

@@ -8,6 +8,12 @@ kind derivation matrix (Interface Contract row):
   - PreToolUse + tool_name in {AskUserQuestion, Question} → "tool_use"
   - PreToolUse + other tools → "tool_use"
   - PostToolUse → "tool_result"
+
+Wave 4.1 (2026-04-27) unified Esc-text protocol additions:
+  - Stop → "turn_complete"
+  - UserPromptSubmit → "user_prompt_submit"
+  - SubagentStop → "subagent_complete"
+  - Notification → "notification"
 """
 
 from __future__ import annotations
@@ -19,7 +25,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from harness.adapter import HookEventPayload
 
 
-TicketStreamKind = Literal["text", "tool_use", "tool_result", "thinking", "error", "system"]
+TicketStreamKind = Literal[
+    "text",
+    "tool_use",
+    "tool_result",
+    "thinking",
+    "error",
+    "system",
+    # Wave 4.1 unified Esc-text protocol audit kinds.
+    "turn_complete",
+    "user_prompt_submit",
+    "subagent_complete",
+    "notification",
+]
 
 
 class TicketStreamEvent(BaseModel):
@@ -47,6 +65,17 @@ class HookEventToStreamMapper:
             kind = "tool_use"
         elif hook_event == "PostToolUse":
             kind = "tool_result"
+        elif hook_event == "Stop":
+            # Wave 4.1: unified Esc-text protocol turn boundary.
+            kind = "turn_complete"
+        elif hook_event == "UserPromptSubmit":
+            # Wave 4.1: also fires as the second event in the unified audit
+            # chain (capture → answered) replacing PostToolUse(AskUserQuestion).
+            kind = "user_prompt_submit"
+        elif hook_event == "SubagentStop":
+            kind = "subagent_complete"
+        elif hook_event == "Notification":
+            kind = "notification"
         else:  # pragma: no cover — pydantic Literal protects us
             kind = "system"
 

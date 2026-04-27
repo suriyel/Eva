@@ -71,3 +71,34 @@ def test_dialog_screen_frozen():
 def test_choice_item_default_unselected():
     c = ChoiceItem(index=1, label="opt")
     assert c.selected is False
+
+
+# ---------------------------------------------------------------------------
+# Wave 4.1 (2026-04-27) — unified_answer ActionKind validation.
+# ---------------------------------------------------------------------------
+def test_action_kind_literal_includes_unified_answer():
+    """The ActionKind Literal must include ``unified_answer``."""
+    from typing import get_args
+
+    from harness.cli_dialog.models import ActionKind
+
+    assert "unified_answer" in get_args(ActionKind)
+
+
+def test_dialog_action_unified_answer_with_text_ok():
+    """``unified_answer`` accepts an arbitrary merged-text payload."""
+    action = DialogAction(kind="unified_answer", text="Python, Go")
+    assert action.kind == "unified_answer"
+    assert action.text == "Python, Go"
+
+
+def test_dialog_action_unified_answer_empty_string_ok():
+    """Empty string is permitted (paste-of-zero-bytes + CR)."""
+    action = DialogAction(kind="unified_answer", text="")
+    assert action.text == ""
+
+
+def test_dialog_action_unified_answer_requires_text_not_none():
+    """``text=None`` rejected — driver must provide a merged-text string."""
+    with pytest.raises(ValueError, match="unified_answer.*requires text"):
+        DialogAction(kind="unified_answer", text=None)

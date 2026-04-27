@@ -363,8 +363,11 @@ graph LR
 
 *Hook Bridge 子模块（NEW）*
 - `harness.hil.HookEventMapper` **[NEW]** (`harness/hil/hook_mapper.py`) — hook stdin JSON → `HilQuestion[]`；规则：仅 `hook_event_name == "PreToolUse"` 且 `tool_name in {AskUserQuestion, Question}` 才派生；`tool_input` 缺失/不合规返回空列表（不抛）。
-- `harness.hil.TuiKeyEncoder` **[NEW]** (`harness/hil/tui_keys.py`) — `HilAnswer` → TUI 键序 bytes；规则：radio 选择 → 数字键 + Enter；checkbox → 多次 Space + Enter；textarea → freeform 文本（UTF-8）+ Enter；输出经 base64 包装写入 `/api/pty/write` payload。
-- `harness.orchestrator.HookEventToStreamMapper` **[NEW]** (`harness/orchestrator/hook_to_stream.py`) — hook event → `TicketStreamEvent` envelope；规则：每条 hook event 派生一条 `TicketStreamEvent { ticket_id, seq, ts, kind, payload }`，`kind` 由 `hook_event_name` + `tool_name` 联合派生（`PreToolUse` + 非 HIL 工具 → `tool_use`；`PostToolUse` → `tool_result`；`SessionStart/End` → `system`）。该 envelope 是 `/ws/stream/:ticket_id` 与 `GET /api/tickets/:id/stream` 的 wire schema。
+- `harness.hil.TuiKeyEncoder` **[NEW / Wave 4.1 MOD]** (`harness/hil/tui_keys.py`) — `HilAnswer` → TUI 键序 bytes。**Wave 4.1 (2026-04-27) 默认协议升级为 unified Esc-text**：`encode_unified_answer(merged_text)` → `b"\x1b" + b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~" + b"\r"`，覆盖 single-select / multi-select / multi-question / freeform 四类合并文本。Baseline `encode_radio(N) → b"<N>\r"` / `encode_checkbox` / `encode_freeform` 保留作 fallback（HilWriteback `prefer_baseline=True`）。输出经 base64 包装写入 `/api/pty/write` payload。
+- `harness.orchestrator.HookEventToStreamMapper` **[NEW / Wave 4.1 MOD]** (`harness/orchestrator/hook_to_stream.py`) — hook event → `TicketStreamEvent` envelope；规则：每条 hook event 派生一条 `TicketStreamEvent { ticket_id, seq, ts, kind, payload }`，`kind` 由 `hook_event_name` + `tool_name` 联合派生：
+  - Wave 4 原 4 类：`PreToolUse + 非 HIL → tool_use` / `PreToolUse + AskUserQuestion → tool_use` / `PostToolUse → tool_result` / `SessionStart|SessionEnd → system`
+  - **Wave 4.1 NEW (2026-04-27)**：`Stop → turn_complete` / `UserPromptSubmit → user_prompt_submit` / `SubagentStop → subagent_complete` / `Notification → notification`
+  该 envelope 是 `/ws/stream/:ticket_id` 与 `GET /api/tickets/:id/stream` 的 wire schema。
 - `harness.api.hook` **[NEW]** (`harness/api/hook.py`) — FastAPI router，POST `/api/hook/event`，请求体 `HookEventPayload`；router 内部 fan-out：(1) ClaudeAdapter.map_hook_event → HilEventBus；(2) HookEventToStreamMapper → TicketStream broadcaster。详见 IAPI-020。
 - `harness.api.pty_writer` **[NEW]** (`harness/api/pty_writer.py`) — FastAPI router，POST `/api/pty/write`，请求体 `{ ticket_id: str, payload: str (base64 TUI 键序) }`；router 解码后写入 PtyWorker stdin。详见 IAPI-021。
 - `harness.adapter.workdir_artifacts` **[NEW]** (`harness/adapter/workdir_artifacts.py`):
@@ -382,7 +385,7 @@ graph LR
 *HIL 子模块*
 - `harness.hil.HilQuestion` — 标准化 schema（沿用）
 - `harness.hil.HilControlDeriver` — FR-010 规则导出 kind（radio / checkbox / textarea）（沿用）
-- `harness.hil.HilWriteback` **[MOD]** — payload 由旧 JSON 改为 **TUI 键序 bytes**（经 `TuiKeyEncoder` 编码），调用 `/api/pty/write` 而非直接写 PtyWorker；保持 IAPI-007 endpoint 不变但 payload schema 破坏。
+- `harness.hil.HilWriteback` **[MOD / Wave 4.1 MOD]** — payload 由旧 JSON 改为 **TUI 键序 bytes**（经 `TuiKeyEncoder` 编码），调用 `/api/pty/write` 而非直接写 PtyWorker；保持 IAPI-007 endpoint 不变但 payload schema 破坏。**Wave 4.1 (2026-04-27)**：默认走 unified Esc-text 路径——把 `answer.selected_labels` + `answer.freeform_text` 合并为 `merged_text` 一次注入；构造函数新增 `prefer_baseline: bool = False` 参数控制 fallback 至 Wave 4 baseline `<N>\r` 路径；新增对 `HilEventBus.publish_answered_via_prompt` 的调用（写 audit `hil_answered` + `payload.answer.value=merged_text` + `payload.answer.channel="unified_esc_text"`）。
 - `harness.hil.HilEventBus` — asyncio fan-out（WebSocket + DB）（沿用）
 - `harness.hil.HilExtractor` **[REMOVED]** — 由 `HookEventMapper` 替代；模块文件物理删除。
 
@@ -806,6 +809,7 @@ F18 由 stream-json stdout 解析迁移到 Claude Code Hook 协议；以下 FR /
 | IAPI-005 | `spawn(DispatchSpec) → TicketProcess` → `spawn(spec, paths) → TicketProcess`，`prepare_workdir(spec) → IsolatedPaths` 必须前置 | F20 RunOrchestrator / TicketSupervisor |
 | IAPI-006 | `PtyHandle { byte_queue, pid, write }` → `PtyHandle { pid, write }`，byte_queue 字段降级为 stdout 镜像归档（不再供下游消费） | F18 内部（Adapter↔PtyWorker）；下游 supervisor 改用 hook event 流 |
 | IAPI-007 | `HilWriteback → PtyWorker.write(bytes)` payload 由 JSON → **TUI 键序 bytes**，经 IAPI-021 `/api/pty/write` 落地 | F18 内部 HilWriteback |
+| IAPI-007 (Wave 4.1 子修订) | `HilWriteback.write_answer` 默认走 unified Esc-text 路径（`encode_unified_answer(merged_text) → ESC + bracketed-paste(text) + CR`）；构造函数新增 `prefer_baseline=True` 选项 fallback 至 Wave 4 baseline `<N>\r`。`HilEventBus.publish_answered_via_prompt(merged_text)` 是新增的 audit 入口（与 `publish_answered(answer=HilAnswer)` 并列）。**Wave 4.1 (2026-04-27)** — **设计预期**：unified Esc-text 路径下 PostToolUse(AskUserQuestion) 不 fire；audit 闭环改为 PreToolUse + UserPromptSubmit + Stop 三 hook 联合判定。 | F18 内部 HilWriteback / `HilEventBus` |
 
 **Deprecated 模块（物理删除）**
 
@@ -1140,7 +1144,8 @@ argv 锁定为 SRS FR-016 的 8 项严格模板（含可选 `--model` 时为 10 
   "session_id": "uuid-of-claude-session",
   "transcript_path": "<isolated_cwd>/.claude/transcripts/<session>.jsonl",
   "cwd": "<isolated_cwd>",
-  "hook_event_name": "PreToolUse" | "PostToolUse" | "SessionStart" | "SessionEnd",
+  "hook_event_name": "PreToolUse" | "PostToolUse" | "SessionStart" | "SessionEnd"
+                   | "Stop" | "SubagentStop" | "UserPromptSubmit" | "Notification",
   "tool_name": "AskUserQuestion" | "Read" | ... | null,
   "tool_use_id": "<unique id, only on PreToolUse / PostToolUse>" | null,
   "tool_input": { /* tool-specific JSON, e.g. AskUserQuestion 的 question + options */ } | null,
@@ -1148,9 +1153,13 @@ argv 锁定为 SRS FR-016 的 8 项严格模板（含可选 `--model` 时为 10 
 }
 ```
 
+> **Wave 4.1 (2026-04-27)**：`hook_event_name` 枚举从 4 类扩展为 8 类。新增的 `Stop / SubagentStop / UserPromptSubmit / Notification` 是 unified Esc-text 协议（FR-053 默认）audit 闭环依赖；前 4 类（Wave 4 原集合）保留语义不变。settings.json 同时注册 8 类 hooks（前 4 类沿用 matcher，后 4 类 catch-all 无 matcher）。
+
 **HIL 触发**：`hook_event_name == "PreToolUse"` 且 `tool_name in {AskUserQuestion, Question}` → `HookEventMapper` 派生 `HilQuestion[]` → `HilEventBus` → `/ws/hil` 推前端。
 
-**HIL 回写**：前端 `HilAnswerSubmit` → `TuiKeyEncoder` → POST `/api/pty/write`（IAPI-021）→ `PtyWorker.write(bytes)` 写入 Claude TUI stdin（数字键 / Space / 文本 + Enter）。
+**HIL 回写协议** (FR-053)：
+- **default · unified Esc-text (Wave 4.1)**：harness UI 把所有 question 答复合并为 `merged_text` → POST `/api/hil/:ticket_id/answer` → `HilWriteback.write_answer` → `TuiKeyEncoder.encode_unified_answer(merged_text)` → `b"\x1b" + b"\x1b[200~" + merged_text.encode() + b"\x1b[201~" + b"\r"` → POST `/api/pty/write`（IAPI-021）→ `PtyWorker.write(bytes)` 写入 Claude TUI stdin。Audit 闭环走 PreToolUse + UserPromptSubmit + Stop 三 hook（PostToolUse 在本路径下不 fire，设计预期）。
+- **baseline · fallback**：option=`<N>\r` / 自由文本 bracketed paste / 多 question 串行写键。仅 `HilWriteback(prefer_baseline=True)` 启用，作兼容回归。Audit 仍走 PostToolUse(AskUserQuestion)。
 
 **Stream envelope**：所有 hook event 经 `HookEventToStreamMapper` → 派生 `TicketStreamEvent`（旧 `StreamEvent` envelope 类型名保留），经 `/ws/stream/:ticket_id` 推 UI；旧 `type ∈ {text, tool_use, tool_result, thinking, error, system}` 七元集合简化为由 `hook_event_name + tool_name` 组合派生（详见 §4.3.2 `HookEventToStreamMapper`）。
 

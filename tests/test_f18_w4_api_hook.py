@@ -156,3 +156,61 @@ def test_t17_post_hook_event_missing_required_fields_returns_422():
         f in body_text
         for f in ("session_id", "hook_event_name", "cwd", "transcript_path")
     ), f"422 body did not list required fields: {body_text}"
+
+
+# ---------------------------------------------------------------------------
+# Wave 4.1 (2026-04-27) — unified Esc-text protocol audit chain hook events.
+#
+# T-STOP-AUDIT / T-USER-PROMPT-SUBMIT-AUDIT — verify the new 4 hook event
+# types are accepted by the router and produce a TicketStreamEvent with the
+# correct kind. AskUserQuestion-specific HIL fan-out (publish_opened) MUST
+# NOT fire for these events; they are catch-all audit anchors.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "hook_event_name,expected_kind",
+    [
+        ("Stop", "turn_complete"),
+        ("UserPromptSubmit", "user_prompt_submit"),
+        ("SubagentStop", "subagent_complete"),
+        ("Notification", "notification"),
+    ],
+)
+def test_unified_audit_chain_hook_events_accepted_and_streamed(
+    hook_event_name, expected_kind
+):
+    from fastapi.testclient import TestClient
+
+    app = _build_test_app()
+    client = TestClient(app)
+
+    fixture = _load_fixture()
+    # Strip tool fields — these new event types don't carry tool_input.
+    fixture["hook_event_name"] = hook_event_name
+    for key in ("tool_name", "tool_use_id", "tool_input"):
+        fixture.pop(key, None)
+
+    resp = client.post(
+        "/api/hook/event",
+        content=json.dumps(fixture),
+        headers={"content-type": "application/json"},
+    )
+    assert resp.status_code == 200, f"got {resp.status_code} body={resp.text}"
+    body = resp.json()
+    assert body == {"accepted": True}
+
+    # HIL fan-out (publish_opened) must NOT fire for non-AskUserQuestion events
+    bus = app.state.hil_event_bus
+    assert bus.opened_events == [], (
+        f"publish_opened wrongly fired for {hook_event_name}: {bus.opened_events!r}"
+    )
+
+    # Stream broadcaster must receive an event with the expected kind
+    bcast = app.state.ticket_stream_broadcaster
+    assert len(bcast.events) == 1, f"broadcaster events: {bcast.events!r}"
+    ev = bcast.events[0]
+    kind = getattr(ev, "kind", None) or (
+        ev.get("kind") if isinstance(ev, dict) else None
+    )
+    assert kind == expected_kind, (
+        f"expected kind={expected_kind!r}; got {kind!r}"
+    )

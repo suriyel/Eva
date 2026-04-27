@@ -26,10 +26,19 @@ from pydantic import BaseModel, ConfigDict
 
 
 HookEventName = Literal[
+    # Wave 4.1 (2026-04-27): unified Esc-text protocol enables 4 additional hook
+    # event types so HIL audit closes the loop via PreToolUse + UserPromptSubmit
+    # + Stop instead of the legacy PostToolUse path. PostToolUse remains a valid
+    # event for non-AskUserQuestion tools (and as the baseline `<N>\r` audit
+    # source) but does NOT fire under the unified-Esc-text answer path.
     "PreToolUse",
     "PostToolUse",
     "SessionStart",
     "SessionEnd",
+    "Stop",
+    "SubagentStop",
+    "UserPromptSubmit",
+    "Notification",
 ]
 
 

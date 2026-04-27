@@ -1037,7 +1037,15 @@ __all__ = ["RunOrchestrator", "run_real_hil_round_trip"]
 # ---------------------------------------------------------------------------
 @dataclass
 class _RealHilRoundTripResult:
-    """Counters returned by ``run_real_hil_round_trip`` (consumed by T29/T30)."""
+    """Counters returned by ``run_real_hil_round_trip`` (consumed by T29/T30).
+
+    Wave 4.1 (2026-04-27) — under the unified Esc-text protocol, ``hook_fires``
+    is the **joint count** of PreToolUse(AskUserQuestion) + UserPromptSubmit
+    + Stop hook events forwarded to the broadcaster (the audit chain). Under
+    the legacy baseline ``<N>\\r`` path the same counter would include
+    PostToolUse(AskUserQuestion); under unified Esc-text PostToolUse does NOT
+    fire by design.
+    """
 
     hook_fires: int = 0
     same_pid_after_hil: bool = False
@@ -1546,8 +1554,12 @@ def run_real_hil_round_trip(
             )
 
         if captured_questions:
-            # 6. answer the first question via /api/pty/write equivalent (use
-            # encoder + worker.write directly, simulating IAPI-021).
+            # 6. answer the first question via the Wave 4.1 unified Esc-text
+            # protocol (default). The merged-text payload defaults to the
+            # first option label when the question has options, or a fixed
+            # placeholder for freeform questions. The legacy `<N>\r` path
+            # remains available via ``encoder.encode_radio(N)`` for the
+            # baseline-compat regression test.
             tk_id, _run_id, question = captured_questions[0]
             answer = _HilAnswer(
                 question_id=question.id,
@@ -1555,14 +1567,29 @@ def run_real_hil_round_trip(
                 freeform_text=None,
                 answered_at=_dt.now(_tz.utc).isoformat(),
             )
-            payload_bytes = encoder.encode_radio(1) if question.options else b"\r"
+            if question.options:
+                merged_text = question.options[0].label
+            else:
+                merged_text = "test answer"
+            payload_bytes = encoder.encode_unified_answer(merged_text)
             try:
                 proc.worker.write(payload_bytes)
             except Exception:
                 pass
-            bus.publish_answered(
-                ticket_id=tk_id, run_id=_run_id or tk_id, answer=answer
-            )
+            # Wave 4.1: audit via merged-text channel so downstream T29/T30
+            # invariant matches the new chain (PreToolUse + UserPromptSubmit
+            # + Stop). Fall back to legacy publish_answered if the bus
+            # implementation lacks the new method (older test fakes).
+            if hasattr(bus, "publish_answered_via_prompt"):
+                bus.publish_answered_via_prompt(
+                    ticket_id=tk_id,
+                    run_id=_run_id or tk_id,
+                    merged_text=merged_text,
+                )
+            else:
+                bus.publish_answered(
+                    ticket_id=tk_id, run_id=_run_id or tk_id, answer=answer
+                )
 
         # 6b. confirm pid stable
         same_pid = (

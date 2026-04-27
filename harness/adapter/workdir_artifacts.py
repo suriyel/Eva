@@ -112,8 +112,14 @@ class SettingsArtifactWriter:
         bridge_cmd = f"python3 {bridge_abs_path}"
 
         # Nested hooks schema (puncture.py:118-141).
-        # PreToolUse + PostToolUse: matcher="AskUserQuestion".
-        # SessionStart + SessionEnd: no matcher key (catch-all).
+        # Wave 4.1 (2026-04-27): unified Esc-text protocol registers 8 hook
+        # event types so the audit chain (PreToolUse + UserPromptSubmit + Stop)
+        # closes for the unified-paste answer path. The 4 catch-all events
+        # (Stop / SubagentStop / UserPromptSubmit / Notification) are NEW.
+        # Matcher rule:
+        #   - PreToolUse + PostToolUse: matcher="AskUserQuestion" (HIL only)
+        #   - SessionStart / SessionEnd / Stop / SubagentStop /
+        #     UserPromptSubmit / Notification: no matcher key (catch-all)
         matched_entry = [
             {
                 "matcher": "AskUserQuestion",
@@ -153,6 +159,11 @@ class SettingsArtifactWriter:
                 "PostToolUse": matched_entry,
                 "SessionStart": unmatched_entry,
                 "SessionEnd": unmatched_entry,
+                # Wave 4.1 NEW (2026-04-27): unified Esc-text protocol audit chain.
+                "Stop": unmatched_entry,
+                "SubagentStop": unmatched_entry,
+                "UserPromptSubmit": unmatched_entry,
+                "Notification": unmatched_entry,
             },
             # claude CLI 2.1.119 schema: enabledPlugins is a record
             # (plugin-name → enabled-bool), NOT an array. Empty record means

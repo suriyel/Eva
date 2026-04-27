@@ -7,8 +7,19 @@ Wave 4 changes:
   - HilEventBus.publish_answered fires on success
   - PtyClosedError → preserve answer in ``pending_answers`` + ticket → failed
 
+Wave 4.1 (2026-04-27) — unified Esc-text protocol becomes the **default**:
+  - HilWriteback.write_answer constructs a ``merged_text`` from
+    ``answer.selected_labels`` + ``answer.freeform_text`` and emits
+    ``TuiKeyEncoder.encode_unified_answer(merged_text)`` — a single
+    Esc + bracketed-paste(merged_text) + CR keystroke.
+  - HIL audit closes via PreToolUse + UserPromptSubmit + Stop hook chain
+    (PostToolUse does NOT fire under this path; by design — see ASM-009/010).
+  - Baseline ``<N>\\r`` + bracketed-paste-freeform path remains available
+    when callers pass ``prefer_baseline=True`` (compatibility regression).
+
 Per Design §Interface Contract HilWriteback.write_answer postcondition:
-  (1) HilQuestion.kind drives TuiKeyEncoder.encode_*;
+  (1) default path: merged_text → encode_unified_answer; baseline path:
+      HilQuestion.kind drives TuiKeyEncoder.encode_radio/checkbox/freeform;
   (2) base64 encode + POST /api/pty/write;
   (3) success → publish_answered + ticket transition hil_waiting → classifying;
   (4) PtyClosedError → pending_answers[ticket_id] += answer + ticket → failed.
@@ -50,11 +61,16 @@ class HilWriteback:
         event_bus: _EventBus | None = None,
         ticket_repo: _TicketRepo | None = None,
         encoder: TuiKeyEncoder | None = None,
+        prefer_baseline: bool = False,
     ) -> None:
         self._client = pty_write_client
         self._bus = event_bus
         self._repo = ticket_repo
         self._encoder = encoder or TuiKeyEncoder()
+        # Wave 4.1: default path is unified Esc-text. Set ``prefer_baseline=True``
+        # to fall back to the legacy ``<N>\r`` + bracketed-paste-freeform encoder
+        # (kept for backward compatibility — see Wave-4 PoC evidence).
+        self._prefer_baseline = prefer_baseline
         # FR-011 AC-4: failed write_answer must preserve the answer here.
         self.pending_answers: dict[str, list[HilAnswer]] = {}
 
@@ -66,9 +82,14 @@ class HilWriteback:
         question: HilQuestion,
         answer: HilAnswer,
     ) -> None:
-        # 1. Encode using HilQuestion.kind to pick the right TuiKeyEncoder method.
+        # 1. Encode using the active path (default = unified Esc-text, Wave 4.1).
         try:
-            payload_bytes = self._encode(question, answer)
+            if self._prefer_baseline:
+                payload_bytes = self._encode_baseline(question, answer)
+                merged_text: str | None = None
+            else:
+                merged_text = self._merge_text(question, answer)
+                payload_bytes = self._encoder.encode_unified_answer(merged_text)
         except EscapeError:
             # Forbidden control bytes → propagate to caller; do not transition.
             raise
@@ -91,19 +112,54 @@ class HilWriteback:
 
         # 3. Success → publish_answered + ticket → classifying.
         if self._bus is not None:
-            try:
-                self._bus.publish_answered(ticket_id=ticket_id, answer=answer)
-            except TypeError:
-                # Tolerate alternate signatures; older callers may use run_id keyword.
-                self._bus.publish_answered(
-                    ticket_id=ticket_id, run_id="", answer=answer
-                )
+            if not self._prefer_baseline and merged_text is not None and hasattr(
+                self._bus, "publish_answered_via_prompt"
+            ):
+                # Wave 4.1 default — audit via merged-text channel.
+                try:
+                    self._bus.publish_answered_via_prompt(
+                        ticket_id=ticket_id, run_id="", merged_text=merged_text
+                    )
+                except TypeError:
+                    # Alternate signature without run_id.
+                    self._bus.publish_answered_via_prompt(  # type: ignore[call-arg]
+                        ticket_id=ticket_id, merged_text=merged_text
+                    )
+            else:
+                try:
+                    self._bus.publish_answered(ticket_id=ticket_id, answer=answer)
+                except TypeError:
+                    # Tolerate alternate signatures; older callers may use run_id keyword.
+                    self._bus.publish_answered(
+                        ticket_id=ticket_id, run_id="", answer=answer
+                    )
         if self._repo is not None:
             self._repo.transition(ticket_id, "classifying")
 
     # ------------------------------------------------------------------
-    def _encode(self, question: HilQuestion, answer: HilAnswer) -> bytes:
-        """Pick TuiKeyEncoder method based on question.kind + answer payload."""
+    @staticmethod
+    def _merge_text(question: HilQuestion, answer: HilAnswer) -> str:
+        """Wave 4.1 — flatten a HilAnswer into a single merged-text payload.
+
+        Rules (default unified Esc-text protocol):
+          - freeform_text non-empty → use as-is (overrides label merge)
+          - selected_labels non-empty → ", ".join(labels) (multi-select form)
+          - both empty → ""  (TUI accepts an empty paste + CR which submits
+            whatever the cursor is currently on — TUI default behaviour)
+        """
+        if answer.freeform_text:
+            return answer.freeform_text
+        if answer.selected_labels:
+            return ", ".join(answer.selected_labels)
+        return ""
+
+    # ------------------------------------------------------------------
+    def _encode_baseline(self, question: HilQuestion, answer: HilAnswer) -> bytes:
+        """Legacy path (Wave 4 prior to 4.1) kept for compatibility regression.
+
+        Pick TuiKeyEncoder method based on question.kind + answer payload.
+        Used when ``prefer_baseline=True``.
+        """
         if answer.freeform_text is not None:
             # Freeform text path (single-shot bracketed paste).
             return self._encoder.encode_freeform(answer.freeform_text)
@@ -119,6 +175,10 @@ class HilWriteback:
                 return self._encoder.encode_radio(indices[0])
         # No selection at all → bare CR confirms whatever the TUI default is.
         return b"\r"
+
+    # Backwards-compat alias used by older tests / call sites.
+    def _encode(self, question: HilQuestion, answer: HilAnswer) -> bytes:  # pragma: no cover
+        return self._encode_baseline(question, answer)
 
     @staticmethod
     def _labels_to_indices(question: HilQuestion, labels: list[str]) -> list[int]:

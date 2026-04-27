@@ -161,3 +161,59 @@ def test_unknown_action_kind_raises():
     object.__setattr__(action, "rationale", "")
     with pytest.raises(ValueError, match="unknown DialogAction.kind"):
         DialogActuator().encode(action, screen)
+
+
+# ---------------------------------------------------------------------------
+# unified_answer (Wave 4.1, 2026-04-27) — default HIL answer encoding.
+#
+# Layout:  ESC + ESC[200~ + text(utf-8) + ESC[201~ + CR
+# ---------------------------------------------------------------------------
+def _expected_unified(text: str) -> bytes:
+    return ESCAPE + PASTE_START + text.encode("utf-8") + PASTE_END + ENTER
+
+
+def test_unified_answer_basic_radio_label() -> None:
+    """T-UNIFIED-RADIO equivalent — single-select label text."""
+    action = DialogAction(kind="unified_answer", text="Python")
+    keys = DialogActuator().encode(action, _screen())
+    assert keys == _expected_unified("Python")
+
+
+def test_unified_answer_utf8_freeform_body() -> None:
+    """T-UNIFIED-FREEFORM equivalent — UTF-8 multibyte preserved."""
+    text = "我想要 Rust 因为速度"
+    action = DialogAction(kind="unified_answer", text=text)
+    keys = DialogActuator().encode(action, _screen())
+    assert keys == _expected_unified(text)
+
+
+def test_unified_answer_multi_question_concatenated() -> None:
+    """T-UNIFIED-MULTI-QUESTION equivalent — 3 answers joined into one merged text."""
+    merged = "Lang: Python; Test: pytest; CI: github-actions"
+    action = DialogAction(kind="unified_answer", text=merged)
+    keys = DialogActuator().encode(action, _screen())
+    assert keys == _expected_unified(merged)
+    # Spot-check the protocol prefix + suffix.
+    assert keys.startswith(ESCAPE + PASTE_START)
+    assert keys.endswith(PASTE_END + ENTER)
+
+
+def test_unified_answer_multi_select_comma_join() -> None:
+    """T-UNIFIED-MULTI-SELECT equivalent — labels joined with ", "."""
+    merged = "Python, Go"
+    action = DialogAction(kind="unified_answer", text=merged)
+    keys = DialogActuator().encode(action, _screen())
+    assert keys == _expected_unified(merged)
+
+
+def test_unified_answer_empty_text_legal() -> None:
+    """Empty merged text — paste of zero bytes + CR submits TUI default."""
+    action = DialogAction(kind="unified_answer", text="")
+    keys = DialogActuator().encode(action, _screen())
+    assert keys == ESCAPE + PASTE_START + PASTE_END + ENTER
+
+
+def test_unified_answer_requires_text_not_none() -> None:
+    """``unified_answer`` requires text (may be empty string but not None)."""
+    with pytest.raises(ValueError, match="unified_answer.*requires text"):
+        DialogAction(kind="unified_answer", text=None)
