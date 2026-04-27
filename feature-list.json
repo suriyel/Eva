@@ -138,10 +138,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 18,
-    "phase": "tdd"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -555,7 +552,7 @@
       "title": "F18 · Bk-Adapter — Agent Adapter & HIL Pipeline",
       "description": "合并原 F03 PTY + ToolAdapter / F04 Stream Parser + HIL Pipeline / F05 OpenCode Adapter 为单一 TDD 单元；承载 spawn agent CLI → pty 穿透 → HIL 识别 → pty stdin 回写全链路；含 HIL PoC gate（FR-013 20-round ≥95%）。Wave 4 协议层重构：HIL 捕获从 stream-json 切换为 workdir-scoped settings.json hooks (PreToolUse(AskUserQuestion)/PostToolUse(*)/SessionStart/SessionEnd) → harness POST /api/hook/event 桥；HIL 回写从纯文本注入切换为 TUI 键序 (option=<N>\\r / 自由文本 bracketed paste / 多 question 串行写键)；ToolAdapter Protocol 升级为 7 方法 (build_argv / prepare_workdir / spawn / map_hook_event / parse_result / detect_anomaly / supports)。",
       "priority": "high",
-      "status": "failing",
+      "status": "passing",
       "srs_trace": [
         "FR-008",
         "FR-009",
@@ -605,7 +602,8 @@
       ],
       "ui": false,
       "st_case_path": "docs/test-cases/feature-18-f18-bk-adapter-agent-adapter-hil-pipeline.md",
-      "st_case_count": 39
+      "st_case_count": 50,
+      "git_sha": "95f984c"
     },
     {
       "id": 19,

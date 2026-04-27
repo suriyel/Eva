@@ -1015,3 +1015,28 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - TDD R-G-R: green ✓
 - current.phase: tdd (continued; Quality gate + ST 待执行)
 - 后续：用户决策启动 SubAgent 做 unified Esc-text 协议增量 (FR-053 默认协议升级)
+
+### Session 38 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · ST (Wave 4 + 4.1 · 2026-04-27)
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=4
+- env-guide: approved (v1.2 · 2026-04-27 · godsuriyel@gmail.com); pre-existing 未暂存改动 (`feature-list.json` 仅 phase 翻转 + `scripts/init_project.py` F24 in-progress 编辑) **未纳入** 本会话 commit
+- Bootstrap: env-guide §1 — F18 ui:false backend-only "No server processes — environment activation only"；只 venv 激活，未启动 api / ui-dev
+- Feature-ST SubAgent: pass — 重新生成 ST 测试用例文档（旧 39 → 新 50 cases · 2026-04-24 stale 版被 Wave 4 + 4.1 协议重构整体替换）
+  - 覆盖 Test Inventory 49 行（T01-T39 + T-HOOK-SCHEMA-CANARY + Wave 4.1 9 行：T-UNIFIED-RADIO/MULTI-SELECT/MULTI-QUESTION/FREEFORM/SEC + T-MULTI-ROUND + T-STOP-AUDIT + T-USER-PROMPT-SUBMIT-AUDIT + T-BASELINE-COMPAT）+ INT-001 [Wave 4 REWRITE / Wave 4.1 unified Esc-text default]
+  - 类别 FUNC=38 / BNDRY=5 / SEC=5 / PERF=2（FR-008/009/011/012/051/052/053/IFR-001/002 SEC + FR-013 PERF）
+  - SRS trace 15/15 全覆盖（FR-008/009/011/012/013/015/016/017/018/051/052/053/NFR-014/IFR-001/IFR-002）；FR-014 [DEPRECATED Wave 4] 经 T31 dead-code grep + T32 SessionEnd 替代逻辑覆盖
+  - 自动化执行：`pytest tests/test_f18_w4_*.py tests/integration/test_f18_*.py -m "not real_cli" -q` → 88 passed / 2 deselected；mypy --strict 0 issue
+  - validate_st_cases.py: VALID — 50 test case(s)（0 errors / 0 warnings）
+  - check_ats_coverage.py --strict: ATS COVERAGE OK
+- 3 cases PENDING-MANUAL（external-action · 用户经 AskUserQuestion 选择 "接受延迟" 裁决）：
+  - ST-FUNC-018-029（T29 真 claude CLI ≥ v2.1.119 HIL round-trip via hook bridge）
+  - ST-PERF-018-001（T30 FR-013 20-round PoC ≥95% / Wave 4 + 4.1 重跑）
+  - ST-FUNC-018-038（INT-001 跨特性 F18+F21+F20+F02 系统集成）
+- Inline Check: PASS（P2: 19/19 methods · T2: 17 test files / ~74 funcs · D3: requirements.txt + env-guide §3 锁版本 OK · ATS Category: strict OK · §4: greenfield placeholder + §4.5 隔离白名单合规 0 violation · FR-014 dead-code grep: 0 hit in production paths）
+- Git: 95f984c feat: feature #18 wave 4 + 4.1 — TUI + Hook Bridge protocol layer (ST passing)
+- current: {feature_id: 18, phase: "st"} → null
+- status: failing → passing
+#### Risks
+- ⚠ [Coverage] FR-013 PoC gate (T30 / ST-PERF-018-001) headless 不可触发；用户接受延迟 — 待手动跑 20 轮真 CLI round-trip 输出 docs/explore/wave4-hil-poc-report.md，未执行前 FR-013 接受属"已声明但未现场验证"
+- ⚠ [Dependency] ST-FUNC-018-038 (INT-001 系统集成) 同时依赖 F21 / F20 / F02 全部 passing；F20 当前 failing，待 F20 通过后用户可重跑该集成场景
+- ⚠ [Mutant] T-MULTI-ROUND 已映射至 ST-PERF-018-002（unit 级跨轮 audit 断言；同时校验 posted bytes 累积 + audit value/channel 键），真 CLI 跨 user_turn 3 轮变体仍归 ST-PERF-018-001 (manual)
+- ⚠ [Workspace] 仓库根另存未提交编辑：`scripts/init_project.py` 删除了 F24 已交付的 B8 guard（154 行），疑似 in-progress 非 F18 工作；本会话两次 commit 均未触碰，由用户自行处置
