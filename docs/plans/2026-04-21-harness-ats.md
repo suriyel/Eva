@@ -46,7 +46,7 @@
 
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
-| FR-001 | Start + 自主循环 14-skill | 合法 workdir 启动 5s 内进 running / ST Go 后 COMPLETED 自停 / 非 git repo 被拒并提示 | FUNC, BNDRY, SEC | Critical | Auto | SEC：workdir 路径必须拒 `..` 穿越与符号链逃逸 |
+| FR-001 | Start + 自主循环 14-skill [Wave 5 MOD] | 合法 workdir 启动 5s 内进 running / ST Go 后 COMPLETED 自停 / 非 git repo 被拒并提示 / **Wave 5 AC-3**：每张 ticket 必经 ClaudeCodeAdapter.spawn() 起独立 PTY，禁止在已有 PTY 内通过连续 slash 切换 skill（context 爆炸防护）/ **Wave 5 AC-4**：spawn 必须由 inject `/<next_skill>` 显式触发 skill 执行，裸 spawn 后无 inject 视为实装缺陷 | FUNC, BNDRY, SEC | Critical | Auto | SEC：workdir 路径必须拒 `..` 穿越与符号链逃逸；Wave 5：spawn_model_invariant 1 ticket = 1 PTY = 1 TUI（FR-055 / IAPI-005 配套） |
 | FR-002 | 每 ticket 结束调 phase_route.py | 终态后必须调 phase_route 而非缓存 / next_skill 透传为 skill_hint / ok=false 暂停并呈 error | FUNC, BNDRY | Critical | Auto | 松弛 JSON 解析—字段增减不破适配器 |
 | FR-003 | 信号文件自动进 hotfix/increment | bugfix 存在 → hotfix 分支 / increment 存在 → increment / 两者共存 → 按 phase_route 优先级忠实执行 | FUNC, BNDRY, SEC | Critical | Auto | SEC：信号 JSON 解析需防注入（pydantic strict） |
 | FR-004 | Pause / Cancel | running 点 Pause 当前 ticket 结束后暂停 / Cancel 后只读快照可见 / Cancelled run Resume 按钮禁用 | FUNC, BNDRY, UI | Critical | Auto | UI：Pause 二次确认 3s 超时 |
@@ -76,7 +76,7 @@
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
 | FR-015 | ToolAdapter Protocol 新签名（含 prepare_workdir / map_hook_event）[Wave 4 MOD] | **Happy**：mypy 严格检查 Claude+OpenCode Adapter 通过新 8 方法 Protocol（含 prepare_workdir / map_hook_event）/ Mock Provider 实现 Protocol 可被 orchestrator dispatch / **Error**：Mock 缺 prepare_workdir 或 map_hook_event → mypy --strict 报错 + 运行时 TypeError 拒绝注册 | FUNC, BNDRY | Critical | Auto | 静态 + 运行时；新增 2 方法残缺场景覆盖 |
-| FR-016 | ClaudeCodeAdapter argv（严格 5+1 项）[Wave 4 MOD] | argv 必为 `["claude", "--dangerously-skip-permissions", "--strict-mcp-config", "--mcp-config", "<path>", "<prompt>"]` 6 项；指定 model 时插入 `--model <name>` 成 7 项 / 不允许任何 -p / --print / --output-format / --include-partial-messages flag 出现 | FUNC, BNDRY | Critical | Auto | argv 等值断言（白名单极简） |
+| FR-016 | ClaudeCodeAdapter argv（严格白名单 + --plugin-dir）[Wave 4 MOD / Wave 5 MOD] | argv 必含 `claude` + 既有 5 项极简白名单 + 指定 model 时插入 `--model <name>` / 不允许任何 -p / --print / --output-format / --include-partial-messages flag 出现 / **Wave 5 AC-NEW**：argv 必须含 `--plugin-dir <path>` 且 `<path>/.claude-plugin/plugin.json` 存在，否则 spawn 抛 `InvalidIsolationError` / **Wave 5 AC-NEW**：`--setting-sources project` 与 `--plugin-dir` 必须同时存在（前者切断 user-scope 插件注册表后必须由后者补 plugin 来源） | FUNC, BNDRY | Critical | Auto | argv 等值断言（白名单从 8 → 10 项 Additive，非 Breaking）；Wave 5 puncture_wave5.py 第 1 次失败实证 |
 | FR-017 | OpenCodeAdapter argv + hooks | argv 首 `opencode` + 可选 model/agent / v1 指定 mcp_config 降级 + UI 提示 | FUNC, BNDRY | Critical | Auto | — |
 | FR-018 | 适配器接口稳定性 | **Happy**：Mock Provider 实现 6 方法可注册并 dispatch / **Error**：ToolAdapter 新增可选方法（未来）不破坏现有 Claude/OpenCode Adapter（向后兼容断言）| FUNC, BNDRY | High | Auto | 向后兼容 regression |
 
@@ -141,7 +141,7 @@
 | Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
 |---|---|---|---|---|---|---|
 | FR-047 | 驱动全部 14 skill | 完整 run dispatch 过 skill 集 ⊇ 14 必要子集 / phase_route 返回未硬编码 skill 仍能 dispatch | FUNC, BNDRY | Critical | Auto | 端到端 full run |
-| FR-048 | 信号文件感知 | 外部新增 bugfix-request.json watcher 触发 → 2s 内 UI 可见 / docs/plans/* 变更 UI 文件树 "NEW" 徽章 | FUNC, BNDRY, UI | Critical | Auto | UI：watcher + WebSocket 推送 |
+| FR-048 | 信号文件感知 [Wave 5 MOD：双 AC 拆] | **AC-1（UI 路径）**：外部新增 bugfix-request.json → watcher 触发 → `/ws/signal` toast ≤ 2s（watchdog debounce 500ms + WS 传输）/ docs/plans/* 变更 → UI 文件树 "NEW" 徽章 / **AC-2（dispatch 路径，Wave 5 NEW）**：signal 写入后 `_run_loop` 下一圈调 `phase_route_local.route()` 必返 long-task-hotfix / long-task-increment（priority-1 命中），dispatch 切换 ≤ 当前 ticket 剩余时长 + 200ms / **AC-3（Wave 5 NEW）**：SignalFileWatcher 真正集成到 `_run_loop`（`rt.signal_dirty.set` on event；不再 [INLINED] noop） | FUNC, BNDRY, UI | Critical | Auto | UI：watcher + WebSocket 推送（AC-1）；Wave 5：dispatch 路径 AC-2/AC-3 落 INT-006 双 AC 验收 |
 
 #### M. 分发
 
@@ -159,6 +159,15 @@
 | FR-051 (NEW MUST) | prepare_workdir 三件套预置（隔离 ~/.claude/settings.json + ~/.claude.json + .mcp.json）[Wave 4 NEW] | spawn 前 ToolAdapter.prepare_workdir(workdir) 在 `<workdir>/.harness-workdir/` 写入三文件 / settings.json 含 PreToolUse(AskUserQuestion) hook 注册 hook bridge / sha256(~/.claude/settings.json) + sha256(~/.claude.json) run 前后字节级守恒 / .mcp.json 仅含必要 server 列表 | FUNC, BNDRY, SEC | Critical | Auto | SEC：filesystem audit (lsof + sha256 diff)；NFR-009 强化 |
 | FR-052 (NEW SHOULD) | HIL 应答唯一通道 = harness UI [Wave 4 NEW] | hook stdin JSON → POST /api/hook/event → HilQuestion → harness UI POST /api/hil/:ticket_id/answer → TuiKeyEncoder → POST /api/pty/write → claude TUI 续跑 / 旁路尝试（直接对 claude TUI 键入）→ harness UI 不响应 + audit warning / 同 ticket 同 HIL 二次提交 → 409 Conflict | FUNC, BNDRY, SEC | High | Auto | SEC：通道唯一性断言；audit log 记录所有应答源 |
 | FR-053 (NEW MUST) | TuiKeyEncoder 协议 [Wave 4 NEW] | encode_radio(index) → `b"<N>\r"` / encode_checkbox(indices) → 多按键序列 + space + enter / encode_freeform(text) → bracketed paste 包裹 (`ESC[200~ <text> ESC[201~ \r`) / 文本含特殊 UTF-8 / emoji / 控制字符过滤（拒 `\x03`/`\x04`）/ POST /api/pty/write 写入 byte-equal | FUNC, BNDRY, SEC | Critical | Auto | SEC：bracketed paste 边界标记防注入；自由文本字节守恒 |
+
+#### O. Wave 5 路由内化与 Skill 注入（F20 supervisor 主循环改造）
+
+> Wave 5 增量（2026-04-27）：phase_route 由 plugin subprocess 改为 harness 内部模块（FR-054）；spawn 内部新增 inject `/<next_skill>` 阶段（FR-055）。两条均为 NEW，不替换既有 FR；FR-001 / FR-016 / FR-048 / IFR-003 / CON-008 / ASM-001 修订见对应行。
+
+| Req ID | 需求摘要 | 验收场景 | 必须类别 | 优先级 | 自动化可行性 | 备注 |
+|---|---|---|---|---|---|---|
+| FR-054 (NEW MUST) | route() 内化 — phase_route_local 模块 [Wave 5 NEW] | **AC-1**：`harness.orchestrator.phase_route_local.route(workdir)` 同进程 Python 函数调用，调用栈中无 `subprocess.Popen` / `asyncio.create_subprocess_exec` / **AC-2**：返回 dict 字段集合 = `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}`，与 plugin v1.0.0 字段语义对等 / **AC-3**：函数耗时 ≤ 50ms（feature-list.json ≤ 100KB 时 ≤ 5ms）/ **AC-4**：决议优先级与 plugin 完全一致：`bugfix-request.json` > `increment-request.json` > `feature-list.json` (current/_select_next/ST) > `docs/plans/*-{ats,design,ucd,srs}.md` 阶梯 > brownfield 启发 > 默认 long-task-requirements | FUNC, BNDRY, PERF | Critical | Auto | 关联 IFR-003 修订 / API-W5-01；fixture 交叉验证 plugin v1.0.0 行为对等性（ASM-001 修订）；PERF：50ms gate（puncture_wave5.py 实测 0.02ms） |
+| FR-055 (NEW MUST) | spawn 内部 inject `/<next_skill>` [Wave 5 NEW] | **AC-1**：`spawn()` 内部在 `PtyWorker.start` 后等待 TUI boot 稳定（默认 ≤ 8s 超时），然后通过 PTY 写 `ESC[200~ /<skill> ESC[201~ CR` 序列（bracketed paste + CR）/ **AC-2**：注入超时（boot 不稳定）或 write 失败必须抛 `SkillDispatchError <: SpawnError`，supervisor 不得继续到 `ticket_stream.events()` / **AC-3**：注入后必须命中 SKILL.md `I'm using <skill>` opening line marker（≤ 30s 内屏幕含该字符串）作为 dispatch 成功证据；否则 ticket 进 `ABORTED` 状态 / **AC-4**：`skill_hint` 来自 `PhaseRouteResult.next_skill`；slash 形式为 `'/' + skill_hint`（短格式 — puncture_wave5 验证 plugin TUI 接受） | FUNC, BNDRY, SEC | Critical | Auto | 关联 IAPI-005 / IAPI-021 拓宽；real_cli pty real 验证；SEC：bracketed paste 协议复用 FR-053 字节守恒（ASM-010 unaffected）；Wave 5 AC-3 SKILL.md marker 验收来自 puncture_wave5.py 实测 |
 
 ### 2.2 非功能需求（NFR）
 
@@ -188,7 +197,7 @@
 |---|---|---|---|---|---|---|
 | IFR-001 | Claude Code CLI PTY + hooks 通道 + TUI 键序（含 HookEventPayload schema）[Wave 4 MOD] | argv 严格 5+1 项（含 FR-016 极简白名单）/ pty 通道仅承载 TUI 字节流（不再解析 stream-json）/ hook 子进程 stdin JSON envelope 符合 HookEventPayload schema（hook_event_name + tool_name + tool_input + ticket_id）/ TUI 键序回写经 TuiKeyEncoder 编码（radio/checkbox/freeform 三型）/ CLI 缺失 → skill_error | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-008/009/011/016；ASM-009/010 引用（hook schema + TUI 键序在 v2.1.119 稳定） |
 | IFR-002 | OpenCode CLI pty+hooks | argv `opencode ...` 正确构造 / hooks.json 注入成功 Question 工具被捕获 / **hooks.json 写入路径限 `<isolated>/.opencode/` 防目录逃逸** / **Question name 超长（>256B）截断不崩** | FUNC, BNDRY, SEC | Critical | Auto | 关联 FR-012/017；SEC：hooks.json 作第三方 JSON 需防注入边界 |
-| IFR-003 | phase_route.py subprocess --json | 松弛 JSON 解析增减字段均可 / exit≠0 → 暂停 + 呈 error / stdout 非 JSON → parse_error + 暂停 | FUNC, BNDRY, SEC | Critical | Auto | SEC：subprocess argv 不拼接用户输入 |
+| IFR-003 | phase routing 接口（内部模块）[Wave 5 MOD：subprocess → in-proc] | **Wave 5 AC-NEW**：`PhaseRouteInvoker.invoke(workdir)` 调用 `await asyncio.to_thread(route, workdir)`（内部函数），调用栈中无 subprocess / **Wave 5 AC-NEW**：`PhaseRouteInvoker.build_argv` 标 `[DEPRECATED Wave 5]` 但保留作为 fallback（plugin 仍存在场景下可手工切换），默认禁用 / **保留旧 AC（DEPRECATED 路径）**：松弛 JSON 解析增减字段均可（fallback 仍兼容）；exit≠0 → 暂停 + 呈 error；stdout 非 JSON → parse_error + 暂停 | FUNC, BNDRY, SEC | Critical | Auto | 内部模块新协议无 SEC argv 拼接面；fallback subprocess 路径仍守 SEC 约束（argv 不拼接用户输入）；关联 FR-054 / API-W5-02 / API-W5-03 |
 | IFR-004 | OpenAI-compat HTTP | GLM/MiniMax/OpenAI/custom 4 preset 均能发起成功 POST / 401 → 降级 rule + audit / response_format strict schema 外返回值拒收 | FUNC, BNDRY, SEC, PERF | Critical | Auto | SEC：SSRF 防（base_url domain 白名单校验）；PERF：10s timeout; Wave 3：effective_strict=False 时 body 不含 response_format，URL/method/Authorization 不变；real_external_llm smoke (MiniMax) 验证 ASM-008 |
 | IFR-005 | git CLI subprocess | status/rev-parse/log/show/pull 6 命令正确调用 / 非 git 目录 exit=128 被捕获 | FUNC, BNDRY, SEC | Critical | Auto | SEC：git URL 仅 https/git+ssh 白名单 |
 | IFR-006 | 平台 keyring | macOS Keychain / Secret Service / Credential Manager 各自 get/set/delete 通过 / Linux 无 daemon → 降级 keyrings.alt + UI 告警 | FUNC, BNDRY, SEC | Critical | Auto | SEC：降级到明文文件时必提示 |
@@ -196,14 +205,16 @@
 
 ### 2.4 覆盖统计
 
+> Wave 5 增量 (2026-04-27)：active 行 75 → 77（+2 NEW：FR-054 / FR-055；FR-014 DEPRECATED 不计入分母 = 53 active FR + 17 NFR + 7 IFR = 77）。FUNC/BNDRY 100% / 99% 维持；FR-054 + FR-055 + FR-016（plugin-dir）+ FR-001（spawn invariant）四行均含 SEC/BNDRY 类别，SEC 占比从 34/75 上调到 36/77（≈47%，无显著变化）；PERF 增 1（FR-054 50ms gate）→ 14/77 ≈ 18%；UI 不变 = 20/77 ≈ 26%；Manual 标记不变 = 2/77 ≈ 3%。本表数字反映 Wave 5 后的当前 active 计数。
+
 | 类别 | 出现次数 | 占比 |
 |---|---:|---:|
-| FUNC | 72 / 72 | 100% |
-| BNDRY | 71 / 72 | 99%（NFR-006/007/008/009 仅 SEC 无 BNDRY）|
-| SEC | 34 / 72 | 47%（含 IFR-002 hooks.json 注入防护） |
-| PERF | 13 / 72 | 18% |
-| UI | 20 / 72 | 28% |
-| Manual 标记 | 2 / 72 | 3%（FR-046 Happy / NFR-010 视觉评审） |
+| FUNC | 77 / 77 | 100% |
+| BNDRY | 76 / 77 | 99%（NFR-006/007/008/009 仅 SEC 无 BNDRY）|
+| SEC | 36 / 77 | 47%（含 IFR-002 hooks.json 注入防护 + Wave 5 FR-055 bracketed paste 复用 FR-053 字节守恒） |
+| PERF | 14 / 77 | 18%（Wave 5 +FR-054 50ms gate） |
+| UI | 20 / 77 | 26% |
+| Manual 标记 | 2 / 77 | 3%（FR-046 Happy / NFR-010 视觉评审） |
 
 ---
 
@@ -315,7 +326,7 @@
 | **INT-003** | **非 git repo Start 错误**：用户指定非 git 目录 → 拒启动并提示 | F01, F20 | `POST /api/runs/start` → `git status --porcelain` exit=128 → Gateway 返 400 → UI Modal 展示错误 | error_code 正确；filelock 未被占用；UI error Modal 可读 | Feature ST |
 | **INT-004** | **Anomaly context_overflow 自愈链**：stderr 匹配 → Classifier RETRY → 新 ticket 继承 skill_hint → 3 次后 escalate | F19, F20, F18 | StreamParser → Classifier (IAPI-010) Verdict=RETRY → IAPI-004 Supervisor.reenqueue_ticket → 新 DispatchSpec 含 skill_hint → spawn → 第 4 次同 skill stderr 匹配 → EscalationEmitter → IAPI-001 `/ws/anomaly` escalated 事件 | retry_count 累加 1/2/3；第 4 次 `RecoveryDecision.kind="escalate"`；run 状态 paused；UI 显示上报 | System ST |
 | **INT-005** | **Classifier LLM 失败降级**：LLM 返回非法 JSON → 降级 rule → audit warning → ticket 仍继续 | F19, F20 | Classifier.classify → HTTP 200 but JSON 不合 schema → FallbackDecorator 捕获 → RuleBackend.classify → Verdict(backend="rule") → audit warning event → Orchestrator 按 verdict 继续 | ticket.classification.backend == "rule"；audit JSONL 含 `classifier_fallback`；UI 无异常提示（降级透明）| Feature ST |
-| **INT-006** | **Signal file → hotfix 分支**：外部写入 bugfix-request.json → watcher 触发 → 下一次 phase_route 选 long-task-hotfix | F10（FileWatcher）, F20, F02 | watchdog observer → IAPI-012 SignalEvent → Orchestrator queue → 当前 ticket 终态后 → IAPI-003 phase_route → next_skill=long-task-hotfix → IAPI-004 spawn ticket | 2s 内 UI 可见 `SignalFileChanged` 推送；hotfix ticket 被 dispatch；signal file 由 skill 自行删除 | System ST |
+| **INT-006** | **Signal file → hotfix 分支 [Wave 5 REWRITE：双 AC 拆]**：外部写入 bugfix-request.json → watcher 触发 → `_run_loop` 通过内化 `route()` dispatch hotfix | F10（FileWatcher）, F20, F02 | watchdog observer → IAPI-012 SignalFileWatcher.on_signal（**Wave 5 升正式契约**：`rt.signal_dirty.set` + `broadcast_signal` /ws/signal）→ 并行两路：(a) WebSocket `/ws/signal` 推 UI toast；(b) Orchestrator `_run_loop` 下一圈 → IAPI-003 PhaseRouteInvoker.invoke → `phase_route_local.route()`（**Wave 5 内化**，无 subprocess）→ `next_skill=long-task-hotfix` → IAPI-004 spawn ticket → IAPI-005 ClaudeCodeAdapter.spawn 内部 inject `/long-task-hotfix`（FR-055） | **AC-1（UI 路径）**：watcher 触发后 UI 收 `SignalFileChanged` ≤ 2s（watchdog debounce 500ms + WS 传输）/ **AC-2（dispatch 路径）**：当前 ticket 自然结束后内化 route() 在 ≤ ticket 剩余时长 + 200ms 内返 long-task-hotfix 并 spawn 新 ticket（priority-1 命中）/ **AC-3（真集成）**：SignalFileWatcher 真正集成到 `_run_loop`（`rt.signal_dirty.set` on event；不再 [INLINED] noop）；触发时无需等到 ticket 自然结束（cooperative interrupt 点）；hotfix ticket 被 dispatch；signal file 由 skill 自行删除 | System ST |
 | **INT-007** | **并发 run 互斥**（NFR-016）：两个 UI 窗口同时启同 workdir → 第二个被 filelock 拒 | F20, F01 | UI#1 `POST /api/runs/start` → RunLock acquire 成功；UI#2 → RunLock 被占 → Gateway 返 409 + `reason="已有 run 在运行"` | error_code=ALREADY_RUNNING；UI#2 Modal 正确展示；UI#1 不受影响 | Feature ST |
 | **INT-008** | **崩溃 + 重启恢复**（NFR-005）：`kill -9` Harness 主进程 → 重启 → 未完成 ticket 全标 interrupted | F02, F20, F01 | `kill -9 <pid>` → 进程死 → `harness.app.AppBootstrap` 重启 → `TicketRepository.list_by_run` WHERE `state IN (running, classifying, hil_waiting)` → 全部 UPDATE state=interrupted + AuditEvent `interrupted` | SQLite WAL journal 恢复；所有未完成 ticket 可见；run 状态=failed；UI 显示 `⚠ 因异常中断而保留 N 张 ticket` | System ST |
 | **INT-009** | **Skills install via git URL**：用户 UI 填 git URL + 点 Clone → `git clone` → plugin 目录就绪 | F10, F22, F01 | `POST /api/skills/install` (IAPI-018) → SkillsInstaller.clone → git subprocess (IFR-005) → PluginRegistry 读 plugin.json 版本 → 返回 SkillsInstallResult → UI 显示 sha | URL 白名单拒 `file://`；target_dir 防逃逸；pull 后 `plugins/longtaskforagent/.claude-plugin/plugin.json` 存在；UI commit sha 显示 | Feature ST |
@@ -343,7 +354,10 @@
 | **Err-H** | Linux 无 Secret Service 降级 | F01 | keyring backend = `keyrings.alt.file.PlaintextKeyring` → 保存 API key → UI 顶部黄色警告条 `"未检测到 Secret Service，凭证以明文存储，建议安装 gnome-keyring"` | UI 警告可见；明文文件路径可查；功能仍可用 | Feature ST |
 | **Err-I** | Validator subprocess 崩溃 | F20, F22 | `POST /api/validate/feature-list.json` → subprocess exit=1 stderr="traceback..." → ValidationReport ok=false + issues 含 stderr tail | UI 显示脚本崩溃；不吞错 | Feature ST |
 | **Err-J** | Claude CLI 存在但未 auth（区别 Err-B）| F18, F20 | `which claude` → 二进制路径存在 → ClaudeCodeAdapter.spawn 成功 → pty 子进程运行短暂 → stderr 含 `not authenticated` / `please run claude auth login` 类字符串 → exit 非零 → classifier 判 `skill_error` → ticket aborted | 与 Err-B 区分：Err-B spawn 失败；Err-J spawn 成功但认证失败；UI 提示清晰区分 | Feature ST |
+| **Err-K** | **SkillDispatchError [Wave 5 NEW]**：spawn 内部 inject `/<next_skill>` 失败（boot 不稳定 / SKILL.md marker ≤ 30s 未命中）| F18, F20 | ClaudeCodeAdapter.spawn → PtyWorker.start → 等待 boot 稳定（默认 ≤ 8s 超时）→ inject ESC[200~ /<skill> ESC[201~ CR 序列 → 30s 内未观察到 SKILL.md `I'm using <skill>` opening line marker → 抛 `SkillDispatchError <: SpawnError` → supervisor 捕获 → ticket 进 `ABORTED` 状态（不再走 ticket_stream.events()） | spawn 失败路径明确：boot 超时 → SkillDispatchError(reason=BOOT_TIMEOUT)；marker 超时 → SkillDispatchError(reason=MARKER_TIMEOUT)；ticket 状态 = ABORTED；audit 记 `skill_dispatch_failed`；run 不死循环重试 | Feature ST |
 | **INT-025** | Classifier test-connection 错误路径（FR-032 补齐）| F19, F22 | UI `POST /api/settings/classifier/test` → httpx 请求 → 401 Unauthorized → Gateway 返 400 + 错误 detail / connection-refused → Gateway 返 502 Bad Gateway + detail / DNS 失败 → 500 | 三种错误码 UI 横幅正确展示；保存动作因 test 失败不阻塞（仅警告）；IFR-004 protocol 错误分支覆盖 | Feature ST |
+| **INT-026** | **spawn_model_invariant 1:1 不变量 [Wave 5 NEW]**：N 张 ticket 的 run 必须产生 exactly N 个独立 PTY × N 个 TUI 进程，禁止在已有 PTY 内通过连续 slash 切换 skill | F20, F18, F23, F24 | _run_loop 跑 N 张 ticket → 每张 ticket 独立 ClaudeCodeAdapter.spawn → IAPI-005 PtyWorker × N → IAPI-006 byte_queue × N → ticket_stream × N；spawn 完成即 inject `/<next_skill>` (FR-055) → 各 PTY 子进程 pid 唯一 | **AC-INVARIANT**：System ST report 含断言 `len({pty.pid for pty in run.ptys}) == len(run.tickets)` 且 `count(active_pty) == count(active_ticket)` 在每个 wall-clock 采样点；F23/F24 dry-run 阶段亦读出该断言 | System ST（F23/F24 dry-run 一致读断言）|
+| **INT-027** | **route() 内化决议优先级矩阵 [Wave 5 NEW]**：FR-054 决议优先级 6 层全覆盖 + plugin v1.0.0 fixture 交叉对照 | F20 | 6 个 fixture：(1) 仅 bugfix-request.json → long-task-hotfix；(2) 仅 increment-request.json → long-task-increment；(3) feature-list.json current.phase=design → long-task-work-design；(4) feature-list.json current.phase=tdd → long-task-work-tdd；(5) docs/plans 阶梯（仅 srs 存在）→ long-task-design；(6) 空 workdir → long-task-requirements。每 fixture 对照 plugin scripts/phase_route.py 的 stdout JSON 字段一一比对 | route() 字段集合 = `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}` 与 plugin 字段语义对等；6 fixture 全 PASS；耗时 p99 ≤ 50ms；调用栈无 subprocess | Feature ST |
 
 ### 5.2 IAPI 覆盖自检
 
@@ -351,16 +365,16 @@
 |---|---|---|---|
 | IAPI-001（WS）| INT-001, INT-006, INT-014 | INT-014（断线） | — |
 | IAPI-002（REST）[Wave 4 MOD]（envelope rename）| INT-002, INT-009, INT-010, INT-011, INT-012, INT-019 | INT-003, INT-007, INT-015, INT-016 | — |
-| IAPI-003（phase_route）| INT-002, INT-017 | INT-003, Err-A | — |
+| IAPI-003（phase_route）[Wave 5 MOD]（subprocess → in-proc await asyncio.to_thread）| INT-002, INT-017, INT-006（Wave 5 dispatch 路径）, INT-027（决议优先级矩阵）| INT-003, Err-A（DEPRECATED fallback 路径仍兼容） | — |
 | IAPI-004（TicketCommand）| INT-002, INT-004 | — | — |
-| IAPI-005（ToolAdapter）[Wave 4 MOD]（spawn 语义）| INT-002, INT-013 | Err-B（CLI 缺失）, Err-J（未 auth） | — |
+| IAPI-005（ToolAdapter）[Wave 4 MOD / Wave 5 MOD]（spawn 内部 inject /<next_skill> 阶段拓宽）| INT-002, INT-013, INT-006（spawn-inject-stream 三步序）, INT-026（spawn_model_invariant 1:1） | Err-B（CLI 缺失）, Err-J（未 auth）, Err-K（SkillDispatchError：boot 不稳定 / SKILL.md marker 超时 → ticket ABORTED） | — |
 | IAPI-006（PTY handle）[Wave 4 MOD]（byte_queue 字段语义）| INT-001, INT-014 | Err-C | — |
 | IAPI-007（HilWriteback）[Wave 4 MOD]（payload 改 TuiKey 序列）| INT-001 | INT-001 分支（pty 关闭时写入失败） | — |
 | ~~IAPI-008（StreamEvent）~~ [REMOVED - Wave 4] | ~~INT-001, INT-014~~ | ~~Err-D~~ | — |
 | IAPI-009（AuditWriter）| INT-001, INT-004 | Err-E | — |
 | IAPI-010（Classifier）| INT-001, INT-004, INT-012 | INT-005, INT-025（test 401/502/DNS 错误） | — |
 | IAPI-011（TicketRepo）| INT-008, INT-011, INT-014 | INT-008 | INT-021 |
-| IAPI-012（SignalEvent）| INT-006 | Err-F | — |
+| IAPI-012（SignalEvent）[Wave 5 MOD]（[INLINED] → 正式契约：on_signal → rt.signal_dirty.set + broadcast_signal /ws/signal）| INT-006（双 AC：UI ≤ 2s + dispatch ≤ ticket 剩余 + 200ms） | Err-F | — |
 | IAPI-013（GitTracker）| INT-011, INT-002, INT-024 | INT-003 | — |
 | IAPI-014（keyring）| INT-012 | Err-H | — |
 | IAPI-015（ModelResolver）| INT-022 | — | — |
@@ -369,22 +383,26 @@
 | IAPI-018（SkillsInstaller）| INT-009 | INT-009 | — |
 | IAPI-019（RunControlBus）| INT-023 | INT-007 | — |
 | IAPI-020（POST /api/hook/event）[Wave 4 NEW] | INT-001（hook envelope happy-path）| INT-001 分支（hook bridge POST 失败 → 阻塞 Claude TUI）；Err-D' (envelope schema 不合法) | — |
-| IAPI-021（POST /api/pty/write）[Wave 4 NEW] | INT-001（TuiKeyEncoder 键序写入）| INT-001 分支（pty 关闭时写入失败 / 控制字符注入被拒） | — |
+| IAPI-021（POST /api/pty/write）[Wave 4 NEW / Wave 5 复用] | INT-001（TuiKeyEncoder 键序写入）, INT-006（spawn 内部 inject `/<next_skill>` 复用 PTY 写通道）| INT-001 分支（pty 关闭时写入失败 / 控制字符注入被拒）, Err-K（inject 失败 → SkillDispatchError） | — |
+| IAPI-022（phase_route_local.route）[Wave 5 NEW] | INT-006（dispatch 路径）, INT-027（6 fixture 决议优先级矩阵 + plugin v1.0.0 对等性） | INT-027 分支（fixture 字段缺失 / 损坏 feature-list.json 走 errors 列）| INT-027（plugin v1.0.0 fixture 交叉验证 — ASM-001 修订支撑）|
+| API-W5-07（feature_list_io 端口）[Wave 5 NEW] | INT-027（count_pending / validate_features 内部调用），FR-040 既有覆盖 | Err-I（validator subprocess 崩溃 — 内部模块错误透传）| ASM-011 假设支撑 |
 
 ### 5.3 场景总数与类别分布
 
-- **INT-001 .. INT-025**：25 个常规集成场景（含 INT-025 test-connection 错误路径；INT-001 已 Wave 4 整段重写为 hooks + TUI 键序）
-- **Err-A, B, C, D, E, F, H, I, J**：9 个错误路径场景（Err-G 已并入 INT-003；Err-J "CLI 存在但未 auth"）
-- **合计：34 个集成场景**（System ST：9 + Feature ST：25）
+- **INT-001 .. INT-027**：27 个常规集成场景（Wave 5 新增 INT-026 spawn_model_invariant 1:1、INT-027 route() 决议优先级矩阵；INT-006 Wave 5 整段重写为双 AC 拆 + 内化 route()）
+- **Err-A, B, C, D, E, F, H, I, J, K**：10 个错误路径场景（Wave 5 新增 Err-K SkillDispatchError；Err-G 已并入 INT-003；Err-J "CLI 存在但未 auth"）
+- **合计：37 个集成场景**（System ST：10 + Feature ST：27）
 
 类别覆盖：
-- FUNC: 34 / 34
-- BNDRY: 16 / 34（并发、重试次数、路径边界）
-- SEC: 7 / 34（INT-015, INT-016, INT-009, INT-012, INT-025, Err-H, Err-J；INT-001 Wave 4 新增三件套 sha256 守恒 + bracketed paste 字节守恒两条 SEC 验证点，仍归 INT-001 SEC 计数）
-- PERF: 4 / 34（INT-001 时延、INT-014 fan-out、INT-017 整 run 时长、INT-018 冷启动）
-- UI: 8 / 34
+- FUNC: 37 / 37
+- BNDRY: 18 / 37（并发、重试次数、路径边界、Wave 5 spawn 1:1 不变量、route 决议优先级矩阵）
+- SEC: 8 / 37（INT-015, INT-016, INT-009, INT-012, INT-025, Err-H, Err-J, Err-K；INT-001 Wave 4 新增三件套 sha256 守恒 + bracketed paste 字节守恒两条 SEC 验证点，仍归 INT-001 SEC 计数；Wave 5 FR-055 inject 复用 FR-053 字节守恒，归 INT-006 SEC）
+- PERF: 5 / 37（INT-001 时延、INT-014 fan-out、INT-017 整 run 时长、INT-018 冷启动、INT-027 route 50ms gate）
+- UI: 8 / 37
 
 **Wave 4 增量 Δ**：FR/NFR/IFR 计数 48 → 51 active FR（+3 NEW: FR-051/052/053；FR-014 标 DEPRECATED 不计）+ 17 NFR + 7 IFR = 75 行（弃用 FR-014 保留行不计入分母）；映射表行修订：FR-008/009/011/015/016/IFR-001 = 6 行 MODIFY；新增 3 行（FR-051/052/053）；弃用 1 行（FR-014）。集成场景：INT-001 整段重写、IAPI 自检 +2 行（IAPI-020/021）/ -1 行（IAPI-008 标 REMOVED 保留）/ 4 行 [Wave 4 MOD] 标注（IAPI-002/005/006/007）。
+
+**Wave 5 增量 Δ (2026-04-27)**：FR/NFR/IFR 计数 51 → 53 active FR（+2 NEW: FR-054 / FR-055）+ 17 NFR + 7 IFR = 77 行（弃用 FR-014 仍不计入分母）；映射表行修订：FR-001 / FR-016 / FR-048 / IFR-003 = 4 行 MODIFY；新增 2 行（FR-054 / FR-055，归入新增 §2.1.O 节）；弃用 0 行（CON-008 / ASM-001 原地修订无 ATS 行）。集成场景：INT-006 整段重写（双 AC 拆）；INT-026 / INT-027 新增；Err-K（SkillDispatchError）新增；IAPI 自检 +1 行（IAPI-022）/ +1 行（API-W5-07 feature_list_io）/ 4 行 [Wave 5 MOD] 标注（IAPI-003 / IAPI-005 / IAPI-012 / IAPI-021 复用）。所有变更属 Additive 或 Internal-Breaking（仅 F20 自洽）；类别 0 新增。
 
 ### 5.4 Wave 2 Feature 重组对 ATS 覆盖的影响（2026-04-24）
 
@@ -487,6 +505,68 @@ Wave 4 响应 increment-request：放弃 stream-json 解析路径，改走 PTY +
 - 因此 `needs_reviewer_rerun: false`，进入 Step 6 (long-task-increment-srs)。
 
 结论：Wave 4 为协议层重构（非 Additive，含 1 个弃用 + 1 个移除 IAPI），映射表 6 行 MODIFY / 3 行 NEW / 1 行 DEPRECATED；INT-001 整段重写；IAPI 自检 +2/-1/~4；0 新 category。ats-reviewer **无需重跑**（局部修订，类别 0 新增）。
+
+### 5.7 Wave 5 增量（2026-04-27，F20 phase_route 内化 + spawn 内置 inject + watcher 真集成 + retry 集成 + 选择性 cosmetic）
+
+Wave 5 响应 increment-request：(F) phase_route 由 longtaskforagent plugin subprocess 改为 harness 内部模块；(G) ClaudeCodeAdapter.spawn 内部新增 inject `/<next_skill>` 阶段；(A) RetryPolicy + RetryCounter 真集成到 supervisor.run_ticket（不改对外 AC 文本）；(B) SignalFileWatcher 由 [INLINED] 升级为正式契约真集成到 `_run_loop`；(C) 选择性 cosmetic 清理（删 reenqueue_ticket / cancel_ticket 两行；record_call → _record_call 私有化）。属 F20 内 Hard 重置，5 个 Soft 文档级回归（F18/F21/F22/F23/F24）。对 ATS 覆盖的影响：
+
+#### 需求行变更摘要
+
+- **MODIFY（4 行原地重写 AC）**：
+  - **FR-001**：每 ticket 独立 spawn + 显式 inject（spawn_model_invariant 1:1）
+  - **FR-016**：argv 白名单 8 → 10，强制 `--plugin-dir <path>` 与 `--setting-sources project` 并存
+  - **FR-048**：双 AC 拆（UI ≤ 2s + dispatch ≤ ticket 剩余 + 200ms + watcher 真集成）
+  - **IFR-003**：phase_route 由 subprocess 切为内部模块（in-proc await asyncio.to_thread）；build_argv [DEPRECATED Wave 5] 保留 fallback
+- **NEW（2 行追加，§2.1.O 节）**：
+  - **FR-054 (NEW MUST)**：route() 内化 — phase_route_local 模块（FUNC + BNDRY + PERF；50ms gate）
+  - **FR-055 (NEW MUST)**：spawn 内部 inject `/<next_skill>`（FUNC + BNDRY + SEC；bracketed paste + CR；SkillDispatchError 路径；SKILL.md marker ≤ 30s）
+- **DEPRECATED**：0 行（CON-008 / ASM-001 SRS 原地修订；FR-014 既有 DEPRECATED 标记不变）
+- **占位 ID 说明**：FR-054 / FR-055 由本 ATS 增量阶段先行确定；SRS 增量阶段（Step 6，long-task-increment-srs subagent）将最终回写 SRS §2 与 §6。
+
+#### 集成场景变更
+
+- **INT-006 整段重写（双 AC 拆）**：
+  - 旧路径：watchdog → SignalEvent → IAPI-003 phase_route subprocess → spawn ticket
+  - 新路径：watchdog → IAPI-012 SignalFileWatcher.on_signal（**Wave 5 升正式契约**：`rt.signal_dirty.set` + `broadcast_signal /ws/signal`）→ 并行：(a) WS push UI ≤ 2s；(b) `_run_loop` 下一圈 → IAPI-003 PhaseRouteInvoker.invoke → `phase_route_local.route()`（**Wave 5 内化**）→ IAPI-005 spawn 内部 inject `/long-task-hotfix`（FR-055）
+  - **新增 AC（双拆）**：AC-1 UI ≤ 2s / AC-2 dispatch ≤ ticket 剩余 + 200ms / AC-3 watcher 真集成（cooperative interrupt）
+- **INT-026 NEW**：spawn_model_invariant 1:1 不变量 — N 张 ticket 必产生 exactly N 个 PTY × N 个 TUI 子进程；F23/F24 dry-run 同读断言
+- **INT-027 NEW**：route() 决议优先级 6 fixture 矩阵 + plugin v1.0.0 字段语义对等性交叉验证（ASM-001 修订支撑）；50ms PERF gate
+- **Err-K NEW**：SkillDispatchError（boot 不稳定 / SKILL.md marker 超时）→ ticket ABORTED；audit `skill_dispatch_failed`
+- **其他 INT 场景**：INT-001..INT-025 / Err-A..J 全部不动（Wave 4 hooks + TUI 键序路径与 Wave 5 spawn-inject 层正交）。
+
+#### IAPI 合规自检变更
+
+- **新增（2 条）**：
+  - **IAPI-022 (phase_route_local.route)**：happy 落 INT-006/INT-027；error 落 INT-027 fixture 损坏分支；一致性落 INT-027 plugin v1.0.0 对等性
+  - **API-W5-07 (feature_list_io 端口)**：happy 落 INT-027 内部调用 + FR-040 既有覆盖；error 落 Err-I（validator 错误透传）
+- **修改标注（4 条 [Wave 5 MOD]）**：
+  - IAPI-003：subprocess → in-proc await asyncio.to_thread（INT-006 dispatch 路径 + INT-027 决议优先级矩阵新覆盖）
+  - IAPI-005：spawn 内部新增 inject `/<next_skill>` 阶段（INT-006 spawn-inject-stream 三步序 + INT-026 1:1 不变量新覆盖；新增 Err-K SkillDispatchError）
+  - IAPI-012：[INLINED] 升正式契约（on_signal → `rt.signal_dirty.set` + `broadcast_signal /ws/signal`；INT-006 双 AC）
+  - IAPI-021：复用至 spawn 内部 inject 路径（INT-006）；error 增 Err-K
+- **移除标注**：0 行
+- **Internal-Breaking 合规**：API-W5-09（RunOrchestrator.record_call → _record_call 私有化）唯一 impact_feature 为 F20，已进入 Hard 重置；满足 brownfield-adaptation §D 规则。
+
+#### NFR 影响
+
+- **NFR-009（不写 ~/.claude）unaffected**：Wave 5 不动 ESI；puncture_wave5.py 实测 sha256 ~/.claude/* 前后字节守恒；§4 NFR Matrix NFR-009 行不动。
+- **NFR-015（phase_route 字段松弛容忍）unaffected**：route() 内化后字段集合恒定（无 wire schema），fallback subprocess 路径仍持 NFR-015 容忍语义；§4 行不动。
+- **NFR-016（单 workdir 单 run 互斥）unaffected**：Wave 5 不动 RunLock 语义。
+- **新 NFR**：0（FR-054 50ms gate 落入 INT-027 PERF 验收点 + FR-054 行 PERF 类别，不创建 NFR 行）。
+
+#### 类别与覆盖率影响
+
+- **新 category**：无（FR-054 + FR-055 + Wave 5 修订 IAPI 全部复用 FUNC/BNDRY/SEC/PERF；INT-006 双 AC + INT-026 + INT-027 + Err-K 归入既有类别）。
+- **§2.4 覆盖统计**：分母 75 → 77 active（+2 NEW；FR-014 DEPRECATED 仍不计入分母）；FUNC/BNDRY/SEC/PERF/UI 占比维持（详见 §2.4 表）。
+
+#### 再评审判定
+
+- 变更影响 4 行 MODIFY + 2 行 NEW + 0 行 DEPRECATED + 2 行 IAPI NEW + 4 行 IAPI MOD = 共触动 12 个表行；
+- INT-006 整段重写但仍是局部修订（沿用既有 5 列结构、不引入新测试类别、不破坏 §6 风险矩阵 / §5.2 IAPI 自检结构）；
+- 增量为 Additive 或 Internal-Breaking（仅 F20 自洽），无 cross-feature breaking 契约；
+- 因此 `needs_reviewer_rerun: false`，进入 Step 5 (long-task-increment-ucd 自适应跳过 — 无 UI 需求变更) → Step 6 (long-task-increment-srs)。
+
+结论：Wave 5 为 supervisor 主循环改造（路由内化 + spawn-inject + watcher 真集成 + retry 集成 + 选择性 cosmetic），映射表 4 行 MODIFY / 2 行 NEW / 0 行 DEPRECATED；INT-006 双 AC 拆 + INT-026 / INT-027 / Err-K 新增；IAPI 自检 +2/~4；0 新 category。ats-reviewer **无需重跑**（局部修订，类别 0 新增，结构延续）。
 
 ---
 
