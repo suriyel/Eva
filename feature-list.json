@@ -27,6 +27,11 @@
       "id": 3,
       "date": "2026-04-25",
       "description": "v1.0 MVP — Wave 3 增量：F19 MiniMax OpenAI-compat strict-schema 兼容（preset capability 位 + tolerant parse）；0 新特性 / 1 hard impact / 0 breaking 契约"
+    },
+    {
+      "id": 4,
+      "date": "2026-04-27",
+      "description": "v1.0 MVP — Wave 4 增量：F18 协议层重构（stream-json → TUI + Hook Bridge）；FR-008/009/011/015/016 改写 + FR-014 弃用 + FR-051/052/053 新增 + IFR-001 重写；2 Hard impact (F18, F20) / 3 Soft impact (F10, F21, F23)；0 新特性（全部归 F18 内部 IAPI）"
     }
   ],
   "constraints": [
@@ -48,7 +53,9 @@
     "ASM-005 LLM provider（GLM/MiniMax 等）与 OpenAI-compat chat completions schema 兼容",
     "ASM-006 longtaskforagent skill 已把关键状态持久化到磁盘，HIL 答案注入后能从磁盘正确续跑",
     "ASM-007 目标项目 workdir 为 git 仓库；非 git 仓库则 Harness 拒启动（FR-001 错误路径）",
-    "ASM-008 (Wave 3) Some OpenAI-compat providers (MiniMax) reject response_format=json_schema strict；strict-off 模式下 prompt-only JSON 约束 + 容错解析仍可完成分类；不稳定则 FR-023 在该 provider 上等同 disabled（real_external_llm smoke 验证）"
+    "ASM-008 (Wave 3) Some OpenAI-compat providers (MiniMax) reject response_format=json_schema strict；strict-off 模式下 prompt-only JSON 约束 + 容错解析仍可完成分类；不稳定则 FR-023 在该 provider 上等同 disabled（real_external_llm smoke 验证）",
+    "ASM-009 (Wave 4) Claude CLI hook stdin JSON schema 在 v2.1.119 起字段稳定 (session_id / transcript_path / cwd / hook_event_name / tool_name / tool_use_id / tool_input.questions[])；CLI 升级若改 schema 字段名/嵌套结构，需触发 ESI §1.4 修订与 hook_mapper 更新",
+    "ASM-010 (Wave 4) Claude TUI 键序协议在 v2.1.119 起稳定 (option menu = '<N>\\r' / prompt = bracketed paste + CR)；若 TUI 升级改菜单交互方式 (e.g., fzf-style)，需触发 ESI §1.4 修订与 TuiKeyEncoder (FR-053) 更新"
   ],
   "real_test": {
     "marker_pattern": "@pytest.mark.(real_cli|real_fs|real_http)",
@@ -508,6 +515,7 @@
     {
       "id": 17,
       "wave": 1,
+      "wave_note": "Wave 4 (2026-04-27): 仍 failing — 等 F18 hook bridge 重构完成后解锁",
       "category": "non-functional",
       "title": "F17 · PyInstaller Packaging",
       "description": "三平台（Linux x86_64 / macOS x86_64+arm64 / Windows x86_64）单文件打包 + CI matrix smoke；冷启动 < 10s；嵌入 apps/ui/dist 与 plugins/。",
@@ -538,23 +546,26 @@
     },
     {
       "id": 18,
-      "wave": 2,
+      "wave": 4,
+      "wave_note": "Wave 4 (2026-04-27): Protocol layer rewrite — stream-json → TUI + Hook Bridge per ADR reference/f18-tui-bridge/. Hard impact reset: status passing→failing；srs_trace 移除 FR-014 (DEPRECATED) 并追加 FR-051/052/053；verification_steps 重写为 hook bridge 验收。",
       "category": "core",
       "title": "F18 · Bk-Adapter — Agent Adapter & HIL Pipeline",
-      "description": "合并原 F03 PTY + ToolAdapter / F04 Stream Parser + HIL Pipeline / F05 OpenCode Adapter 为单一 TDD 单元；承载 spawn agent CLI → pty 穿透 → stream-json 解析 → HIL 识别 → pty stdin 回写全链路；含 HIL PoC gate（FR-013 20-round ≥95%）",
+      "description": "合并原 F03 PTY + ToolAdapter / F04 Stream Parser + HIL Pipeline / F05 OpenCode Adapter 为单一 TDD 单元；承载 spawn agent CLI → pty 穿透 → HIL 识别 → pty stdin 回写全链路；含 HIL PoC gate（FR-013 20-round ≥95%）。Wave 4 协议层重构：HIL 捕获从 stream-json 切换为 workdir-scoped settings.json hooks (PreToolUse(AskUserQuestion)/PostToolUse(*)/SessionStart/SessionEnd) → harness POST /api/hook/event 桥；HIL 回写从纯文本注入切换为 TUI 键序 (option=<N>\\r / 自由文本 bracketed paste / 多 question 串行写键)；ToolAdapter Protocol 升级为 7 方法 (build_argv / prepare_workdir / spawn / map_hook_event / parse_result / detect_anomaly / supports)。",
       "priority": "high",
-      "status": "passing",
+      "status": "failing",
       "srs_trace": [
         "FR-008",
         "FR-009",
         "FR-011",
         "FR-012",
         "FR-013",
-        "FR-014",
         "FR-015",
         "FR-016",
         "FR-017",
         "FR-018",
+        "FR-051",
+        "FR-052",
+        "FR-053",
         "NFR-014",
         "IFR-001",
         "IFR-002"
@@ -564,19 +575,32 @@
         3
       ],
       "verification_steps": [
-        "Given spawn claude interactive mode when 检查 argv then 不含 -p 且含 FR-016 列表全部 flag（FR-008/016）",
-        "Given stream-json tool_use=AskUserQuestion when parser 处理 then hil.detected=true 且事件字段齐全（FR-009）",
-        "Given HIL 答案含特殊字符 when 写入 pty stdin then 转义后子进程续跑且内容完整（FR-011）",
-        "Given ticket 末尾同时有 banner + 未答 AskUserQuestion when arbiter 判定 then state=hil_waiting 而非 completed（FR-014）",
+        "Given spawn Claude ticket when 检查 argv then 不含 -p / --print / --output-format / --include-partial-messages 且 argv 列表完全等于 FR-016 严格模板（FR-008/016）",
+        "Given spawn 后 skill 调 AskUserQuestion when hook bridge 接收 then PreToolUse(AskUserQuestion) hook fire 计数 == AskUserQuestion 调用数 / harness POST /api/hook/event 收到对应 POST（FR-008/009）",
+        "Given hook bridge 收到 PreToolUse(AskUserQuestion) JSON when HookEventMapper 处理 then HilQuestion[] 非空且字段齐全 (header/question/options[]/multiSelect/allowFreeformInput)（FR-009）",
+        "Given 同 session 多 turn HIL when 比较 session_id then 跨 turn 稳定可作为 lifecycle 锚（FR-009）",
+        "Given questions[] 缺字段 when mapper 处理 then 用默认值补齐 + warning（FR-009）",
+        "Given 单题 HIL with options when 写键序 N\\r then claude TUI 渲染 '● User answered Claude's questions: ⎿ · ... → option_label' 且同 pid 续跑（FR-011/053）",
+        "Given 多 question 表单 when 串行写键 then 每题渲染完成后再写下一题（FR-011/053）",
+        "Given 自由文本含特殊字符 when bracketed paste 写入 then 子进程读取的 prompt 与原文 byte-equal（FR-011/053）",
+        "Given pty 已关闭 when 尝试写键序 then ticket failed + HIL 答案保留（FR-011）",
+        "Given 单题 option=1 when TuiKeyEncoder.encode then bytes == b'1\\r'（FR-053）",
+        "Given 自由文本 'hello' when encode then bytes == b'\\x1b[200~hello\\x1b[201~\\r'（FR-053）",
+        "Given 多 question 表单 [Q1=opt2, Q2=opt1] when 顺序写键 + 等待 PTY render then ticket 跨两题续跑（FR-053）",
+        "Given prepare_workdir(spec) when 完成 then <workdir>/.claude.json + <workdir>/.claude/settings.json + <workdir>/.claude/hooks/<bridge>(0o755) 三件套存在且 schema 校验通过（FR-051）",
+        "Given run 前后 sha256 比对 ~/.claude/settings.json + ~/.claude.json when 完整 run（含 ≥1 HIL）then 两 hash 不变（FR-051 / NFR-009 强化 / IFR-001 AC-w4-1）",
+        "Given hil_waiting ticket when 用户经 harness UI 提交答案 then PTY 写键序成功且 ticket 续跑（FR-052）",
+        "Given UI 渲染 when 检查 HilControl 头部文案 then 含 '请在此处应答' 提示（FR-052 / NFR-011 扩展）",
+        "Given hook bridge POST /api/hook/event payload schema 不符 when 接收 then 415/422 拒绝且 ticket 不卡死（IFR-001 AC-w4-2）",
+        "Given Protocol 定义 when mypy --strict 检查 ClaudeCodeAdapter + OpenCodeAdapter then 符合 7 方法 Protocol（FR-015）",
+        "Given mock Provider 实现 7 方法 when orchestrator 调用 then FR-018 向后兼容不破坏（FR-015/018）",
+        "Given dispatch.mcp_config 非空 when build_argv then v1 降级 + UI 提示（不写入 argv）（FR-016）",
         "Given OpenCode hooks 注册成功 when skill 调 Question 工具 then HIL 控件生成（FR-012）",
         "Given argv 构造 when 指定 mcp_config then v1 降级并 UI 提示；否则 argv 首 opencode（FR-017）",
-        "Given ToolAdapter 新增可选方法 when 既有 Adapter 跑 then 不破坏（FR-018 向后兼容）",
-        "Given PoC 20 次 HIL round-trip when 统计成功率 then ≥ 95% 否则 run 报告 + 冻结（FR-013 HIL PoC gate）",
-        "Given ClaudeCodeAdapter when mypy --strict then 通过且 Mock Provider 缺方法时报错（FR-015/NFR-014）",
+        "Given PoC 20 次 HIL round-trip 在新 hook bridge 实现下重跑 when 统计成功率 then ≥ 95% 否则 run 报告 + 冻结（FR-013 HIL PoC gate · Wave 4 重跑）",
         "Given Question name > 256B when hooks 注入 then 截断不崩（IFR-002 SEC BNDRY）"
       ],
       "ui": false,
-      "git_sha": "26a076a",
       "st_case_path": "docs/test-cases/feature-18-f18-bk-adapter-agent-adapter-hil-pipeline.md",
       "st_case_count": 39
     },
@@ -621,12 +645,13 @@
     },
     {
       "id": 20,
-      "wave": 2,
+      "wave": 4,
+      "wave_note": "Wave 4 (2026-04-27): supervisor.py 主循环 stream_parser.events() 移除；run.py _FakeStreamParser 改造为 hook event 桥（详见 design §4.5.4.x）。Hard impact reset (F18 协议层重构连带): status passing→failing；srs_trace 不变（不含本 wave 修改的 FR）。",
       "category": "core",
       "title": "F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess",
       "description": "合并原 F06 Run Orchestrator + Phase Router / F09 Anomaly Recovery + Watchdog / F11 Subprocess Integrations (git + validators)；主循环 + 异常恢复 + 工具 subprocess 同属 run lifecycle state machine。TDD 建议按三子模块分组（Orchestrator / Recovery / Subprocess）",
       "priority": "high",
-      "status": "passing",
+      "status": "failing",
       "srs_trace": [
         "FR-001",
         "FR-002",
@@ -674,13 +699,13 @@
         "Given phase_route.py 缺字段 feature_id when 解析 then 松弛解析填默认不崩（NFR-015）"
       ],
       "ui": false,
-      "git_sha": "b1532db",
       "st_case_path": "docs/test-cases/feature-20-f20-bk-loop-run-orchestrator-recovery-su.md",
       "st_case_count": 51
     },
     {
       "id": 21,
       "wave": 2,
+      "wave_note": "Wave 4 (2026-04-27): TicketStream envelope rename StreamEvent → TicketStreamEvent；HILInbox 顶部副文案补字 (NFR-011 扩展) — 渲染 '请在此处应答（不要直接操作 TUI）' 提示。Soft 回归（前端 zod 重生成 + 文案补字），不重置 status。",
       "category": "ui",
       "title": "F21 · Fe-RunViews — RunOverview + HILInbox + TicketStream",
       "description": "合并原 F13 RunOverview+HILInbox / F14 TicketStream；3 页面共享 stream-json 数据域 + ticket 模型 + WebSocket 客户端；HIL 闭环（controls radio/checkbox/textarea）+ event tree 虚拟滚动",
@@ -773,6 +798,7 @@
     {
       "id": 23,
       "wave": 3,
+      "wave_note": "Wave 4 (2026-04-27): 新增 1 条 router include (POST /api/hook/event + POST /api/pty/write 两 endpoint via include_router)；Soft 回归（router 注册补丁，无 service 层语义变更，不重置 status）。",
       "category": "bugfix",
       "title": "Fix: F18/F20 IAPI-002 ship miss — 14 REST routes + 5 WS broadcasters + uvicorn ws backend",
       "description": "Production ASGI 入口 `harness.api:app` (uvicorn) 仅挂载 11 条 REST + 5 条 echo-stub WebSocket；Design §6.2.2 列出的 29 条 REST 中 ≥14 条 (`/api/runs/{current,start,pause,cancel}`, `/api/runs`, `/api/tickets[/:id[/stream]]`, `/api/hil/:ticket_id/answer`, `/api/anomaly/:ticket_id/{skip,force-abort}`, `/api/settings/general`, `/api/skills/tree`, `/api/files/{tree,read}`, `/api/validate/:file`, `/api/git/{commits,diff/:sha}`) 在 service 层 (`harness.orchestrator.run`, `harness.persistence.tickets`, `harness.hil.control`, `harness.recovery.anomaly`, `harness.api.files`, `harness.api.git`) 已实现但未被 FastAPI router 包装并 `app.include_router()`；§6.2.3 列出的 5 条 WS 频道仅返回 F12 mock bootstrap envelope，未对接 RunControlBus / HilEventBus / F18 stream parser / AnomalyClassifier / SignalFileWatcher 真实 broadcaster；`/ws/run/{run_id}` 在 `harness/api/__init__.py:159` 与 `harness/app/main.py:55` 双定义（后者为 test-only factory `build_app()`，仅 `tests/integration/test_f20_real_rest_ws.py` 引用），需在 production 入口归一；`requirements.txt` 锁 `uvicorn==0.44.0` 未带 WebSocket runtime（无 `websockets`/`wsproto`），uvicorn 在 ASGI 之前对所有 ws upgrade 直接 HTTP 404。F21 三页面 mock-WebSocket/mock-fetch vitest 全 PASS 但 production 拉真数据 100% 失效；F22 (Fe-Config) 进入 TDD 前需先消解此 ship miss。— Root cause: F20 ST 阶段仅通过 test-only factory `harness.app.main.build_app()` 验证 IAPI-002/IAPI-019，未把 service 层挂载到 production `harness.api:app`，5 条 WS endpoint 沿用 F12 echo stub 未替换为真 broadcaster；并发缺陷：requirements.txt 缺 uvicorn WebSocket runtime 后端导致 production WS upgrade 在 ASGI 之前 404。",
