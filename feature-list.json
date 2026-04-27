@@ -144,7 +144,10 @@
       ]
     }
   ],
-  "current": null,
+  "current": {
+    "feature_id": 20,
+    "phase": "design"
+  },
   "features": [
     {
       "id": 1,
