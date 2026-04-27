@@ -357,7 +357,7 @@ graph LR
 - `harness.adapter.DispatchSpec` — pydantic（FR-007 dispatch 字段）
 - `harness.adapter.HookEventPayload` **[NEW]** — pydantic：`{ session_id: str, transcript_path: str, cwd: str, hook_event_name: Literal["PreToolUse","PostToolUse","SessionStart","SessionEnd"], tool_name: str | None, tool_use_id: str | None, tool_input: dict | None, ts: float }`，与 `/api/hook/event` request body 同 schema。
 - `harness.adapter.CapabilityFlags` — enum
-- `harness.adapter.claude.ClaudeCodeAdapter` **[MOD]** — 实现新 Protocol 全集；argv 模板锁定为 `claude --dangerously-skip-permissions [--model <alias>]`（不再带 stream-json flag）；`prepare_workdir` 写三件套；`map_hook_event` 处理 PreToolUse `tool_name in {AskUserQuestion, Question}`。
+- `harness.adapter.claude.ClaudeCodeAdapter` **[MOD]** — 实现新 Protocol 全集；argv 模板锁定为 SRS FR-016 严格白名单 `claude --dangerously-skip-permissions --plugin-dir <bundle> --settings <isolated.settings.json> --setting-sources project [--model <alias>]`（永禁 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`）；`prepare_workdir` 写三件套；`map_hook_event` 处理 PreToolUse `tool_name in {AskUserQuestion, Question}`。
 - `harness.adapter.opencode.OpenCodeAdapter` **[MOD]** — 实现新 Protocol 全集；`prepare_workdir` 写 `.opencode/hooks.json`；`map_hook_event` 解析 OpenCode hooks 输出格式。
 - `harness.adapter.opencode.HookConfigWriter` / `HookQuestionParser` / `McpDegradation` / `VersionCheck` — 沿用（FR-012/017）
 
@@ -1095,17 +1095,26 @@ class AuditEvent(BaseModel):
 #### 6.1.1 IFR-001 · Claude Code CLI
 
 **方向**：Harness → spawn（outbound）；hook event 上报为 inbound（Claude TUI 子进程 → POST `/api/hook/event` → Harness 主进程）；HIL 回写为 outbound（前端 → POST `/api/pty/write` → PtyWorker stdin → Claude TUI）。
-**协议**：pty 子进程 + 简化 argv 模板 + **Claude Code Hook 协议**（PreToolUse/PostToolUse/SessionStart/SessionEnd 四类 hook event 经 stdin JSON 上报，由 `scripts/claude-hook-bridge.py` 桥接到 HTTP）；**不再依赖 stream-json stdout 解析**（Wave 4 重构，FR-014 BannerConflictArbiter 同步弃用）。
+**协议**：pty 子进程 + SRS FR-016 严格 argv 白名单 + **Claude Code Hook 协议**（PreToolUse/PostToolUse/SessionStart/SessionEnd 四类 hook event 经 stdin JSON 上报，由 `scripts/claude-hook-bridge.py` 桥接到 HTTP）；**不再依赖 stream-json stdout 解析**（Wave 4 重构，FR-014 BannerConflictArbiter 同步弃用）。
 
-**调用形式**（FR-008/016 · Wave 4 重写）：
+**调用形式**（FR-008/016 · Wave 4 重写，与 SRS FR-016 严格白名单一一对齐）：
 
 ```bash
 claude \
   --dangerously-skip-permissions \
+  --plugin-dir <bundle> \
+  --settings <isolated_cwd>/.claude/settings.json \
+  --setting-sources project \
   [--model <alias>]
 ```
 
-argv 模板大幅简化：移除 `--output-format stream-json --include-partial-messages`（数据源切到 hook event）；移除 `--plugin-dir / --mcp-config / --strict-mcp-config / --settings / --setting-sources`（改由 `<isolated>/.claude/settings.json` + `<isolated>/.claude.json` 三件套预置承载，Claude Code ≥ v2.1.119 默认按 cwd 加载）。`--dangerously-skip-permissions` 由 settings.json 的 `skipDangerousModePermissionPrompt: true` 等价代偿，但 argv 仍保留作显式声明。
+argv 锁定为 SRS FR-016 的 8 项严格模板（含可选 `--model` 时为 10 项），`--model` 插在 `--setting-sources project` 之后。**永禁** flag：`-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`（数据源切到 hook event；MCP 整链 v1 不带，OpenCode MCP 延后 v1.1）。
+
+显式保留 `--plugin-dir / --settings / --setting-sources project` 三 flag 的设计动机：
+- `--plugin-dir <bundle>`：显式指向 plugin bundle 路径，避免依赖 cwd 隐式加载；与 settings.json 的 `enabledPlugins` 字段配合（harness 不启用任何 plugin，`enabledPlugins` 为空）。
+- `--settings <isolated_cwd>/.claude/settings.json`：显式指向隔离 settings 文件；与 `<isolated_cwd>/.claude/settings.json` 三件套之一对齐。
+- `--setting-sources project`：切断 user-scope settings 读取（即不读 `~/.claude/settings.json`），是 NFR-009（不写 `~/.claude/`）+ §1.4 ESI 隔离写路径白名单的可观察读侧补强。
+- `--dangerously-skip-permissions` 与 settings.json 的 `skipDangerousModePermissionPrompt: true` 形成双重保险（argv flag 兜底，settings 字段为常规态）。
 
 **隔离三件套**（FR-008 / NFR-006 / NFR-009 / FR-043 · Wave 4 NEW）：spawn 之前由 `ToolAdapter.prepare_workdir(spec)` 在 `<isolated_cwd>=<workdir>/.harness-workdir/<run-id>/` 下幂等写入：
 
