@@ -1135,3 +1135,23 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
   - ⚠ [Worker pipeline 接管] F20 Wave 5 R-G-R 由路由器自动接管下一会话；首步 design 阶段需把 Wave 5 §4.5.4.y 主循环改造点全部落地到 supervisor.run_ticket / ClaudeCodeAdapter.spawn / phase_route_local
   - ⚠ [puncture 实证 vs 单元测试] G1 注入路径目前仅 puncture_wave5.py (real_cli) 验证；TDD Red 阶段需补 ClaudeCodeAdapter.spawn 单元测试（FakePty + boot 稳定检测 + bracketed paste 字节断言）
   - ℹ [scripts/init_project.py 跨会话脏数据继承] 仍未处置（沿自 Session 38），本次 commit 未触碰；用户自行处置或独立 hotfix
+
+## Session 43 — Worker Design (F20 Wave 5)
+- **Date**: 2026-04-28
+- **Phase**: Worker · Design
+- **target_feature**: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=5, status=failing
+- **starting_new=true** → router 锁 `{feature_id: 20, phase: "design"}`
+- **env-guide**: approved (godsuriyel@gmail.com 已审批 2026-04-28，v1.4)
+- **Bootstrap**: §1 Wave 5 设计阶段 — 仅查阅，无服务启停
+- **Feature-Design SubAgent**: PASS — 805 行设计文档落盘
+  - §1 Overview · §2 Interface Contracts (27 公开方法 / API-W5-01..10 / SkillDispatchError) · §3 Data Structures · §4 Algorithm Pseudocode (route / spawn-inject / supervisor.run_ticket / _run_loop / _record_call) · §5 Diagrams (1 classDiagram + 1 sequenceDiagram + 3 stateDiagrams + 1 flowchart) · §6 Module-Level File Plan (28 reused / 3 new) · §7 Test Inventory (87 行；负向占比 52.9%；FUNC happy=33 / FUNC error=24 / BNDRY=8 / SEC=2 / PERF=3 / INTG=16) · §8 Operational/Risk
+  - srs_trace 21/21 全覆盖（FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048/054/055 + NFR-003/004/015/016 + IFR-003）
+  - Wave 5 五项变更 [F]/[G]/[A]/[B]/[C] 全映射到 Interface Contract + Algorithm + Test Inventory
+  - 0 blockers / 0 assumptions
+- **Validation**: `python scripts/validate_features.py feature-list.json` → VALID (10 passing / 2 failing / 12 deprecated; current=#20(tdd); 2 informational warnings on F21/F22 — Wave 5 hard reset 期间预期)
+- **Design 文档**: `docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md`（805 行）
+- **Design**: DONE (`docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md`)
+- **current.phase**: design → tdd
+- **Risks**:
+  - ⚠ [scripts/init_project.py 跨会话脏数据继承] 仍未处置（沿自 Session 38 / Session 42），本次 commit 仍未触碰；建议在 TDD 阶段开始前由用户独立 git checkout / hotfix 处置
+  - ℹ [TDD 接力] 下一会话由 router 路由到 long-task-work-tdd（Red→Green→Refactor），按 §7 Test Inventory 87 行写 RED 用例
