@@ -32,6 +32,11 @@
       "id": 4,
       "date": "2026-04-27",
       "description": "v1.0 MVP — Wave 4 增量：F18 协议层重构（stream-json → TUI + Hook Bridge）；FR-008/009/011/015/016 改写 + FR-014 弃用 + FR-051/052/053 新增 + IFR-001 重写；2 Hard impact (F18, F20) / 3 Soft impact (F10, F21, F23)；0 新特性（全部归 F18 内部 IAPI）"
+    },
+    {
+      "id": 5,
+      "date": "2026-04-28",
+      "description": "v1.0 MVP — Wave 5 增量：F20 phase_route 内化 + spawn skill 注入 + retry 集成 + watcher 真集成 + cosmetic 清理；2 新 FR (054/055) + 4 修订 FR (001/016/048/IFR-003) + 1 修订 CON (008) + 1 修订 1 新增 ASM (001/011)；1 Hard impact (F20) / 5 Soft impact (F18/21/22/23/24) / 0 Breaking 外部契约 (1 内部 Breaking API-W5-09 仅 F20)"
     }
   ],
   "constraints": [
@@ -55,7 +60,8 @@
     "ASM-007 目标项目 workdir 为 git 仓库；非 git 仓库则 Harness 拒启动（FR-001 错误路径）",
     "ASM-008 (Wave 3) Some OpenAI-compat providers (MiniMax) reject response_format=json_schema strict；strict-off 模式下 prompt-only JSON 约束 + 容错解析仍可完成分类；不稳定则 FR-023 在该 provider 上等同 disabled（real_external_llm smoke 验证）",
     "ASM-009 (Wave 4) Claude CLI hook stdin JSON schema 在 v2.1.119 起字段稳定 (session_id / transcript_path / cwd / hook_event_name / tool_name / tool_use_id / tool_input.questions[])；CLI 升级若改 schema 字段名/嵌套结构，需触发 ESI §1.4 修订与 hook_mapper 更新",
-    "ASM-010 (Wave 4) Claude TUI 键序协议在 v2.1.119 起稳定 (option menu = '<N>\\r' / prompt = bracketed paste + CR)；若 TUI 升级改菜单交互方式 (e.g., fzf-style)，需触发 ESI §1.4 修订与 TuiKeyEncoder (FR-053) 更新"
+    "ASM-010 (Wave 4) Claude TUI 键序协议在 v2.1.119 起稳定 (option menu = '<N>\\r' / prompt = bracketed paste + CR)；若 TUI 升级改菜单交互方式 (e.g., fzf-style)，需触发 ESI §1.4 修订与 TuiKeyEncoder (FR-053) 更新",
+    "ASM-011 (Wave 5) count_pending.py 与 validate_features.py 端口为 harness/utils/feature_list_io.py 后保持 plugin v1.0.0 行为对等（feature-list.json schema 校验 + status 计数语义不变）；plugin 后续版本演进若改 schema 视为 SRS 修订事件 — 配合 IFR-003 内化与 FR-054 路由内化形成完整 plugin → harness 端口集合"
   ],
   "real_test": {
     "marker_pattern": "@pytest.mark.(real_cli|real_fs|real_http)",
@@ -646,13 +652,13 @@
     },
     {
       "id": 20,
-      "wave": 4,
-      "wave_note": "Wave 4 (2026-04-27): supervisor.py 主循环 stream_parser.events() 移除；run.py _FakeStreamParser 改造为 hook event 桥（详见 design §4.5.4.x）。Hard impact reset (F18 协议层重构连带): status passing→failing；srs_trace 不变（不含本 wave 修改的 FR）。",
+      "wave": 5,
+      "wave_note": "Wave 5 (2026-04-28): phase_route 内化（API-W5-01/02 — subprocess → harness.orchestrator.phase_route_local 同进程模块）+ ClaudeCodeAdapter.spawn 内置 skill 注入（API-W5-04 — bracketed paste + CR 注入 /<next_skill>）+ retry 集成（A — supervisor.run_ticket 嵌入 RetryPolicy/RetryCounter）+ SignalFileWatcher 真集成（B — IAPI-012 [INLINED] 升正式契约）+ 选择性 cosmetic 清理（C — record_call → _record_call 私有化 + reenqueue/cancel_ticket §4.5.4 表删两行）。Hard impact reset: status passing→failing；srs_trace 追加 FR-054/FR-055；spawn_model_invariant 1:1 锁定（FR-001 AC-3/AC-4）。Wave 4 (2026-04-27): supervisor.py 主循环 stream_parser.events() 移除；run.py _FakeStreamParser 改造为 hook event 桥（详见 design §4.5.4.x）。Hard impact reset (F18 协议层重构连带): status passing→failing；srs_trace 不变（不含本 wave 修改的 FR）。",
       "category": "core",
       "title": "F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess",
-      "description": "合并原 F06 Run Orchestrator + Phase Router / F09 Anomaly Recovery + Watchdog / F11 Subprocess Integrations (git + validators)；主循环 + 异常恢复 + 工具 subprocess 同属 run lifecycle state machine。TDD 建议按三子模块分组（Orchestrator / Recovery / Subprocess）",
+      "description": "合并原 F06 Run Orchestrator + Phase Router / F09 Anomaly Recovery + Watchdog / F11 Subprocess Integrations (git + validators)；主循环 + 异常恢复 + 工具 subprocess 同属 run lifecycle state machine。TDD 建议按三子模块分组（Orchestrator / Recovery / Subprocess） [Wave 5 API change — Additive (API-W5-01/02/04/06/07 NEW + MODIFY) + Internal-Breaking (API-W5-09 record_call → _record_call 仅 F20 自洽); Deprecated fallback (API-W5-03 build_argv)]",
       "priority": "high",
-      "status": "passing",
+      "status": "failing",
       "git_sha": "2b55497",
       "srs_trace": [
         "FR-001",
@@ -670,6 +676,8 @@
         "FR-042",
         "FR-047",
         "FR-048",
+        "FR-054",
+        "FR-055",
         "NFR-003",
         "NFR-004",
         "NFR-015",

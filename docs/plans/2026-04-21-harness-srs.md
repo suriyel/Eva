@@ -176,13 +176,16 @@ graph LR
 
 ### FR-001: 启动 Run 并自主循环驱动 14-skill 管线
 **优先级**: Must
-**EARS**: When Harness User 指定目标项目 workdir 并点击 Start, the system shall 启动自主循环驱动 longtaskforagent 14-skill 管线直至 ST Go verdict 或异常终止，且过程中不要求用户手动启动任何 claude/opencode 会话。
+<!-- Wave 5: Modified 2026-04-28 — 追加 AC-3/AC-4：每张 ticket 独立 spawn TUI + 显式 inject /<next_skill>；spawn_model_invariant 1:1 锁定（context 爆炸防护，禁止 1:N session 复用） -->
+**EARS**: When Harness User 指定目标项目 workdir 并点击 Start, the system shall 启动自主循环驱动 longtaskforagent 14-skill 管线直至 ST Go verdict 或异常终止，且过程中不要求用户手动启动任何 claude/opencode 会话。每张 ticket 独立 spawn TUI 并显式 inject `/<next_skill>`（明示禁止 1:N session 复用 — context 爆炸防护，spawn_model_invariant 锁定）。
 **可视化输出**: RunOverview 页面 phase 横向进度条从 requirements 开始推进，每张 ticket 推进时 UI 实时更新。
 **验收准则**:
-- Given 一个合法 git 仓库 workdir，when 用户点击 Start，then Harness 在 5s 内进入 running 状态并展示第一张 ticket
-- Given ST skill 返回 Go verdict，when ticket 结束，then Harness 进入 COMPLETED 并停止循环
-- Given 一个非 git 仓库的目录，when 用户点击 Start，then Harness 拒绝启动并提示 "workdir 必须是 git repo"（错误路径，来自 ASM-007 失效）
-**来源**: raw_requirements A.1
+- AC-1: Given 一个合法 git 仓库 workdir，when 用户点击 Start，then Harness 在 5s 内进入 running 状态并展示第一张 ticket
+- AC-2: Given ST skill 返回 Go verdict，when ticket 结束，then Harness 进入 COMPLETED 并停止循环
+- AC-2b: Given 一个非 git 仓库的目录，when 用户点击 Start，then Harness 拒绝启动并提示 "workdir 必须是 git repo"（错误路径，来自 ASM-007 失效）
+- AC-3 (Wave 5 NEW): Given 每个 ticket，when supervisor 派发，then 必须经 `ClaudeCodeAdapter.spawn()` 起独立 PTY；不允许在已有 PTY 内通过连续 slash 切换 skill（context 爆炸防护 — `1 ticket = 1 PTY = 1 TUI` 不变量；F23 / F24 dry-run + system ST 加 PTY 数 == ticket 数断言）
+- AC-4 (Wave 5 NEW): Given spawn 完成，when 触发 skill 执行，then 必须由 inject `/<next_skill>` 显式驱动；裸 spawn 后无 inject 视为实装缺陷（FR-055 联动）
+**来源**: raw_requirements A.1; Wave 5 重构 (2026-04-28 spawn_model_invariant 锁定 — reference/f18-tui-bridge/puncture_wave5.py 实证)
 
 ### FR-002: 每张票据结束后调用 phase_route.py 决定下一张票据
 **优先级**: Must
@@ -335,17 +338,20 @@ graph LR
 ### FR-016: ClaudeCodeAdapter argv 构造（Wave 4: 严格 TUI argv 模板）
 **优先级**: Must
 <!-- Wave 4: Modified 2026-04-27 — argv 永禁 -p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config；`--setting-sources` 收紧为 project（切断 user-scope） -->
+<!-- Wave 5: Modified 2026-04-28 — argv 必须含 --plugin-dir <path>，<path>/.claude-plugin/plugin.json 必须存在；--setting-sources project 与 --plugin-dir 必须并存（切断 user-scope plugin 注册表后由后者补 plugin 来源 — puncture_wave5 第 1 次失败实证） -->
 **EARS**: When 为 Claude Code ticket 构造 argv, the system shall 严格使用以下序列：
 ```
 ["claude", "--dangerously-skip-permissions", "--plugin-dir", <bundle>,
  "--settings", <isolated.settings.json>, "--setting-sources", "project"]
 ```
-可选 `--model <alias>`（插在 settings 之后）；禁止 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`。
+可选 `--model <alias>`（插在 settings 之后）；禁止 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`。Wave 5 起：`--plugin-dir <path>` 强制存在且 `<path>/.claude-plugin/plugin.json` 必须存在；`--setting-sources project` 与 `--plugin-dir` 必须同时存在。
 **可视化输出**: TicketStream 卡片 dispatch.argv 字段可看到完整命令行。
 **验收准则**:
 - Given dispatch，when build_argv，then argv 列表完全等于上述模板（含可选 `--model` 时插在 settings 之后）
 - Given `dispatch.mcp_config` 非空，when build_argv，then v1 降级 + UI 提示（不写入 argv）
-**来源**: raw_requirements D.16; Wave 4 重构 (2026-04-27 hook bridge ADR — reference/f18-tui-bridge/README.md §argv 决策)
+- AC (Wave 5 NEW): Given build_argv，when 构造 argv，then argv 必含 `--plugin-dir <path>` 且 `<path>/.claude-plugin/plugin.json` 必须存在；否则 spawn 抛 `InvalidIsolationError`（不进 dispatch 流程）
+- AC (Wave 5 NEW): Given build_argv，when 构造 argv，then `--setting-sources project` 与 `--plugin-dir` 必须同时存在（前者切断 user-scope 插件注册表后必须由后者补 plugin 来源 — puncture_wave5 第 1 次失败实证）
+**来源**: raw_requirements D.16; Wave 4 重构 (2026-04-27 hook bridge ADR — reference/f18-tui-bridge/README.md §argv 决策); Wave 5 重构 (2026-04-28 puncture_wave5.py — reference/f18-tui-bridge/puncture_wave5.py)
 
 ### FR-017: OpenCodeAdapter argv + hooks
 **优先级**: Must
@@ -709,11 +715,42 @@ env `HOME=<workdir>`；argv `--setting-sources project`；切断 user-scope。
 
 ### FR-048: 信号文件感知
 **优先级**: Must
-**EARS**: The system shall 感知以下信号文件路径变更（inotify/fswatch/polling）: `bugfix-request.json`, `increment-request.json`, `feature-list.json`, `docs/plans/*-srs.md` / `-ucd.md` / `-design.md` / `-ats.md` / `-st-report.md`, `docs/rules/*.md`，并在 UI 中反映。
+<!-- Wave 5: Modified 2026-04-28 — 拆双 AC：UI ≤ 2s + dispatch ≤ ticket 剩余 + 200ms + watcher 真集成（cooperative interrupt 主循环） -->
+**EARS**: When 外部进程写入 `bugfix-request.json` / `increment-request.json` 等信号文件 (含 `feature-list.json`, `docs/plans/*-srs.md` / `-ucd.md` / `-design.md` / `-ats.md` / `-st-report.md`, `docs/rules/*.md`)，the system shall (a) 推 `SignalFileChanged` 到 `/ws/signal` ≤ 2s 让 UI toast (b) 在当前 ticket 自然结束后 ≤ 200ms 内由内化 `route()` 重读 signal 并 dispatch hotfix/increment skill。
 **可视化输出**: DocsAndROI 树中新增文件出现 "NEW" 徽章；RunOverview 在 bugfix/increment 信号出现时闪烁提示。
 **验收准则**:
-- Given 用户外部编辑新增 `bugfix-request.json`，when watcher 触发，then 2s 内 UI 可见
-**来源**: raw_requirements L.48
+- AC-1 (Wave 5 拆): Given 用户外部编辑新增 `bugfix-request.json`，when watcher 触发，then signal 写入后推 `/ws/signal` 到 UI ≤ 2s（watchdog debounce + WS 传输；RunOverview toast）
+- AC-2 (Wave 5 NEW): Given signal 已写入，when `_run_loop` 下一圈调用 `phase_route_local.route()`，then 必返 `long-task-hotfix` / `long-task-increment`（priority-1 命中），dispatch 切换 ≤ 当前 ticket 剩余时长 + 200ms（包含 supervisor cooperative interrupt 检测点）
+- AC-3 (Wave 5 NEW): Given `SignalFileWatcher`，when 触发 signal 事件，then 真正集成到 `_run_loop`（`rt.signal_dirty.set()` on event）；触发时若 supervisor 处于 cooperative interrupt 点（spawn 间或 ticket 间），无需等到 ticket 自然结束即可切换分支
+**来源**: raw_requirements L.48; Wave 5 重构 (2026-04-28 watcher 真集成 + 内化 route — reference/f18-tui-bridge/puncture_wave5.py)
+
+### N. Wave 5 路由内化与 Skill 注入（Route Internalization & Skill Injection）
+
+<!-- Wave 5: NEW 2026-04-28 — F1 phase_route 内化 (FR-054) + G1 spawn 内置 skill 注入 (FR-055)；plugin 仅作 skill 仓库不再提供 routing entry；spawn_model_invariant 1:1 锁定（FR-001 AC-3/AC-4 联动） -->
+
+### FR-054: 内化 route() 同进程产出路由决策
+**优先级**: Must
+<!-- Wave 5: NEW 2026-04-28 — F1 phase_route 浅端口；零 subprocess；同进程 Python 调用；与 plugin v1.0.0 行为对等（fixture 交叉验证，绑 ASM-001 修订与 ASM-011 新增） -->
+**EARS**: Harness 路由决策 SHALL 由内部 `route()` 函数（同进程 Python 调用）产出，而非外部 plugin `scripts/phase_route.py` 的 subprocess。
+**可视化输出**: N/A — backend-only（route 决策结果经 IFR-003 流入 dispatch；UI 只看到 next_skill 字段）。
+**验收准则**:
+- AC-1: Given workdir，when 调用 `harness.orchestrator.phase_route_local.route(workdir)`，then 同进程 Python 函数调用，调用栈中无 `subprocess.Popen` / `asyncio.create_subprocess_exec`（rg 实证）
+- AC-2: Given 任意 workdir 状态，when route 返回，then dict 字段集合 = `{ok, errors, needs_migration, counts, next_skill, feature_id, starting_new}`，与 plugin v1.0.0 字段语义对等（fixture 交叉验证）
+- AC-3: Given feature-list.json ≤ 100KB，when route 调用，then 函数耗时 ≤ 5ms；任意大小 ≤ 50ms（PERF gate；puncture_wave5 实测 0.02ms）
+- AC-4: Given 同时存在 bugfix-request.json / increment-request.json / feature-list.json / docs/plans/*-{ats,design,ucd,srs}.md / brownfield 启发，when route 决议，then 优先级顺序与 plugin v1.0.0 完全一致：`bugfix-request.json > increment-request.json > feature-list.json (current/_select_next/ST) > docs/plans/*-{ats,design,ucd,srs}.md 阶梯 > brownfield 启发 > 默认 long-task-requirements`
+**来源**: Wave 5 NEW (2026-04-28 — reference/f18-tui-bridge/puncture_wave5.py 实证 0.02ms × 零 subprocess；CON-008 修订承接)
+
+### FR-055: spawn 后注入 /<next_skill> 触发 plugin slash command
+**优先级**: Must
+<!-- Wave 5: NEW 2026-04-28 — G1 spawn 内置 skill 注入；复用 FR-053 unified Esc-text bracketed paste + CR；SkillDispatchError 错误路径；SKILL.md marker ≤ 30s 验收；短格式 slash 实证 -->
+**EARS**: When `ClaudeCodeAdapter.spawn()` 完成 PTY init 与 boot 稳定检测后, the system SHALL 通过 PTY bracketed paste + CR 注入 `/<next_skill>` 让 TUI 识别为 plugin slash command 并启动对应 skill。
+**可视化输出**: TicketStream 卡片 dispatch 阶段显示 "skill injected: /<skill>"；SKILL.md "I'm using <skill>" 首行 marker 出现于 stream events 中。
+**验收准则**:
+- AC-1: Given spawn 完成，when 内部 dispatch 阶段，then 在 PtyWorker.start 后等待 TUI boot 稳定（默认 ≤ 8s 超时，复用 NFR-014 dispatch latency 预算），然后写 `ESC[200~/<skill>ESC[201~CR` 序列（与 FR-053 unified Esc-text 协议同源 — bracketed paste + CR）
+- AC-2: Given 注入超时（boot 不稳定）或 PTY write 失败，when spawn dispatch 阶段，then 抛 `SpawnError` 子类 `SkillDispatchError`；supervisor 不得继续到 `ticket_stream.events()`（FR-001 AC-4 联动 — 裸 spawn 无 inject 视为缺陷）
+- AC-3: Given inject 已写入，when 等待 SKILL.md `"I'm using <skill>"` opening line marker（≤ 30s 内屏幕含该字符串），then 视为 dispatch 成功证据；超时则 ticket 进 `ABORTED` 状态（Err-K SkillDispatchError marker 超时）
+- AC-4: Given `skill_hint = PhaseRouteResult.next_skill`，when 构造 slash，then slash 形式为 `"/" + skill_hint`（不再是 `"/long-task:long-task-xxx"` 命名空间形式 — 实测 puncture_wave5 验证 plugin TUI 接受短格式）
+**来源**: Wave 5 NEW (2026-04-28 — reference/f18-tui-bridge/puncture_wave5.py 实证 'I'm using long-task-hotfix' marker)
 
 ### M. 分发
 
@@ -866,7 +903,7 @@ flowchart TD
 | CON-005 | 静态 bundle longtaskforagent plugin，不自动更新；仅 UI 手动 git pull | 版本可控 |
 | CON-006 | FastAPI 绑 127.0.0.1 only | 安全（NFR-007）|
 | CON-007 | Harness 不写入 ~/.claude/ | 环境清洁（NFR-009）|
-| CON-008 | 路由暂由 longtaskforagent phase_route.py 控制；v1 不上移到 Harness | 单一事实源，避免重复实现 |
+| CON-008 | <!-- Wave 5: Modified 2026-04-28 — 路由内化于 Harness（参考 longtaskforagent plugin scripts/phase_route.py 语义；Wave 5 增量）；plugin 仅作 skill 仓库不再提供路由 entry --> v1 路由内化于 Harness（参考 longtaskforagent plugin scripts/phase_route.py 语义；Wave 5 增量）；plugin 仅作 skill 仓库不再提供路由 entry | 同进程 Python 调用消除 subprocess 启动开销与 stdout 解析松弛性；plugin 仍是 skill 单一来源 |
 | CON-009 | v1 Out-of-Scope: 云端/多用户、CI/CD 外部触发、移动 UI、i18n、skill 自动更新、历史全文搜索、插件市场 | 范围明确 |
 
 ## 6. 接口需求（Interface Requirements）
@@ -874,7 +911,7 @@ flowchart TD
 |----|----------------|-----------|----------|-------------|
 | IFR-001 | Claude Code CLI | Outbound（spawn）+ Bidirectional（pty stdin/stdout + workdir hooks bridge）| PTY 双向 + workdir-scoped settings.json hooks (8 类: `PreToolUse / PostToolUse / SessionStart / SessionEnd / Stop / SubagentStop / UserPromptSubmit / Notification`) → harness HTTP `POST /api/hook/event` | argv flags 见 FR-016 + Hook stdin JSON 字段集 (`session_id`, `transcript_path`, `hook_event_name`, `tool_name`, `tool_use_id?`, `tool_input?`, `ts`) + TUI 键序 (FR-053 — default unified Esc-text + baseline `<N>\r` fallback) |
 | IFR-002 | OpenCode CLI | Outbound（spawn）+ Bidirectional（stdin via hooks）| pty + argv + hooks 配置文件 | argv + JSON hooks 配置 |
-| IFR-003 | `scripts/phase_route.py` subprocess | Outbound invoke | Python subprocess + `--json` flag | stdout JSON: `{ok, next_skill, feature_id, starting_new, needs_migration, counts, errors}`（松弛解析）|
+| IFR-003 | <!-- Wave 5: Modified 2026-04-28 — subprocess wire 协议替换为内部模块描述；build_argv [DEPRECATED Wave 5] 保留作 fallback --> `harness.orchestrator.phase_route_local` (内部模块 — Wave 5 起) | In-process invoke | Python 函数调用 (`await asyncio.to_thread(route, workdir)`) | dict: `{ok, next_skill, feature_id, starting_new, needs_migration, counts, errors}`（与 plugin v1.0.0 字段语义对等；fixture 交叉验证 — 绑 ASM-001 修订）。**Deprecated fallback**：`PhaseRouteInvoker.build_argv(...)` 标 `[DEPRECATED Wave 5]` 保留作 fallback（plugin 仍存在场景下可手工切换），默认禁用 |
 | IFR-004 | OpenAI-compatible HTTP API（GLM / MiniMax / OpenAI / 自定义）| Outbound | HTTP POST `<base_url>/v1/chat/completions` + `Authorization: Bearer <key>` | JSON request + JSON response（response_format=json_schema 在 effective_strict=true 时发送；effective_strict=false 时省略该字段并在 system message 追加 JSON-only suffix — 详见下方 "Effective Strict Schema 标志"）|
 | IFR-005 | git CLI subprocess | Outbound | subprocess | 命令: `status --porcelain` / `rev-parse HEAD` / `log --oneline` / `show --stat` / `pull` |
 | IFR-006 | 平台 keyring | Bidirectional | python `keyring` 库（macOS Keychain / freedesktop Secret Service / Windows Credential Manager）| Key-Value string pair |
@@ -914,7 +951,7 @@ Claude Code CLI 集成方式 (Wave 4 起 / Wave 4.1 修订):
 ## 8. 假设与依赖（Assumptions & Dependencies）
 | ID | Assumption | Impact if Invalid |
 |----|-----------|------------------|
-| ASM-001 | `scripts/phase_route.py --json` 返回字段稳定（松弛解析容忍增减）| 若字段语义变更，Harness 分支判定可能失效需更新 |
+| ASM-001 | <!-- Wave 5: Modified 2026-04-28 — 内部 phase_route_local.route() 与 plugin v1.0.0 行为对等，通过 fixture 交叉验证 --> harness 内部 `harness.orchestrator.phase_route_local.route()` 与 longtaskforagent plugin v1.0.0 (`scripts/phase_route.py --json`) 行为对等；通过 fixture 交叉验证（Wave 5 — 不再依赖 plugin 字段稳定性，转为绑定内部模块） | 若内部 route() 与 plugin v1.0.0 fixture 偏离，需触发 SRS 修订事件并补齐对等性测试；plugin 后续版本若改字段语义视为 ESI §1.4 修订 |
 | ASM-002 | Claude Code CLI 和 OpenCode CLI 在用户 PATH 可调用，用户已完成各自 auth/login | 否则 ticket 直接 skill_error |
 | ASM-003 | Claude Code 交互模式下 AskUserQuestion 可被 pty 捕获且 stdin 写回后会话能续跑（v1 MVP 需 PoC 验证 FR-013）| PoC 失败则 HIL 相关 FR 需重新设计，冻结 v1 |
 | ASM-004 | OpenCode hooks 机制可监听 Question 工具 | hooks 失效则 OpenCode 分支降级到仅非 HIL skill |
@@ -924,6 +961,7 @@ Claude Code CLI 集成方式 (Wave 4 起 / Wave 4.1 修订):
 | ASM-008 | Some OpenAI-compatible providers (典型 MiniMax) reject `response_format=json_schema strict` 子协议；本系统在 strict-off 模式下仍可通过 prompt-only JSON 约束 + 容错解析完成分类。 | 若 prompt-only 约束亦无法稳定产出合法 JSON，FR-023 在该 provider 上等同 disabled；real_external_llm smoke 验证（Wave 3 · 2026-04-25 新增） |
 | ASM-009 | Claude CLI hook stdin JSON schema 在 v2.1.119 起字段稳定 (`session_id`, `transcript_path`, `cwd`, `hook_event_name`, `tool_name`, `tool_use_id`, `tool_input.questions[]`)。**Wave 4.1 (2026-04-27)**：`hook_event_name` 枚举集合从 4 类扩展为 8 类（`PreToolUse / PostToolUse / SessionStart / SessionEnd` + `Stop / SubagentStop / UserPromptSubmit / Notification`），其中后 4 类为 unified Esc-text 协议（FR-053）audit 闭环依赖；新增 4 类同样在 v2.1.119 起字段稳定（top-level schema 不变，仅枚举集合扩展）。 | CLI 升级若改 schema 字段名/嵌套结构 / 枚举集合，需触发 ESI §1.4 修订与 hook_mapper 更新（Wave 4 · 2026-04-27 新增；Wave 4.1 · 2026-04-27 hook 枚举扩 8 类） |
 | ASM-010 | Claude TUI 键序协议在 v2.1.119 起稳定 (option menu = `"<N>\r"` / prompt = bracketed paste + CR)。**Wave 4.1 (2026-04-27)**：默认 HIL 应答协议升级为 unified Esc-text（`ESC + bracketed-paste(merged_text) + CR`），覆盖 single/multi/freeform 三类 HIL 答案；baseline `<N>\r` 协议保留作 fallback。 | 若 TUI 升级改菜单交互方式 (e.g., fzf-style) 或 unified-paste 协议被关闭，需触发 ESI §1.4 修订与 TuiKeyEncoder (FR-053) 更新（Wave 4 · 2026-04-27 新增；Wave 4.1 · 2026-04-27 默认协议改 unified Esc-text） |
+| ASM-011 | <!-- Wave 5: NEW 2026-04-28 — count_pending.py + validate_features.py 端口为 harness 内部模块后行为对等 --> `scripts/count_pending.py` 与 `scripts/validate_features.py` 端口为 `harness/utils/feature_list_io.py` 后保持 plugin v1.0.0 行为对等（feature-list.json schema 校验 + status 计数语义不变）；plugin 后续版本演进若改 schema 视为 SRS 修订事件 | 若内部端口与 plugin v1.0.0 偏离，feature-list.json 校验 / 计数判定可能失效；通过 fixture 交叉验证守住对等性（Wave 5 · 2026-04-28 新增 — 配合 IFR-003 内化与 FR-054 路由内化形成完整 plugin → harness 端口集合） |
 
 ### 已排除（Exclusions — 详见 1.2）
 - EXC-001: 云端 / SaaS
@@ -1007,3 +1045,4 @@ Claude Code CLI 集成方式 (Wave 4 起 / Wave 4.1 修订):
 | 2026-04-24 | v1.1 | Wave 2 refactor-only feature repackaging — 0 FR/NFR/IFR 修改；feature 边界调整参见 feature-list.json 与 design.md §4；SRS 本体零语义变更 | long-task-increment-srs SubAgent |
 | 2026-04-27 | v1.0-w4 | Wave 4 增量 — F18 协议层重构（stream-json → TUI + Hook Bridge）。**新增 §1.4 ESI 子节**（claude CLI ≥ 2.1.119 + settings.json 8 字段 + .claude.json 4 字段 + 隔离写路径白名单）。**修订**: FR-008 / FR-009 / FR-011（HIL 协议层切换）+ FR-015（ToolAdapter 7 方法 Protocol）+ FR-016（严格 TUI argv 模板）+ IFR-001（PTY + hooks bridge + 新增 2 AC）。**弃用**: FR-014 [DEPRECATED Wave 4]（SessionEnd hook 取代 banner 仲裁）。**新增**: FR-051 (MUST · prepare_workdir 三件套) / FR-052 (SHOULD · HIL 应答唯一通道) / FR-053 (MUST · TuiKeyEncoder 协议)。**假设新增**: ASM-009 (hook stdin schema) / ASM-010 (TUI 键序协议)。3 新 FR / 5 修改 FR/IFR / 1 弃用 FR / 2 新 ASM / 2 hard impact (F18, F20) / 3 soft impact (F10, F21, F23) | long-task-increment-srs SubAgent |
 | 2026-04-27 | v1.0-w4.1 | Wave 4.1 增量 — F18 unified Esc-text 协议（HIL 默认应答通道）。**修订**: FR-009（AC-2 hook fire 计数升级为 PreToolUse + UserPromptSubmit + Stop 联合判定，PostToolUse 在 unified 路径下不强制要求）+ FR-053（默认协议改为 `ESC + bracketed-paste(merged_text) + CR`，覆盖 single/multi/freeform 三类合并文本一次注入；baseline `<N>\r` 降级为 prefer_baseline=True 兼容 fallback）+ IFR-001（hook 类型 4 → 8；TUI 键序协议默认 unified Esc-text + baseline 可选）+ ASM-009 (hook_event_name 枚举集合扩 8 类) + ASM-010 (默认协议改 unified Esc-text)。**§1.4 ESI 字段稳定性段落更新**（hook 类型 4 → 8）。**新 AC 4 条**（FR-053 unified-encode + multi + utf8 + sec）。0 breaking contract（baseline 路径完整保留）/ 0 新 FR / 0 弃用 / 1 hard impact (F18) / 1 soft impact (F21 — UI 端合并文本逻辑) | F18 SubAgent (主 agent 穿刺实测三方案对比裁决) |
+| 2026-04-28 | v1.0-w5 | Wave 5 增量 — F1 phase_route 内化 + G1 spawn 内置 skill 注入 + retry/watcher 真集成 + 选择性 cosmetic 清理。**修订**: FR-001（AC-3/AC-4 NEW — 每 ticket 独立 spawn + 显式 inject；spawn_model_invariant 1:1 锁定）+ FR-016（AC NEW — argv 必含 `--plugin-dir <path>` 与 `.claude-plugin/plugin.json` 校验，与 `--setting-sources project` 必须并存）+ FR-048（双 AC 拆 — UI ≤ 2s + dispatch ≤ ticket 剩余 + 200ms + watcher 真集成 cooperative interrupt）+ IFR-003（subprocess wire 协议 → 内部模块描述；build_argv `[DEPRECATED Wave 5]` 保留 fallback）+ CON-008（v1 路由内化于 Harness；plugin 仅 skill 仓库不提供 routing entry）。**新增**: FR-054 (Ubiquitous · MUST · Harness 路由决策由内部 route() 函数同进程产出；4 AC) / FR-055 (Event-driven · MUST · spawn 后 PTY bracketed paste + CR 注入 `/<next_skill>` 触发 plugin slash command；4 AC)。**假设修订**: ASM-001 (内部 route() 与 plugin v1.0.0 行为对等通过 fixture 交叉验证)；**假设新增**: ASM-011 (count_pending.py + validate_features.py 端口为 harness/utils/feature_list_io.py 后保持 plugin v1.0.0 行为对等)。§1.4 ESI 不修订（`increment_touches_esi=false` — 不引入新外部接口字段）。2 新 FR / 4 修订 FR/IFR / 1 修订 CON / 1 修订 ASM / 1 新增 ASM / 1 hard impact (F20) / 5 soft impact (F18, F21, F22, F23, F24) / 0 breaking 外部契约 (1 内部 Breaking API-W5-09 仅 F20 — RunOrchestrator.record_call → _record_call) | long-task-increment-srs SubAgent (puncture_wave5.py 2026-04-28 PASS 实证：route() 0.02ms 零 subprocess + 'I'm using' marker + 隔离 sha256 等价) |
