@@ -1040,3 +1040,22 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Dependency] ST-FUNC-018-038 (INT-001 系统集成) 同时依赖 F21 / F20 / F02 全部 passing；F20 当前 failing，待 F20 通过后用户可重跑该集成场景
 - ⚠ [Mutant] T-MULTI-ROUND 已映射至 ST-PERF-018-002（unit 级跨轮 audit 断言；同时校验 posted bytes 累积 + audit value/channel 键），真 CLI 跨 user_turn 3 轮变体仍归 ST-PERF-018-001 (manual)
 - ⚠ [Workspace] 仓库根另存未提交编辑：`scripts/init_project.py` 删除了 F24 已交付的 B8 guard（154 行），疑似 in-progress 非 F18 工作；本会话两次 commit 均未触碰，由用户自行处置
+
+### Session 39 — Feature #20 F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess · Design (Wave 4 hard-flush · 2026-04-27)
+- target_feature: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=4
+- starting_new=true → current 锁置 `{feature_id: 20, phase: "design"}`（commit 41879a9）
+- env-guide: approved (2026-04-27)
+- design_section: docs/plans/2026-04-21-harness-design.md §4.5 行 514-608（Overview / Key Types / Module Layout / Integration Surface / 4.5.4.x Wave 4 supervisor 主循环改造 / Test Inventory Hint）+ §1 / §4.12 / §6 辅读
+- srs_section: FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048 + NFR-003/004/015/016 + IFR-003（共 19 ID）
+- Feature Design SubAgent: PASS
+  - 文档: docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md（69 KB · 8/8 sections complete）
+  - Test Inventory: 60 行（FUNC happy=23 / FUNC error=18 / BNDRY=7 / SEC=1 / PERF=2 / INTG=8）；负向 32/60 = 53.3%（≥ 40%）
+  - Existing Code Reuse: 25/28 已搜索关键字命中既有实现（`harness/orchestrator/` + `harness/recovery/` + `harness/subprocess/` + F02/F10/F18/F19 契约类型）
+  - Visual Rendering Contract: N/A — ui:false（后端编排）
+  - assumption_count: 0 → 无需审批
+  - Internal API: F20 Provides IAPI-002/001/004/012/013/016/019；Consumes IAPI-003/005[Wave4 MOD]/009/010/011/017/020；REMOVED IAPI-006/008
+  - Wave 4 改造点（§4.5.4.x → 拆入 §4 算法 / §6 接口 / §8 实施步骤）：(1) `supervisor.py` L95-L100 `stream_parser.events(proc)` → `ticket_stream.events(ticket_id)` + `record_call("TicketStream.subscribe")`；(2) `run.py` L264 `_FakeStreamParser` → `_FakeTicketStream`，构造参数 `stream_parser` → `ticket_stream`；(3) `RunOrchestrator.__init__` 默认工厂改写线 `app.state.ticket_stream_broadcaster`
+  - IAPI-005 spawn 语义破坏：调用点必须先 `prepare_workdir(spec)` → `spawn(spec, paths)` 双段，已编入 supervisor.run_ticket call_trace 断言 T41/T42/T43
+- 用户测试策略约束（IFR-004 真实 LLM 1-2 个 claude-cli + 其余 minimax-http）：**约束不适用** — F20 Classifier 经 `_FakeClassifier` mock 注入 Verdict，UT 不直接触发 IFR-004；§Test Inventory 顶部已显式记录 `mock=51, claude-cli=0, minimax-http=0`，符合用户约束的 fallback 分支（不触发 IFR-004 时记录"约束不适用"）
+- Design: DONE (docs/features/20-f20-bk-loop-run-orchestrator-recovery-su.md)
+- current.phase: design → tdd
