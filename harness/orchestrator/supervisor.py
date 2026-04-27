@@ -85,20 +85,20 @@ class TicketSupervisor:
         new_depth = DepthGuard.ensure_within(parent_depth)
 
         ticket_id = f"t-{uuid.uuid4().hex[:8]}"
-        orch.record_call(f"GitTracker.begin({ticket_id})")
+        orch._record_call(f"GitTracker.begin({ticket_id})")
         git_begin = await orch.git_tracker.begin(ticket_id=ticket_id, workdir=Path(orch.workdir))
 
         # Wave 4 [MOD] IAPI-005: prepare_workdir(spec) MUST run before spawn;
         # the returned IsolatedPaths is forwarded to spawn(spec, paths).
         # WorkdirPrepareError must propagate (T43) so spawn never fires.
-        orch.record_call(f"ToolAdapter.prepare_workdir({cmd.skill_hint})")
+        orch._record_call(f"ToolAdapter.prepare_workdir({cmd.skill_hint})")
         paths = await orch.tool_adapter.prepare_workdir(cmd)
 
-        orch.record_call(f"ToolAdapter.spawn({cmd.skill_hint})")
+        orch._record_call(f"ToolAdapter.spawn({cmd.skill_hint})")
         proc = await orch.tool_adapter.spawn(cmd, paths)
 
         pid = getattr(proc, "pid", 0) or 0
-        orch.record_call(f"Watchdog.arm(pid={pid})")
+        orch._record_call(f"Watchdog.arm(pid={pid})")
         # We don't actually arm a real watchdog timer in unit tests — just
         # invoke the trace marker; real runs would call orch.watchdog.arm.
         try:
@@ -110,30 +110,65 @@ class TicketSupervisor:
 
         # Wave 4 [MOD] IAPI-008 REMOVED: subscribe to ticket_stream keyed by
         # ticket_id rather than the legacy stream_parser keyed by proc.
-        orch.record_call("TicketStream.subscribe")
+        orch._record_call("TicketStream.subscribe")
         try:
             async for _evt in orch.ticket_stream.events(ticket_id):
                 pass
         except Exception:
             pass
 
-        orch.record_call("Watchdog.disarm")
+        orch._record_call("Watchdog.disarm")
         try:
             orch.watchdog.disarm(ticket_id=ticket_id)
         except Exception:
             pass
 
-        orch.record_call("ClassifierService.classify")
+        orch._record_call("ClassifierService.classify")
         verdict = await orch.classifier.classify_request(proc)
 
         # Anomaly classifier
         anomaly_info = orch.anomaly_classifier.classify(classify_request_for(proc), verdict)
 
-        orch.record_call(f"GitTracker.end({ticket_id})")
+        orch._record_call(f"GitTracker.end({ticket_id})")
         git_end = await orch.git_tracker.end(ticket_id=ticket_id, workdir=Path(orch.workdir))
 
-        # Determine final state
-        if anomaly_info.next_action == "abort":
+        # Wave 5 retry 集成 (FR-024/025/026 / NFR-003/004 真集成):
+        # When the AnomalyClassifier asks us to retry, ask RetryPolicy for the
+        # next delay; if it returns float we sleep + inc the counter + recurse
+        # the same _run_ticket_impl (Wave 5 reuses the recursion semantics —
+        # NOT a queue re-enqueue). When the policy returns None we escalate.
+        if anomaly_info.next_action == "retry":
+            skill_hint = cmd.skill_hint or ""
+            cls_value = (
+                anomaly_info.cls.value
+                if hasattr(anomaly_info.cls, "value")
+                else str(anomaly_info.cls)
+            )
+            count = orch.retry_counter.value(skill_hint)
+            delay = orch.retry_policy.next_delay(cls_value, count)
+            if delay is None:
+                # Exhausted — final_state ABORTED + Escalated broadcast.
+                from harness.orchestrator.bus import AnomalyEvent
+
+                try:
+                    orch.control_bus.broadcast_anomaly(
+                        AnomalyEvent(
+                            kind="Escalated",
+                            cls=cls_value,
+                            ticket_id=ticket_id,
+                            retry_count=count,
+                        )
+                    )
+                except Exception:
+                    pass
+                final_state = TicketState.ABORTED
+            else:
+                # Inc BEFORE sleep so a cancellation mid-sleep still leaves the
+                # counter in the right state for NFR-003/004 escalation accuracy.
+                orch.retry_counter.inc(skill_hint, cls_value)
+                await asyncio.sleep(delay)
+                return await self._run_ticket_impl(cmd)
+        elif anomaly_info.next_action == "abort":
             final_state = TicketState.ABORTED
         elif verdict.verdict == "COMPLETED":
             final_state = TicketState.COMPLETED
@@ -185,7 +220,7 @@ class TicketSupervisor:
             ),
         )
 
-        orch.record_call(f"TicketRepository.save({ticket_id})")
+        orch._record_call(f"TicketRepository.save({ticket_id})")
         await orch.ticket_repo.save(ticket)
 
         # Audit a few state_transition events (for T47 ≥3 events)

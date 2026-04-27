@@ -38,10 +38,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -108,9 +106,7 @@ async def test_t01_start_run_happy_path_lock_and_run_row(tmp_path: Path) -> None
     status = await orch.start_run(RunStartRequest(workdir=str(tmp_path)))
 
     assert status.state in {"starting", "running"}, f"got {status.state!r}"
-    assert (
-        tmp_path / ".harness" / "run.lock"
-    ).exists(), "RunLock file must exist under .harness/"
+    assert (tmp_path / ".harness" / "run.lock").exists(), "RunLock file must exist under .harness/"
     rows = await orch.run_repo.list_active()
     assert len(rows) == 1
     assert rows[0].state in {"starting", "running"}
@@ -221,8 +217,16 @@ async def test_t07_phase_route_invoke_exit_nonzero_raises(tmp_path: Path) -> Non
 
 
 # ---- T08 -----------------------------------------------------------------
-async def test_t08_phase_route_stdout_not_json_raises_parse_error(tmp_path: Path) -> None:
-    """T08 FUNC/error: real-subprocess fixture stdout='not json' exit=0 → PhaseRouteParseError; audit phase_route_parse_error written when audit_writer injected."""
+async def test_t08_phase_route_stdout_not_json_raises_parse_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T08 FUNC/error: real-subprocess fixture stdout='not json' exit=0 → PhaseRouteParseError; audit phase_route_parse_error written when audit_writer injected.
+
+    Wave 5: opt into the [DEPRECATED Wave 5] subprocess fallback via
+    ``HARNESS_PHASE_ROUTE_FALLBACK=1`` so the mocked ``create_subprocess_exec``
+    branch is reached (the default path is now in-proc).
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
     from harness.orchestrator.errors import PhaseRouteParseError
     from harness.orchestrator.phase_route import PhaseRouteInvoker
 
@@ -468,9 +472,7 @@ def test_t19_anomaly_classifier_context_overflow_from_stderr() -> None:
     from harness.recovery.anomaly import AnomalyClass, AnomalyClassifier
 
     classifier = AnomalyClassifier()
-    req = ClassifyRequest(
-        exit_code=1, stderr_tail="context window exceeded", stdout_tail=""
-    )
+    req = ClassifyRequest(exit_code=1, stderr_tail="context window exceeded", stdout_tail="")
     verdict = Verdict(verdict="RETRY", anomaly=None, backend="rule")
 
     info = classifier.classify(req, verdict)
@@ -887,15 +889,13 @@ async def test_t41_supervisor_call_trace_subscribes_ticket_stream_not_stream_par
         "GitTracker.end",
         "TicketRepository.save",
     ]
-    indices = [
-        next((i for i, c in enumerate(trace) if exp in c), -1) for exp in expected_order
-    ]
-    assert all(i >= 0 for i in indices), (
-        f"missing call(s) in trace; expected order {expected_order}; got trace={trace}"
-    )
-    assert indices == sorted(indices), (
-        f"call order violated; got indices={indices} for {expected_order}; trace={trace}"
-    )
+    indices = [next((i for i, c in enumerate(trace) if exp in c), -1) for exp in expected_order]
+    assert all(
+        i >= 0 for i in indices
+    ), f"missing call(s) in trace; expected order {expected_order}; got trace={trace}"
+    assert indices == sorted(
+        indices
+    ), f"call order violated; got indices={indices} for {expected_order}; trace={trace}"
 
     # Wave 4 invariant — old marker must be GONE
     assert not any(
@@ -968,13 +968,14 @@ async def test_t42_supervisor_calls_prepare_workdir_then_spawn_with_paths(
     )
 
     names = [n for (n, _) in orch.tool_adapter.calls]
-    assert names == ["prepare_workdir", "spawn"], (
-        f"prepare_workdir must come before spawn; got {names}"
-    )
+    assert names == [
+        "prepare_workdir",
+        "spawn",
+    ], f"prepare_workdir must come before spawn; got {names}"
     spawn_args = orch.tool_adapter.calls[1][1]
-    assert spawn_args[1] is sentinel_paths, (
-        "spawn must receive the IsolatedPaths returned by prepare_workdir"
-    )
+    assert (
+        spawn_args[1] is sentinel_paths
+    ), "spawn must receive the IsolatedPaths returned by prepare_workdir"
 
 
 # ---- T43 -----------------------------------------------------------------
@@ -1035,9 +1036,9 @@ async def test_t44_fake_ticket_stream_signature_takes_ticket_id(tmp_path: Path) 
     # The Wave 4 default ticket_stream attribute must exist and accept
     # ticket_id (not a process). Calling ``events("t-x")`` is what the
     # supervisor will do; an empty AsyncIterator is acceptable.
-    assert hasattr(orch, "ticket_stream"), (
-        "Wave 4: RunOrchestrator must expose `ticket_stream` (renamed from stream_parser)"
-    )
+    assert hasattr(
+        orch, "ticket_stream"
+    ), "Wave 4: RunOrchestrator must expose `ticket_stream` (renamed from stream_parser)"
     iterator = orch.ticket_stream.events("t-x")  # type: ignore[union-attr]
     assert hasattr(iterator, "__aiter__"), "events() must return an async iterator"
 
@@ -1057,9 +1058,9 @@ async def test_t44_fake_ticket_stream_signature_takes_ticket_id(tmp_path: Path) 
     disarm_idx = next((i for i, c in enumerate(trace) if "Watchdog.disarm" in c), -1)
     assert sub_idx >= 0, f"trace must include TicketStream.subscribe; got {trace}"
     assert disarm_idx >= 0, f"trace must include Watchdog.disarm; got {trace}"
-    assert sub_idx < disarm_idx, (
-        f"subscribe must precede disarm; got sub_idx={sub_idx}, disarm_idx={disarm_idx}"
-    )
+    assert (
+        sub_idx < disarm_idx
+    ), f"subscribe must precede disarm; got sub_idx={sub_idx}, disarm_idx={disarm_idx}"
 
 
 # ===========================================================================
@@ -1067,8 +1068,15 @@ async def test_t44_fake_ticket_stream_signature_takes_ticket_id(tmp_path: Path) 
 # ===========================================================================
 # ---- T45 ---  real_test  --  marker keyword for check_real_tests.py -----
 @pytest.mark.real_cli
-async def test_t45_real_phase_route_subprocess_returns_phase_route_result(tmp_path: Path) -> None:
-    """T45 INTG/subprocess: real ``python scripts/phase_route.py --json`` → PhaseRouteResult with ok in {True,False} and well-typed fields."""
+async def test_t45_real_phase_route_subprocess_returns_phase_route_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T45 INTG/subprocess: real ``python scripts/phase_route.py --json`` → PhaseRouteResult with ok in {True,False} and well-typed fields.
+
+    Wave 5: opt into the [DEPRECATED Wave 5] subprocess fallback via
+    ``HARNESS_PHASE_ROUTE_FALLBACK=1`` so the real wire protocol is exercised.
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
     from harness.orchestrator.phase_route import PhaseRouteInvoker, PhaseRouteResult
 
     phase_route_script = REPO_ROOT / "scripts" / "phase_route.py"
@@ -1097,8 +1105,15 @@ async def test_t45_real_phase_route_subprocess_returns_phase_route_result(tmp_pa
 
 # ---- T46 -----------------------------------------------------------------
 @pytest.mark.real_cli
-async def test_t46_real_phase_route_subprocess_exit_nonzero_raises(tmp_path: Path) -> None:
-    """T46 INTG/subprocess: phase_route fixture script ``sys.exit(2)`` stderr non-empty → PhaseRouteError(exit_code=2)."""
+async def test_t46_real_phase_route_subprocess_exit_nonzero_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T46 INTG/subprocess: phase_route fixture script ``sys.exit(2)`` stderr non-empty → PhaseRouteError(exit_code=2).
+
+    Wave 5: opt into the [DEPRECATED Wave 5] subprocess fallback so the fixture
+    script is actually exec'd (default path is in-proc).
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
     from harness.orchestrator.errors import PhaseRouteError
     from harness.orchestrator.phase_route import PhaseRouteInvoker
 
@@ -1106,9 +1121,7 @@ async def test_t46_real_phase_route_subprocess_exit_nonzero_raises(tmp_path: Pat
     scripts_dir = plugin_dir / "scripts"
     scripts_dir.mkdir(parents=True)
     fixture = scripts_dir / "phase_route.py"
-    fixture.write_text(
-        "import sys\nsys.stderr.write('phase route boom\\n')\nsys.exit(2)\n"
-    )
+    fixture.write_text("import sys\nsys.stderr.write('phase route boom\\n')\nsys.exit(2)\n")
 
     invoker = PhaseRouteInvoker(plugin_dir=plugin_dir)
     with pytest.raises(PhaseRouteError) as excinfo:
@@ -1119,8 +1132,15 @@ async def test_t46_real_phase_route_subprocess_exit_nonzero_raises(tmp_path: Pat
 
 # ---- T47 -----------------------------------------------------------------
 @pytest.mark.real_cli
-async def test_t47_real_phase_route_subprocess_timeout_kills_process(tmp_path: Path) -> None:
-    """T47 INTG/subprocess timeout: fixture sleeps 5s; invoke(timeout_s=0.2) → PhaseRouteError; child process eventually disappears."""
+async def test_t47_real_phase_route_subprocess_timeout_kills_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T47 INTG/subprocess timeout: fixture sleeps 5s; invoke(timeout_s=0.2) → PhaseRouteError; child process eventually disappears.
+
+    Wave 5: opt into the [DEPRECATED Wave 5] subprocess fallback so the
+    sleep fixture runs as a real subprocess (default path is in-proc).
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
     from harness.orchestrator.errors import PhaseRouteError
     from harness.orchestrator.phase_route import PhaseRouteInvoker
 
@@ -1137,9 +1157,7 @@ async def test_t47_real_phase_route_subprocess_timeout_kills_process(tmp_path: P
     elapsed = time.monotonic() - t0
 
     assert "timeout" in str(excinfo.value).lower()
-    assert elapsed < 4.0, (
-        f"timeout must kill subprocess well below 5s; got {elapsed:.2f}s"
-    )
+    assert elapsed < 4.0, f"timeout must kill subprocess well below 5s; got {elapsed:.2f}s"
 
 
 # ---- T48 -----------------------------------------------------------------
@@ -1335,9 +1353,7 @@ async def test_t55_run_control_bus_unbound_orchestrator_rejects(tmp_path: Path) 
 
     bus = RunControlBus()
     with pytest.raises(InvalidCommand):
-        await bus.submit(
-            RunControlCommand(kind="start", workdir=str(tmp_path))
-        )
+        await bus.submit(RunControlCommand(kind="start", workdir=str(tmp_path)))
 
 
 # ---- T56 -----------------------------------------------------------------

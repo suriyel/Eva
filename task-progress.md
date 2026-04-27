@@ -1155,3 +1155,58 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Risks**:
   - ⚠ [scripts/init_project.py 跨会话脏数据继承] 仍未处置（沿自 Session 38 / Session 42），本次 commit 仍未触碰；建议在 TDD 阶段开始前由用户独立 git checkout / hotfix 处置
   - ℹ [TDD 接力] 下一会话由 router 路由到 long-task-work-tdd（Red→Green→Refactor），按 §7 Test Inventory 87 行写 RED 用例
+
+## Session 44 — Worker TDD (F20 Wave 5)
+- **Date**: 2026-04-28
+- **Phase**: Worker · TDD (Red → Green → Refactor → Quality)
+- **target_feature**: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=5, status=failing
+- **starting_new=false** → router 锁 `{feature_id: 20, phase: "tdd"}`
+- **env-guide**: approved (godsuriyel@gmail.com 已审批 2026-04-28，v1.4)
+- **Bootstrap**: §1 ui:false 后端编排——无服务启停（仅 venv 激活）；冒烟 `pytest tests/ -k "f20 and not real_cli" -q` → 99 passed / 722 deselected EXIT=0
+- **Workspace inheritance**: `scripts/init_project.py` 沿自 Session 38/42/43 继续修改未处置；本会话 commit 仅打包 F20 Wave 5 测试 + 实现 + feature-list.json + task-progress.md，不触碰
+
+### Red SubAgent: PASS
+- 31 W5 测试落盘 `tests/test_f20_w5_design.py`（T22/T23/T25 retry 集成升级 + T61-T87 + 1 个 real-fs anchor）
+- 全部 31 FAILED with ImportError/ModuleNotFoundError/AssertionError 正确签名（验证目标符号 `phase_route_local` / `SkillDispatchError` / `harness.utils.feature_list_io` / `_record_call` 均尚未实现）
+- Rule 1 categories: FUNC happy=11 / FUNC error=6 / BNDRY=2 / SEC=1 / PERF=1 / INTG=10（含 recovery 3 / cross-impl 2 / spawn-real 2 / cooperative-wait 2 / cosmetic 1）；UI=N/A (ui:false)
+- Rule 2 negative_ratio=13/31=0.42 ≥ 0.40 ✓
+- Rule 3 low_value_ratio≈0.10 ≤ 0.20 ✓（断言均为具体 set/byte/计数器/异常 .reason 等值）
+- Rule 4 wrong-impl coverage：T61 patch subprocess.Popen + asyncio.create_subprocess_exec / T22/T23/T25 严格 retry-counter inc 次数 + sleep 次数 + 终态 ABORTED / T76 forbids namespaced form bytes / T78 forbids `\x03` byte / T83 rg sweep
+- Rule 5 real_test_count=5（既有 W3/W4 真测试 + 新增 real-fs anchor）；T79/T80 标 @pytest.mark.real_cli 走 INT-026 spawn-real / SKILL.md marker integration
+- Rule 8 UML element coverage：classDiagram 17 节点全锚定；sequenceDiagram 22 消息全锚定；3 stateDiagram + 1 flowchart 状态/分支全锚定
+- 用户特殊指令（沿自 Session 40/Wave 5 increment）落地：grep 后既存 F20 测试无 `record_call` 直测 / 无 SignalFileWatcher 旧 standalone-watcher 集成测试 → 0 删除（无废弃 case 可删）
+
+### Green SubAgent: PASS
+- 实现 3 NEW + 7 MOD：`harness/utils/__init__.py`(NEW) / `harness/utils/feature_list_io.py`(NEW) / `harness/orchestrator/phase_route_local.py`(NEW) / `harness/adapter/errors.py`(MOD `SkillDispatchError(SpawnError)` 子类) / `harness/adapter/claude.py`(MOD `spawn` async + bracketed-paste inject + boot/marker waits + `\x03`/控制字符拒绝) / `harness/orchestrator/supervisor.py`(MOD `record_call → _record_call` rename + retry 真集成块) / `harness/orchestrator/run.py`(MOD `_record_call` 私有化 + `on_signal` + `_RunRuntime.signal_dirty` Event + `asyncio.run(adapter.spawn)`) / `harness/orchestrator/signal_watcher.py`(MOD `attach_runtime` + `on_signal` 升 IAPI-012 正式) / `harness/orchestrator/phase_route.py`(MOD `phase_route_local` 内化 — Green 初版 opt-in via `HARNESS_PHASE_ROUTE_INPROC=1`) / `tests/integration/test_f18_pty_real_subprocess.py`(MOD `asyncio.run(adapter.spawn)` 包装因 spawn 由同步改异步)
+- W5 31/31 PASS · W4 60/60 baseline preserved · 全仓单元 697/697 PASS · 覆盖率 90.27% line（高于 85% gate）
+- ⚠ Green 自标 `[CONTRACT-DEVIATION]` 内联文档（`PhaseRouteInvoker.invoke()` 默认 subprocess + opt-in `HARNESS_PHASE_ROUTE_INPROC=1` 走 in-proc）但判 drift=resolved；主 agent 未本地接受，转交 Refactor 重审
+
+### Refactor SubAgent: PASS — **反转 Green 的 CONTRACT-DEVIATION**
+- 重审 design §6/§8 字面文本，确认 design 明确要求 `PhaseRouteInvoker.invoke` body = `await asyncio.to_thread(phase_route_local.route, workdir)` 默认 in-proc，subprocess fallback opt-in via `HARNESS_PHASE_ROUTE_FALLBACK=1`（Green 写反了 gate 方向）
+- 修正 `phase_route.py` 反转 gate；同步更新 7 个 legacy 测试的 `monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")`：T03/T04/T06/T07/T08/T31 (`test_f20_phase_route_invoker.py`) + T08/T45/T46/T47 (`test_f20_w4_design.py`) + T05 (`test_f20_real_subprocess.py`)
+- §4 spawn-skill-inject (FR-055) 字面校验：bracketed paste `b"\x1b[200~/" + skill_hint + b"\x1b[201~"` + `time.sleep(0.5)` + `b"\r"` / 8s boot wait / 30s marker wait `f"I'm using {skill_hint}"` / `\x03`+`\x04` 控制字符拒绝 / 短斜杠 `/<skill>` 拒绝 namespaced 形式 / `SkillDispatchError(SpawnError)` 子类保 supervisor `try/except SpawnError` 路径
+- 清理：移除 `harness/adapter/claude.py` 死 `import asyncio` / `import time as _time` / 未用 `pathlib.PurePath`；`signal_watcher.py` 加 `Any`（消 F821 + mypy name-defined）；`phase_route_local.py` `# noqa: E402` 标记故意 late import；black 4 文件 reformat；ruff `--fix` 移除测试文件 4 处未用 import
+- 静态分析（impl-file scope）：ruff 0 / black 0 / mypy 0 over 9 impl 文件；6 mypy 错误残留于 out-of-scope 文件（`harness/cli_dialog/{catalog.py,recognizer.py}` / `harness/hil/writeback.py` / `harness/api/hook.py`），与 W5 无关
+- 测试：F20 标准独立 97/97（31 W5 + 60 W4 + 6 W4 invoker）；全仓单元 705 PASS（10 pre-existing 失败已逐项归因 baseline noise）
+- design_alignment_final：§4 matches / §6 matches / §8 matches / drift=resolved
+- TDD R-G-R: green ✓ (31 W5 tests + 1 design-deviation 反转修正 + 0 既存 UT 删除)
+
+### Quality SubAgent: PASS
+- Gate 0 (Real Test): PASS — 9 F20 real tests 全跑 0 跳过；1 mock warning 经审为合法 env 切换（`monkeypatch.setenv HARNESS_PHASE_ROUTE_FALLBACK` 是 opt INTO real subprocess，非主 dep mock）
+- Gate 0.5 (SRS Trace): PASS — 22/22 ID 覆盖（FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048/054/055 + NFR-003/004/015/016 + IFR-003）；uncovered=[]；scope = `tests/test_f20_w5_design.py` ∪ 10 个既存 F20 单元/集成文件
+- Gate 1 (Coverage): PASS — line=88.55% (≥85%)；branch=83.26% (≥80%)；TOTAL 5581/6303 stmts + 1169/1404 branches；cov tool combined metric=86.08%
+- Gate 2 (Verify & Mark): F20 standalone 132 unit + 9 real = 141 全 GREEN；W5 design 31/31
+- 全仓 whole-suite 154s 跑：840 passed / 2 skipped / 10 failed；10 失败逐项归因 baseline noise：6× `tests/test_f24_b8_init_project_guard.py`（Session 38 `scripts/init_project.py` 脏数据）+ 3× `tests/integration/test_f24_real_health_ttl.py`（要求 uvicorn 8765 在跑，env 前置未启）+ 1× `tests/integration/test_f22_real_settings_consumer.py::test_f22_feature_22_rt05_post_validate_returns_issues`（F22 validator commit 53a0ac6 pre-W5）
+
+- TDD: green ✓ (R-G-R complete)
+- Quality: line=88.55%, branch=83.26%, srs_trace_coverage=22/22 OK
+- current.phase: tdd → st
+
+#### Risks
+- ⚠ [Coverage Margin] line 88.55% 离阈值 85% 余量 3.55pp；branch 83.26% 离 80% 余量 3.26pp；ST 阶段如新增 production 行需注意覆盖率不再回退
+- ⚠ [Async Cosmetic Warning] `tests/test_f20_w5_design.py` 13 处 `@pytest.mark.asyncio` 标在同步函数上触发 PytestWarning（非 fatal）；Session 45 ST 阶段 inline check 时清理或留存
+- ⚠ [Async Teardown Resource Warning] `tests/integration/test_f20_real_*.py` 拆解时 PytestUnraisableExceptionWarning "Event loop is closed" + "Task was destroyed but it is pending"，提示 `RunOrchestrator._run_loop` teardown 可能漏 cancel 一些后台 task；非 fatal 但建议 ST 阶段评估
+- ⚠ [Whole-suite Baseline Noise · 跨会话] 10 pre-existing 失败（6 F24 b8 + 3 F24 health-ttl + 1 F22 validator）需独立 hotfix 票，否则 ST 阶段 green-suite invariant 会被这层 noise 干扰；其中 F24 b8 的根因是 `scripts/init_project.py` Session 38 脏数据（沿自 Session 38/42/43），用户自行处置或独立 hotfix
+- ⚠ [Workspace Inheritance · 跨会话延续] `scripts/init_project.py` 工作树脏数据继承自 Session 38；本会话 commit 仅打包 F20 Wave 5 范围，不触碰
+- ℹ [Wave 5 Design Compliance] Refactor 反转 Green 的 gate 方向是关键判定——Green 的 `[CONTRACT-DEVIATION]` 不是 design 的 silent ambiguity 而是 Green 的 misread；下一个增量需注意 design §6/§8 字面文本始终是 spec source of truth
+

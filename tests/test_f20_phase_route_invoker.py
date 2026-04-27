@@ -4,6 +4,11 @@
 itself is exercised end-to-end (no internal mocks). T05 (real subprocess) is in
 tests/integration/test_f20_real_subprocess.py.
 
+Wave 5 [API-W5-02] note: ``PhaseRouteInvoker.invoke`` defaults to the in-proc
+``phase_route_local.route`` path; these legacy unit tests opt into the
+[DEPRECATED Wave 5] subprocess fallback by setting
+``HARNESS_PHASE_ROUTE_FALLBACK=1`` (matches design §7 T07/T08 setup).
+
 Feature ref: feature_20
 
 Traces To:
@@ -26,6 +31,17 @@ import pytest
 
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+def _enable_subprocess_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wave 5: opt every test in this module into the subprocess fallback path.
+
+    Design §6/§8 make ``await asyncio.to_thread(phase_route_local.route, ...)``
+    the default; ``HARNESS_PHASE_ROUTE_FALLBACK=1`` flips back to the
+    legacy ``asyncio.create_subprocess_exec`` path that these tests pin.
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
 
 
 def _mock_proc(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0) -> Any:

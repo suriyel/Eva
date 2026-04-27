@@ -329,6 +329,10 @@ class _RunRuntime:
     pause_pending: bool = False
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     loop_task: asyncio.Task[None] | None = None
+    # Wave 5 [FR-048 AC-3]: SignalFileWatcher.on_signal toggles this Event so
+    # the next iteration of `_run_loop` sees the dirty marker and re-routes
+    # via phase_route (cooperative interrupt — see API-W5-06).
+    signal_dirty: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class RunOrchestrator:
@@ -444,7 +448,9 @@ class RunOrchestrator:
     # ------------------------------------------------------------------
     # Trace helpers (used by T41)
     # ------------------------------------------------------------------
-    def record_call(self, name: str) -> None:
+    # Wave 5 [API-W5-09 Internal-Breaking]: record_call → _record_call private.
+    # The public read remains `call_trace()`; the public write is removed.
+    def _record_call(self, name: str) -> None:
         self._call_trace.append(name)
 
     def call_trace(self) -> list[str]:
@@ -754,6 +760,28 @@ class RunOrchestrator:
         except Exception:
             pass
         return RecoveryDecision(kind="abort")
+
+    # ------------------------------------------------------------------
+    # Wave 5 · on_signal (IAPI-012 升正式 / API-W5-06 / FR-048 AC-1+AC-3)
+    # ------------------------------------------------------------------
+    async def on_signal(self, event: Any) -> None:
+        """Cooperative-interrupt hook: a SignalFileWatcher event arrived.
+
+        For every active runtime we set ``signal_dirty`` so the next iteration
+        of ``_run_loop`` re-routes via phase_route (priority-1 hotfix /
+        increment will then be picked up). The event is also broadcast via
+        ``RunControlBus.broadcast_signal`` for ``/ws/signal`` UI subscribers
+        within the FR-048 AC-1 budget (≤ 2s).
+        """
+        for rt in self._runtimes.values():
+            try:
+                rt.signal_dirty.set()
+            except Exception:
+                pass
+        try:
+            self.control_bus.broadcast_signal(event)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Main loop
@@ -1326,8 +1354,9 @@ def run_real_hil_round_trip(
         )
         adapter.prepare_workdir(spec, paths)
 
-        # 3. spawn claude CLI via PtyWorker
-        proc = adapter.spawn(spec, paths)
+        # 3. spawn claude CLI via PtyWorker. Wave 5 made spawn `async def`;
+        # this round-trip helper is synchronous, so wrap with asyncio.run.
+        proc = asyncio.run(adapter.spawn(spec, paths))
         initial_pid = proc.pid
         ticket_id = proc.ticket_id
         repo.tickets[ticket_id] = _SimpleTicket(ticket_id, proc.worker)

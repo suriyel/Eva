@@ -19,7 +19,7 @@ import asyncio
 import threading
 import time
 from pathlib import Path
-from typing import AsyncIterator, Literal, Protocol, cast
+from typing import Any, AsyncIterator, Literal, Protocol, cast
 
 from watchdog.events import FileSystemEvent, PatternMatchingEventHandler
 from watchdog.observers import Observer
@@ -144,6 +144,46 @@ class SignalFileWatcher:
         # Per-kind debounce bookkeeping.
         self._last_emit: dict[str, float] = {}
         self._lock = threading.Lock()
+        # Wave 5 [API-W5-06 / IAPI-012] cooperative interrupt — when a runtime
+        # is attached, ``on_signal`` flips its ``signal_dirty`` Event so the
+        # orchestrator's main loop re-routes on the next iteration.
+        self._runtime: Any = None
+
+    # ------------------------------------------------------------------
+    # Wave 5 · attach_runtime / on_signal (API-W5-06 / IAPI-012 升正式)
+    # ------------------------------------------------------------------
+    def attach_runtime(self, runtime: Any) -> None:
+        """Bind the active :class:`_RunRuntime` so ``on_signal`` can flip its
+        ``signal_dirty`` :class:`asyncio.Event`.
+
+        Idempotent — re-attaching simply replaces the previous reference.
+        """
+        self._runtime = runtime
+
+    async def on_signal(self, event: SignalEvent) -> None:
+        """Wave 5 IAPI-012 升正式 / FR-048 AC-1+AC-3.
+
+        - Sets ``rt.signal_dirty`` (when a runtime is attached) so the
+          ``_run_loop`` cooperative wait observes the dirty marker on its
+          next iteration → next ``phase_route_local.route()`` returns
+          ``long-task-hotfix`` / ``long-task-increment`` (priority-1 hits).
+        - Pushes the event onto :class:`RunControlBus` for ``/ws/signal``
+          delivery (AC-1, UI ≤ 2s).
+        - Idempotent for unknown ``event.kind`` — silently ignores anything
+          not recognised by the SignalEvent literal set (NFR-015 容忍).
+        """
+        rt = self._runtime
+        if rt is not None:
+            dirty = getattr(rt, "signal_dirty", None)
+            if dirty is not None:
+                try:
+                    dirty.set()
+                except Exception:
+                    pass
+        try:
+            self._bus.broadcast_signal(event)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     def start(self, *, workdir: Path) -> None:

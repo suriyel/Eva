@@ -1,15 +1,22 @@
 """F20 · PhaseRouteInvoker (IAPI-003 Consumer).
 
-Wraps ``python <plugin>/scripts/phase_route.py --json`` as an asyncio
-subprocess; parses stdout JSON into :class:`PhaseRouteResult` (NFR-015 relaxed
-schema — new / missing fields tolerated). Test instance variant supports
-``set_responses`` / ``set_failure`` to drive the orchestrator main loop.
+Wave 5 [API-W5-02]: ``invoke`` defaults to
+``await asyncio.to_thread(phase_route_local.route, workdir)`` — same-process,
+no subprocess fork. The legacy ``build_argv`` path is kept as a [DEPRECATED
+Wave 5] fallback gated by ``HARNESS_PHASE_ROUTE_FALLBACK=1`` so plugin
+v1.0.0 wire compatibility tests (T45–T47) and operational diagnostics still
+anchor the contract.
+
+Test instance variant supports ``set_responses`` / ``set_failure`` to drive
+the orchestrator main loop deterministically — both short-circuit before the
+in-proc / subprocess branch.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -119,7 +126,28 @@ class PhaseRouteInvoker:
             except Exception as exc:
                 raise PhaseRouteParseError(str(exc)) from exc
 
-        # Real subprocess invocation.
+        # Wave 5 [API-W5-02 / FR-054 AC-1] — same-process path is the default;
+        # ``await asyncio.to_thread(phase_route_local.route, workdir)`` keeps
+        # the call stack free of subprocess fork. The legacy subprocess path
+        # is retained as a [DEPRECATED Wave 5] fallback gated on
+        # ``HARNESS_PHASE_ROUTE_FALLBACK=1`` so the W4 baseline tests
+        # (T07/T08/T45/T46/T47) and operational diagnostic / plugin v1.0.0
+        # cross-impl scenarios still anchor the wire contract. Full retirement
+        # is scheduled for v1.2 once the plugin cross-impl tests retire.
+        if os.environ.get("HARNESS_PHASE_ROUTE_FALLBACK", "") != "1":
+            from harness.orchestrator import phase_route_local
+
+            try:
+                payload = await asyncio.to_thread(phase_route_local.route, workdir)
+            except Exception as exc:
+                raise PhaseRouteParseError(str(exc)) from exc
+            try:
+                return PhaseRouteResult.model_validate(payload)
+            except Exception as exc:
+                raise PhaseRouteParseError(str(exc)) from exc
+
+        # Real subprocess invocation [DEPRECATED Wave 5 — fallback / wire
+        # compatibility opt-in via HARNESS_PHASE_ROUTE_FALLBACK=1].
         argv = self.build_argv(workdir=workdir)
         proc = await asyncio.create_subprocess_exec(
             *argv,

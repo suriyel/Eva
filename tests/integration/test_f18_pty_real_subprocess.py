@@ -262,7 +262,9 @@ def test_claude_adapter_spawn_posix_factory_with_real_cat(tmp_path, monkeypatch)
         return PosixPty(real_argv, env, cwd)
 
     adapter = ClaudeCodeAdapter(pty_factory=cat_factory)
-    proc = adapter.spawn(spec)
+    import asyncio as _asyncio  # Wave 5: spawn is async — wrap for sync test.
+
+    proc = _asyncio.run(adapter.spawn(spec))
     try:
         assert proc.pid > 0
         assert proc.ticket_id  # uuid hex

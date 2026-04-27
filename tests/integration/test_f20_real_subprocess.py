@@ -51,8 +51,15 @@ def _git_init(workdir: Path) -> None:
 @pytest.mark.real_cli
 async def test_t05_real_phase_route_subprocess_returns_valid_phase_route_result(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """T05 INTG/subprocess (feature_20): real `python scripts/phase_route.py --json` against a stub workdir."""
+    """T05 INTG/subprocess (feature_20): real `python scripts/phase_route.py --json` against a stub workdir.
+
+    Wave 5: opt into the [DEPRECATED Wave 5] subprocess fallback via
+    ``HARNESS_PHASE_ROUTE_FALLBACK=1`` so the real wire protocol is exercised
+    (the default path is now in-proc ``phase_route_local.route``).
+    """
+    monkeypatch.setenv("HARNESS_PHASE_ROUTE_FALLBACK", "1")
     assert REPO_ROOT.exists(), "REPO_ROOT must resolve"
     phase_route_script = REPO_ROOT / "scripts" / "phase_route.py"
     assert phase_route_script.is_file(), f"phase_route.py missing at {phase_route_script}"
