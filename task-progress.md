@@ -1119,3 +1119,19 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Strict ATS UI Warning · 已豁免] check_ats_coverage --strict EXIT=1 报 "missing UI test cases" — F20 srs_trace 含 FR-004/029/040/048 (ATS 标 UI 必须类别) 但本特性 ui:false。skill Step 4e2 用非 strict 命令（EXIT=0 with warning 满足要求）；豁免依据：(a) ST 文档前言段含明确 ui:false 豁免声明，(b) Visual Rendering Contract = N/A backend-only feature，(c) Wave 3 commit `b1532db` 已建立同样处置惯例，(d) F23 (同 backend-only 含 FR-029) commit `458dd32` 同样处置
 - ⚠ [Workspace Inheritance · 跨会话延续] `scripts/init_project.py` 工作树脏数据继承自 Session 38（删除 F24 已交付的 B8 guard，引发 6 个 F24 b8 测试失败）— 不属于 F20 commit 范围；本会话两次 commit 均未触碰；用户自行处置（建议 git checkout HEAD -- scripts/init_project.py 或独立 hotfix）
 - ℹ [Increment Trigger] 本会话末已创建 `increment-request.json` 显式立项 F20 简化任务（删 SignalFileWatcher / 集成 RetryPolicy/Counter / design §6 表精简）；下次会话 router 会优先调 long-task-increment skill 走完整修订流程
+
+## Session 42 — Increment Wave 5
+- **Date**: 2026-04-28
+- **Phase**: Increment
+- **Scope**: F20 phase_route 内化 + spawn skill 注入 + retry 集成 + watcher 真集成 + cosmetic 清理
+- **Decision drivers**: (a) 用户立项意图——后续 plugin 脚本将逐步内化于 Eva，先把路由 entry 内化作为基础；(b) 现状 spawn 后无 skill 注入导致真跑会卡 TUI 空提示符（现 _FakeProc mock 让测试通过但生产链断）；(c) 1:1 spawn-per-ticket 模型锁定（上下文爆炸是硬约束 — 已存项目记忆 memory/project_spawn_model.md）
+- **Empirical foundation**: `reference/f18-tui-bridge/puncture_wave5.py` (新增) PASS — F1 `route()` 0.02ms × 零 subprocess / G1 `/long-task-hotfix` 注入 → SKILL.md 'I'm using' marker 出现 / sha256 ~/.claude/* 等价 / MiniMax 路由 SessionStart hook 含 `model: MiniMax-M2.7-highspeed`
+- **Changes**: 2 NEW FR (054 route 内化 / 055 spawn inject) + 4 MODIFY FR/IFR (FR-001/016/048 + IFR-003) + 1 MODIFY CON (008) + 1 MODIFY ASM (001) + 1 NEW ASM (011) + 10 API changes (API-W5-01..10，9 Additive + 1 Internal-Breaking record_call→_record_call)
+- **Documents updated**: SRS (§4 / §6 / §7 / §8 / §12) · Design (§1.3 / §1.4 / §3.3 / §4.3 / §4.5 / §4.13 NEW / §6.1.3 / §6.2.5.W5 NEW) · ATS (12 表行 + INT-006 双 AC 拆 + INT-026/027/Err-K NEW + §5.7 NEW) · env-guide §4.5 (plugin_dir READ-only 规则 · v1.3 → v1.4 godsuriyel@gmail.com 已审批 2026-04-28)
+- **Impact**: 1 Hard (F20 status passing → failing, wave 4 → 5, srs_trace +FR-054/055) + 5 Soft (F18/21/22/23/24 文档级回归不重置) + 0 Deprecated + 0 新建 feature
+- **Step 3.5 finding**: 原 increment-request 描述 "5 个 helper 误置公开 API" 失真——grep 实证 build_argv (ToolAdapter Protocol) / head_sha / log_oneline (GitTracker) / broadcast_signal (RunControlBus) 均为有意公开方法；仅 record_call 真为内部 trace helper。API-W5-09 范围已 revise 缩到 1 个 helper，避免破坏 OpenCodeAdapter / F23 集成测试 / 多 adapter 实现等多处真实消费
+- **Validation**: `validate_features.py` VALID (24 features, 2 expected E2E warnings on F21/F22 待 F20 重新 passing) · `check_ats_coverage.py` ATS COVERAGE OK · puncture_wave5.py PASS
+- **Risks**:
+  - ⚠ [Worker pipeline 接管] F20 Wave 5 R-G-R 由路由器自动接管下一会话；首步 design 阶段需把 Wave 5 §4.5.4.y 主循环改造点全部落地到 supervisor.run_ticket / ClaudeCodeAdapter.spawn / phase_route_local
+  - ⚠ [puncture 实证 vs 单元测试] G1 注入路径目前仅 puncture_wave5.py (real_cli) 验证；TDD Red 阶段需补 ClaudeCodeAdapter.spawn 单元测试（FakePty + boot 稳定检测 + bracketed paste 字节断言）
+  - ℹ [scripts/init_project.py 跨会话脏数据继承] 仍未处置（沿自 Session 38），本次 commit 未触碰；用户自行处置或独立 hotfix
