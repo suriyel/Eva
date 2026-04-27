@@ -951,3 +951,26 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - **Approval**: Step 3/4/4b/6 各 1 轮 approve 通过；env-guide §3/§4 已 godsuriyel@gmail.com 重新审批 (frontmatter v1.2)
 - **Validation**: `validate_features.py: VALID — 24 features (9 passing, 3 failing, 12 deprecated)` · `validate_env_guide.py --strict: OK` · `validate_guide.py: VALID`
 - **Next**: Worker pipeline 由 router 自动接管 — F18 design 重启 (current.phase=design)，随后 tdd → st；F20 等 F18 通过后串行恢复
+
+### Session 36 — Feature #18 F18 · Bk-Adapter — Agent Adapter & HIL Pipeline · Design (Wave 4 · 2026-04-27)
+- target_feature: id=18, title="F18 · Bk-Adapter — Agent Adapter & HIL Pipeline", category=core, ui=false, wave=4
+- Orient:
+  - design_section: docs/plans/2026-04-21-harness-design.md §4.3 F18（L339-472）+ §4.12 Wave 4 协议层重构清单（L786-844）+ §6.1.1 IFR-001（L1095-1117）+ §6.2 IAPI-005/006/007/008/020/021（L1293-1670）
+  - srs_section: §1.4 ESI（L67-105）+ FR-008/009/011/012/013/014[DEPRECATED]/015/016/017/018/051/052/053（L246-405）+ NFR-014（L846）+ IFR-001/002（L867-868, L878+）+ ASM-009/010（L913-914）
+  - reference: reference/f18-tui-bridge/{README.md, evidence-summary.md, puncture.py, claude-alt-settings.template.json, claude-skip-dialogs.template.json}
+- Feature Design SubAgent: pass (Round 1 主分发 + Round 2 Clarification Addendum revise，最终 assumption_count=0)
+  - Round 1: pass with 1 assumption (SRS-DESIGN-CONFLICT · SRS FR-016 严格 8 项 argv 白名单 vs 系统设计 §6.1.1 简化 2 flag 叙述)
+  - 用户裁决 (approval-revise-loop B): Revise — 重写系统设计 §6.1.1 同步 SRS
+  - 主 agent commit `92538da` 同步修订系统设计 §4.3.2 ClaudeCodeAdapter [MOD] argv 字段 + §6.1.1 argv code block + 显式保留三 flag (`--plugin-dir / --settings / --setting-sources project`) 设计动机段落
+  - Round 2: pass · assumption_count=0 · feature-design §Clarification Addendum 拆分 Resolved/Open 两块，assumption #1 迁至 Resolved (Authority `assumed → user-approved`)
+- 用户附加约束（分发前注入）: §7 Test Inventory 显式新增 1 条 UT/BNDRY 用例 `T-HOOK-SCHEMA-CANARY` — 从 reference/f18-tui-bridge/ 实测样本固化为 golden fixture (tests/fixtures/hook_event_askuserquestion_v2_1_119.json)；UT 加载 fixture 喂 HookEventMapper.parse，断言字段集合（递归键名）严格等值；不一致 FAIL + diff，提示维护者重跑 puncture.py + 替换 fixture + 更新 HookEventMapper + 更新 ASM-009
+- Output:
+  - feature_design_doc: docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md（413 行 · Wave 4 整体重写 · 9/9 sections complete）
+  - test_inventory_count: 40（含 T-HOOK-SCHEMA-CANARY · 负向 21/40 = 52.5% ≥ 40%）
+  - existing_code_reuse_count: 14（domain HilQuestion/HilOption/HilAnswer + HilControlDeriver + HilEventBus + EnvironmentIsolator.setup_run + IsolatedPaths + PtyWorker + TicketProcess + adapter errors + opencode hooks helpers + /api/hil 路由 + HilWriteback._validate_escape 思路 + CapabilityFlags + app.include_router 模式）
+  - UML: 1× classDiagram (19 节点 · 8 NEW + 5 MOD) + 1× sequenceDiagram (16 消息 HIL full round-trip) + 1× stateDiagram-v2 (5 transitions · prepare_workdir) + 1× flowchart TD (4 决策 + 3 错误终点)
+  - FR-014 [DEPRECATED Wave 4]：feature-design 标"代码路径已移除（grep 0 命中）" + 终止协调改 SessionEnd hook + tool_use_id queue
+- IAPI 关系: Provider IAPI-005[MOD]/006[MOD]/007[MOD]/020[NEW]/021[NEW]/002[MOD wire]/009 · Consumer IAPI-015/017/011
+- Verification: `validate_features.py: VALID — 24 features (9 passing, 3 failing, 12 deprecated) | current=#18(design)`
+- Design: DONE (docs/features/18-f18-bk-adapter-agent-adapter-hil-pipelin.md)
+- current.phase: design → tdd

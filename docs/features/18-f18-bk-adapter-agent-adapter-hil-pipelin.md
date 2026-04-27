@@ -1,420 +1,413 @@
 # Feature Detailed Design：F18 · Bk-Adapter — Agent Adapter & HIL Pipeline（Feature #18）
 
-**Date**: 2026-04-24
-**Feature**: #18 — F18 · Bk-Adapter — Agent Adapter & HIL Pipeline
+**Date**: 2026-04-27
+**Feature**: #18 — F18 · Bk-Adapter — Agent Adapter & HIL Pipeline（Wave 4 协议层重构）
 **Priority**: high
 **Dependencies**: F02 (Persistence Core · passing) · F10 (Environment Isolation · passing)
-**Design Reference**: docs/plans/2026-04-21-harness-design.md §4.3（consolidates deprecated F03/F04/F05）
-**SRS Reference**: FR-008, FR-009, FR-011, FR-012, FR-013, FR-014, FR-015, FR-016, FR-017, FR-018, NFR-014, IFR-001, IFR-002
+**Design Reference**: docs/plans/2026-04-21-harness-design.md §4.3（Wave 4 重写）+ §4.12（Wave 4 弃用项 + IAPI 增量）+ §6.1.1（IFR-001 Wave 4 细化）+ §6.2（IAPI 总表 Wave 4 标注）
+**SRS Reference**: FR-008, FR-009, FR-011, FR-012, FR-013, FR-015, FR-016, FR-017, FR-018, FR-051, FR-052, FR-053, NFR-014, IFR-001, IFR-002, ASM-009, ASM-010；FR-014 [DEPRECATED Wave 4] 仅作历史标注
 
 ## Context
 
-F18 是后端主回路与 Agent CLI（Claude Code / OpenCode）之间的单向数据通道：spawn 交互式 pty 子进程 → 增量解析 stream-json → 捕获 HIL 问题（AskUserQuestion / OpenCode hooks Question）→ 通过 pty stdin 回写答案使会话续跑。它合并了原先三个小特性为单一 TDD 单元以最小化 mock 面，并承载 HIL PoC gate（FR-013：20 次 round-trip ≥95%），PoC 不达标则冻结整条 v1 HIL 相关 FR。
+F18 是后端主回路与 Agent CLI（Claude Code / OpenCode）之间的单向数据通道。**Wave 4 协议层重构（2026-04-27）** 将 HIL 捕获从「stream-json stdout 行解析」整体切换为「workdir-scoped settings.json hooks (PreToolUse(AskUserQuestion) / PostToolUse(*) / SessionStart / SessionEnd) → POST `/api/hook/event` 桥」；HIL 回写从「pty stdin 注入 JSON 文本」整体切换为「TUI 键序回写（option=`<N>\r` / 自由文本 bracketed paste / 多 question 串行）」。本特性同时承载 spawn 前 `prepare_workdir` 三件套预置（FR-051 隔离写路径白名单 + NFR-009 强化为可测断言）与 HIL PoC gate（FR-013 在新 hook bridge + TuiKeyEncoder 实现下 20 轮 round-trip ≥95% 重跑）。
 
 ## Design Alignment
 
-**来源**：系统设计 §4.3（F18）完整内容复制如下。
+来源：系统设计 §4.3 F18 主体（Wave 4 整段重写）+ §4.12 Wave 4 弃用清单 + §6.1.1 IFR-001 Wave 4 细化 + §6.2 IAPI Wave 4 标注。
 
-**4.3.1 Overview**：跨平台 PTY 包装 + ToolAdapter Protocol（ClaudeCode / OpenCode 双实现）+ 增量 JSON-Lines 解析 + HIL question 捕获与 pty stdin 回写 + 终止横幅冲突仲裁；一个 feature 覆盖 "Agent 启动 → 流 → HIL 回写" 单向链路，使 TDD 时 mock 面最小。满足 FR-008/009/011/012/013/014/015/016/017/018 + NFR-014。提供 IFR-001（Claude Code CLI argv / flag / stream-json 解析）与 IFR-002（OpenCode CLI argv / hooks / MCP 降级）的宿主。
+- **Key types（Wave 4 后）**:
+  - **[NEW]** `harness.hil.HookEventMapper` (`harness/hil/hook_mapper.py`) — hook stdin JSON → `HilQuestion[]`；仅 `hook_event_name == "PreToolUse"` 且 `tool_name in {AskUserQuestion, Question}` 派生
+  - **[NEW]** `harness.hil.TuiKeyEncoder` (`harness/hil/tui_keys.py`) — `HilAnswer` → TUI 键序 bytes（option `<N>\r` / bracketed paste / 控制字符拒绝）
+  - **[NEW]** `harness.orchestrator.HookEventToStreamMapper` (`harness/orchestrator/hook_to_stream.py`) — hook event → `TicketStreamEvent` envelope（wire 层别名 `StreamEvent`）
+  - **[NEW]** `harness.api.hook` (`harness/api/hook.py`) — FastAPI router POST `/api/hook/event`（IAPI-020）
+  - **[NEW]** `harness.api.pty_writer` (`harness/api/pty_writer.py`) — FastAPI router POST `/api/pty/write`（IAPI-021）
+  - **[NEW]** `harness.adapter.workdir_artifacts` — `SettingsArtifactWriter` / `SkipDialogsArtifactWriter` / `HookBridgeScriptDeployer`（FR-051 三件套）
+  - **[NEW]** `scripts/claude-hook-bridge.py`（仓库根脚本；被 settings.json 注册）
+  - **[NEW]** `harness.adapter.HookEventPayload` (pydantic) — `/api/hook/event` request body schema（与 IAPI-020 同 schema）
+  - **[MOD]** `harness.adapter.ToolAdapter` Protocol — 7 方法：`build_argv / prepare_workdir / spawn / map_hook_event / parse_result / detect_anomaly / supports`（旧 `extract_hil` 物理删除）
+  - **[MOD]** `harness.adapter.claude.ClaudeCodeAdapter` / `harness.adapter.opencode.OpenCodeAdapter` — 实现新 7 方法 Protocol
+  - **[MOD]** `harness.hil.HilWriteback` — payload 由 JSON 改为 TUI 键序 bytes，落地经 IAPI-021
+  - **[MOD]** `harness.pty.PtyWorker` — `byte_queue` 字段语义降级为 stdout 镜像归档（不再供下游消费）
+  - **[MOD]** `harness.stream.events.StreamEvent` — 类型名保留作通用 envelope，wire 层别名 `TicketStreamEvent`（hook event 派生语义）
+  - **[REMOVED]** `harness.hil.HilExtractor`（替代：`HookEventMapper`）/ `harness.stream.JsonLinesParser`（用户决策：不再解析 stdout 字节流）/ `harness.stream.BannerConflictArbiter`（FR-014 弃用，终止协调改走 SessionEnd hook + tool_use_id queue）
+- **Provides / Requires（系统设计 §4.3.4）**:
+  - **Provides** F20: IAPI-005 [Wave4 MOD] `ToolAdapter.spawn(spec, paths) → TicketProcess`（`prepare_workdir` 必须前置）
+  - **Provides** F18 内聚: IAPI-007 [Wave4 MOD] `HilWriteback → /api/pty/write` (TUI 键序 bytes)
+  - **Provides** Claude TUI（外部入口）→ F18: IAPI-020 [NEW] REST `POST /api/hook/event`
+  - **Provides** F21（FE → F18）: IAPI-021 [NEW] REST `POST /api/pty/write`
+  - **Provides** F18/F19/F20/F21（wire envelope）: IAPI-002 / IAPI-001 [Wave4 MOD] `GET /api/tickets/:id/stream` + `WS /ws/stream/:ticket_id` 输出 `TicketStreamEvent`（schema 等价于旧 `StreamEvent`）
+  - **Provides** F02: IAPI-009 `AuditWriter.append`
+  - **Requires** F19: IAPI-015 `ModelResolver.resolve(...)`（注入 settings.json `model` 字段）
+  - **Requires** F10: IAPI-017 `EnvironmentIsolator.setup_run(run_id)` → 注入 `IsolatedPaths` 给 `ToolAdapter.prepare_workdir`
+  - **Requires** F02: IAPI-011 `TicketRepository`
+- **Removed/Deprecated**: IAPI-006 字段语义降级（PtyWorker.byte_queue 仅 stdout 镜像归档；不再供 StreamParser 消费）；IAPI-008 `StreamParser.events()` 物理删除；FR-014 BannerConflictArbiter 整体废弃。
+- **Deviations**: 无文字差异。argv 模板冲突已由用户裁决消化（2026-04-27，approval-revise-loop B 选项 Revise）：系统设计 §6.1.1（L1095-1117）+ §4.3.2 ClaudeCodeAdapter `[MOD]` 节（L360）已由主 agent 在 commit `92538da` 同步为 SRS FR-016 严格白名单（8 项 / 含可选 `--model` 时 10 项）。SRS / 系统设计 / 本特性设计三处 argv 模板文字等值。详见 §Clarification Addendum Resolved 第 1 行（authority=user-approved）。
 
-**4.3.2 Key Types**（原文引用）：
-- `harness.adapter.ToolAdapter` (Protocol) — 6 方法：`build_argv / spawn / extract_hil / parse_result / detect_anomaly / supports`
-- `harness.adapter.DispatchSpec`（复用 `harness.domain.ticket.DispatchSpec` — 见 §Existing Code Reuse）
-- `harness.adapter.CapabilityFlags` (enum)
-- `harness.adapter.claude.ClaudeCodeAdapter`
-- `harness.adapter.opencode.OpenCodeAdapter` + `HookConfigWriter` / `HookQuestionParser` / `McpDegradation` / `VersionCheck`
-- `harness.pty.PtyProcessAdapter` (Protocol) — 跨平台统一
-- `harness.pty.posix.PosixPty` / `harness.pty.windows.WindowsPty`
-- `harness.pty.PtyWorker` — threading.Thread + asyncio.Queue 桥
-- `harness.stream.JsonLinesParser` / `StreamEvent` / `BannerConflictArbiter`
-- `harness.hil.HilExtractor` / `HilQuestion`（复用 domain）/ `HilControlDeriver` / `HilWriteback` / `HilEventBus`
-
-**4.3.3 Module Layout**：`harness/adapter/` · `harness/pty/` · `harness/stream/` · `harness/hil/` 四子包（见系统设计 §4.3.3）。
-
-**4.3.4 Integration Surface**（Provides / Requires）：
-
-| 方向 | Consumer / Provider | Contract ID | Endpoint | Schema |
-|---|---|---|---|---|
-| Provides | F20 | IAPI-005 | `ToolAdapter.spawn(DispatchSpec) → TicketProcess` | `DispatchSpec`, `TicketProcess` |
-| Provides | F18（内聚） | IAPI-006 | `PtyWorker.byte_queue → StreamParser` | `asyncio.Queue[bytes]` |
-| Provides | F18（内聚） | IAPI-007 | `HilWriteback → PtyWorker.write` | `bytes` |
-| Provides | F18/F20 | IAPI-008 | `StreamParser.events()` async iterator | `StreamEvent` |
-| Provides | F21 | IAPI-001 | WebSocket `/ws/hil` (HilQuestionOpened) | `HilQuestion`, `HilAnswerAck` |
-| Provides | F02 | IAPI-009 | `AuditWriter.append` (hil_captured / hil_answered) | `AuditEvent` |
-| Requires | F19 | IAPI-015 | `ModelResolver.resolve(...)` | `ResolveResult` |
-| Requires | F10 | IAPI-017 | `EnvironmentIsolator.setup_run(run_id)` | `IsolatedPaths` |
-| Requires | F02 | IAPI-011 | `TicketRepository` | `Ticket` |
-
-- **Key types**: ToolAdapter / PtyWorker / JsonLinesParser / BannerConflictArbiter / HilExtractor / HilWriteback / HilEventBus
-- **Provides / Requires**: Provides IAPI-005/006/007/008；Provides IAPI-001 `/ws/hil`；写入 IAPI-009。Requires IAPI-015（F19 ModelResolver，本 wave 尚未实现 → §Clarification Addendum 说明 stub 策略）、IAPI-017（F10 EnvironmentIsolator · passing · 已可直接复用）、IAPI-011（F02 TicketRepository · passing · 已可直接复用）。
-- **Deviations**: 无。全部方法签名与 §6.2.4 pydantic schema 一一对齐，不触发 Contract Deviation Protocol。
-
-**UML 嵌入**：F18 涵盖 ≥2 类协作（ToolAdapter / PtyWorker / StreamParser / HilExtractor / HilWriteback）且包含多个对象间调用序（HIL round-trip），故嵌入两张图。
+**UML 触发判据**：≥2 类协作（含 [NEW] / [MOD]）+ HIL full round-trip 跨 ≥2 服务调用顺序 + `prepare_workdir` 含 ≥3 决策分支；满足 `classDiagram` + `sequenceDiagram` + `flowchart TD` 三类触发。
 
 ```mermaid
 classDiagram
     class ToolAdapter {
-        <<Protocol>>
-        +build_argv(spec: DispatchSpec) list~str~
-        +spawn(spec: DispatchSpec) TicketProcess
-        +extract_hil(event: StreamEvent) list~HilQuestion~
-        +parse_result(events: list~StreamEvent~) OutputInfo
-        +detect_anomaly(events: list~StreamEvent~) AnomalyInfo
-        +supports(flag: CapabilityFlags) bool
+        <<Protocol 7-method>>
+        +build_argv(spec) list~str~
+        +prepare_workdir(spec, paths) IsolatedPaths
+        +spawn(spec, paths) TicketProcess
+        +map_hook_event(payload) list~HilQuestion~
+        +parse_result(events) OutputInfo
+        +detect_anomaly(events) AnomalyInfo
+        +supports(flag) bool
     }
     class ClaudeCodeAdapter {
-        -resolver: ModelResolver
-        -pty_factory: PtyProcessFactory
         +build_argv(spec) list~str~
-        +spawn(spec) TicketProcess
+        +prepare_workdir(spec, paths) IsolatedPaths
+        +spawn(spec, paths) TicketProcess
+        +map_hook_event(payload) list~HilQuestion~
     }
     class OpenCodeAdapter {
-        -hook_writer: HookConfigWriter
-        -hook_parser: HookQuestionParser
-        -mcp_degrader: McpDegradation
         +build_argv(spec) list~str~
-        +spawn(spec) TicketProcess
+        +prepare_workdir(spec, paths) IsolatedPaths
+        +map_hook_event(payload) list~HilQuestion~
     }
-    class PtyWorker {
-        -pty: PtyProcessAdapter
-        -byte_queue: Queue~bytes~
-        +start() None
-        +write(data: bytes) None
-        +close() None
+    class HookEventMapper {
+        +parse(payload) list~HilQuestion~
     }
-    class JsonLinesParser {
-        -buffer: bytearray
-        +feed(chunk: bytes) list~StreamEvent~
-        +events() AsyncIterator~StreamEvent~
+    class TuiKeyEncoder {
+        +encode_radio(index) bytes
+        +encode_checkbox(indices) bytes
+        +encode_freeform(text) bytes
     }
-    class BannerConflictArbiter {
-        +arbitrate(events: list~StreamEvent~) ArbitrationVerdict
+    class HookEventToStreamMapper {
+        +map(payload, ticket_id, seq) TicketStreamEvent
     }
-    class HilExtractor {
-        -arbiter: BannerConflictArbiter
-        -deriver: HilControlDeriver
-        +extract(event: StreamEvent) list~HilQuestion~
+    class HookRouter {
+        +post_hook_event(payload)
+    }
+    class PtyWriterRouter {
+        +post_pty_write(req)
     }
     class HilWriteback {
-        -worker: PtyWorker
-        +write_answer(answer: HilAnswer) None
+        +write_answer(answer)
     }
     class HilEventBus {
-        -ws_broadcast: Callable
-        -audit: AuditWriter
-        +publish_opened(q: HilQuestionOpened) None
-        +publish_answered(a: HilAnswerAck) None
+        +publish_opened(...)
+        +publish_answered(...)
     }
-    ToolAdapter <|.. ClaudeCodeAdapter
-    ToolAdapter <|.. OpenCodeAdapter
-    ClaudeCodeAdapter ..> PtyWorker : owns
-    OpenCodeAdapter ..> PtyWorker : owns
-    PtyWorker ..> JsonLinesParser : byte_queue
-    JsonLinesParser ..> HilExtractor : events
-    HilExtractor ..> BannerConflictArbiter : consults
-    HilExtractor ..> HilEventBus : emits
-    HilWriteback ..> PtyWorker : stdin
+    class PtyWorker {
+        +write(bytes)
+        +pid int
+    }
+    class SettingsArtifactWriter
+    class SkipDialogsArtifactWriter
+    class HookBridgeScriptDeployer
+    ClaudeCodeAdapter ..|> ToolAdapter
+    OpenCodeAdapter ..|> ToolAdapter
+    ClaudeCodeAdapter ..> HookEventMapper : map_hook_event
+    ClaudeCodeAdapter ..> SettingsArtifactWriter : prepare_workdir
+    ClaudeCodeAdapter ..> SkipDialogsArtifactWriter : prepare_workdir
+    ClaudeCodeAdapter ..> HookBridgeScriptDeployer : prepare_workdir
+    HookRouter ..> HookEventMapper : fan-out HIL
+    HookRouter ..> HookEventToStreamMapper : fan-out stream
+    HookRouter ..> HilEventBus : publish_opened
+    HilWriteback ..> TuiKeyEncoder : encode
+    HilWriteback ..> PtyWriterRouter : POST /api/pty/write
+    PtyWriterRouter ..> PtyWorker : write(bytes)
     classDef NEW fill:#cfc,stroke:#080
-    class ToolAdapter:::NEW
-    class ClaudeCodeAdapter:::NEW
-    class OpenCodeAdapter:::NEW
-    class PtyWorker:::NEW
-    class JsonLinesParser:::NEW
-    class BannerConflictArbiter:::NEW
-    class HilExtractor:::NEW
-    class HilWriteback:::NEW
-    class HilEventBus:::NEW
+    classDef MODIFIED fill:#ffc,stroke:#880
+    class HookEventMapper:::NEW
+    class TuiKeyEncoder:::NEW
+    class HookEventToStreamMapper:::NEW
+    class HookRouter:::NEW
+    class PtyWriterRouter:::NEW
+    class SettingsArtifactWriter:::NEW
+    class SkipDialogsArtifactWriter:::NEW
+    class HookBridgeScriptDeployer:::NEW
+    class ToolAdapter:::MODIFIED
+    class ClaudeCodeAdapter:::MODIFIED
+    class OpenCodeAdapter:::MODIFIED
+    class HilWriteback:::MODIFIED
+    class PtyWorker:::MODIFIED
 ```
-
-HIL round-trip sequence（对应 INT-001 ATS 场景；每条消息编号供 Test Inventory `seq msg#N` 追溯）：
 
 ```mermaid
 sequenceDiagram
-    participant Supervisor
+    participant Orchestrator
     participant ClaudeCodeAdapter
+    participant SettingsArtifactWriter
+    participant SkipDialogsArtifactWriter
+    participant HookBridgeScriptDeployer
     participant PtyWorker
-    participant ClaudeCLI
-    participant JsonLinesParser
-    participant HilExtractor
+    participant ClaudeTUI
+    participant HookBridgeScript
+    participant HookRouter
+    participant HookEventMapper
+    participant HookEventToStreamMapper
     participant HilEventBus
-    participant WebSocketHub
-    participant HilWriteback
-    participant AuditWriter
-    Supervisor->>ClaudeCodeAdapter: spawn(DispatchSpec)
+    participant FrontendUI
+    participant PtyWriterRouter
+    participant TuiKeyEncoder
+    Orchestrator->>ClaudeCodeAdapter: prepare_workdir(spec, paths)
+    ClaudeCodeAdapter->>SkipDialogsArtifactWriter: write(.claude.json)
+    ClaudeCodeAdapter->>SettingsArtifactWriter: write(.claude/settings.json)
+    ClaudeCodeAdapter->>HookBridgeScriptDeployer: deploy(claude-hook-bridge.py, 0o755)
+    Orchestrator->>ClaudeCodeAdapter: spawn(spec, paths)
     ClaudeCodeAdapter->>PtyWorker: start(argv, env, cwd)
-    PtyWorker->>ClaudeCLI: exec + pty fd
-    ClaudeCLI-->>PtyWorker: stream-json bytes
-    PtyWorker-->>JsonLinesParser: byte_queue chunk
-    JsonLinesParser-->>HilExtractor: StreamEvent(tool_use AskUserQuestion)
-    HilExtractor->>HilEventBus: publish_opened(HilQuestionOpened)
-    HilEventBus->>WebSocketHub: /ws/hil push
-    HilEventBus->>AuditWriter: append(hil_captured)
-    WebSocketHub-->>Supervisor: HilAnswerSubmit
-    Supervisor->>HilWriteback: write_answer(HilAnswer)
-    HilWriteback->>PtyWorker: write(bytes)
-    PtyWorker->>ClaudeCLI: stdin bytes
-    ClaudeCLI-->>PtyWorker: next stream-json
-    HilEventBus->>AuditWriter: append(hil_answered)
+    PtyWorker->>ClaudeTUI: spawn process (TUI mode)
+    ClaudeTUI->>HookBridgeScript: stdin hook event JSON (PreToolUse(AskUserQuestion))
+    HookBridgeScript->>HookRouter: POST /api/hook/event (IAPI-020)
+    HookRouter->>HookEventMapper: parse(payload)
+    HookEventMapper-->>HookRouter: HilQuestion[]
+    HookRouter->>HookEventToStreamMapper: map(payload, ticket_id, seq)
+    HookEventToStreamMapper-->>HookRouter: TicketStreamEvent
+    HookRouter->>HilEventBus: publish_opened(ticket_id, run_id, question)
+    HilEventBus->>FrontendUI: WS /ws/hil HilQuestionOpened
+    FrontendUI->>PtyWriterRouter: POST /api/hil/:ticket_id/answer → HilWriteback → POST /api/pty/write (IAPI-021)
+    PtyWriterRouter->>TuiKeyEncoder: encode_radio / encode_checkbox / encode_freeform
+    TuiKeyEncoder-->>PtyWriterRouter: bytes
+    PtyWriterRouter->>PtyWorker: write(bytes)
+    PtyWorker->>ClaudeTUI: stdin "<N>\r" or bracketed-paste seq
+    ClaudeTUI->>HookBridgeScript: PostToolUse(AskUserQuestion) hook event
+    HookBridgeScript->>HookRouter: POST /api/hook/event (PostToolUse)
 ```
 
 ## SRS Requirement
 
-以下为 SRS §2.C/D 中与本特性相关的完整条目（引用不改写）：
+**FR-008**（Wave 4 MOD）：交互模式 TUI + PTY 包装运行 Claude；argv 永禁 `-p / --print / --output-format / --include-partial-messages`；HIL 捕获改由 workdir-scoped settings.json hooks(PreToolUse(AskUserQuestion)) 通道 → POST `/api/hook/event`。
+**AC**：(1) argv 不含禁用 flag；(2) PreToolUse(AskUserQuestion) hook fire 计数 == AskUserQuestion 调用数 / harness 收到对应 POST。
 
-- **FR-008（Must）**：The system shall 通过交互模式（而非 `-p` 非交互）+ pty 包装运行 Claude Code，以使 AskUserQuestion 工具可被捕获并响应。AC：argv 不含 `-p` 且是 pty 子进程；stream-json 中能看到 tool_use 事件。
-- **FR-009（Must）**：While 交互 ticket 处于 running，the system shall 解析 stream-json 并识别 `AskUserQuestion` tool_use，提取 header/question/options/multiSelect/allowFreeformInput。AC：`tool_use.name=="AskUserQuestion"` → `ticket.hil.detected=true` 且 `questions[]` 非空；缺字段用默认值补齐并记录 warning。
-- **FR-011（Must）**：When Harness User 提交答案，the system shall 通过原 ticket 的 pty stdin 写回让原会话续跑。AC：同 pid 续跑；pty 关闭/崩溃 → ticket failed 但答案保留。
-- **FR-012（Must）**：While OpenCode ticket running，the system shall 通过 OpenCode hooks 捕获 Question 工具。AC：hooks 注册成功 → Harness 收到事件；注册失败 → ticket failed 并提示升级 OpenCode。
-- **FR-013（Must）**：The system shall 在 v1 MVP 阶段产出 PoC，20 次 HIL 循环成功率 ≥95%；否则冻结 HIL FR 上报用户。
-- **FR-014（Must）**：If 一张 ticket 同时出现终止横幅和未答 HIL，then the system shall 优先 HIL。AC：状态走 `hil_waiting` 而非 `completed`；答完后调 phase_route 而非假设下一 skill。
-- **FR-015（Must）**：The system shall 提供 `ToolAdapter` Protocol（6 方法）。AC：mypy 静态检查两实现通过；新增 GeminiAdapter 实现同 Protocol 时 orchestrator 无需改动。
-- **FR-016（Must）**：Claude argv 必含 `--dangerously-skip-permissions` / `--output-format stream-json --include-partial-messages` / `--plugin-dir <bundle>` / `--mcp-config <json> --strict-mcp-config` / `--settings <json>` / `--setting-sources user,project`（排除 local）；可选 `--model <alias>`。
-- **FR-017（Must）**：OpenCode argv `opencode [--model <alias>] [--agent <name>]` + hooks 配置；v1 对 MCP 完整适配降级并 UI 提示 "OpenCode MCP 延后 v1.1"。
-- **FR-018（Should）**：ToolAdapter 接口签名稳定，新增 provider 仅需实现同 Protocol。AC：mock provider 实现 6 方法后可被 orchestrator dispatch。
-- **NFR-014 Maintainability/Modularity**：`ToolAdapter`（与 ControlPlaneAdapter）均用 Python Protocol 定义；mypy `--strict harness/adapter/` 无 error。
-- **IFR-001 Claude Code CLI**：pty + argv + JSON-Lines stdout；stream kind ∈ {text, tool_use, tool_result, thinking, error, system}；`tool_use.name=="AskUserQuestion"` 触发 HIL；env 白名单透传 `PATH / PYTHONPATH / SHELL / LANG / USER / LOGNAME / TERM`；其他环境变量由 F10 注入（`CLAUDE_CONFIG_DIR` 或 `HOME`）。
-- **IFR-002 OpenCode CLI**：`opencode [--model] [--agent]`；hooks.json 在启动前写入 `<isolated>/.opencode/hooks.json`；hook 输出 `{"kind":"hook","channel":"harness-hil","payload":{...}}`；MCP 降级策略同 FR-017；**hooks.json 路径限 `<isolated>/.opencode/` 下防目录逃逸**；**Question name >256B 必须截断不崩**（ATS SEC 边界）。
+**FR-009**（Wave 4 MOD）：通过 settings.json hooks → harness POST `/api/hook/event` 接收 hook stdin JSON（含 `session_id / tool_use_id / tool_input.questions[]`），提取 `questions[]` 字段（`header / question / options[] / multiSelect / allowFreeformInput`）。
+**AC**：(1) `HookEventMapper` 处理 PreToolUse(AskUserQuestion) → `HilQuestion[]` 非空且字段齐全；(2) 同 session 多 turn `session_id` 稳定可作 lifecycle 锚；(3) 缺字段用默认值补齐 + warning。
+
+**FR-011**（Wave 4 MOD）：通过 PTY stdin 写 TUI 键序回写——option 选择写 `f"{N}\r"`（1-based）；多 question 表单串行逐题写键 + 等待下一题渲染；自由文本 bracketed paste `\x1b[200~<text>\x1b[201~\r`。
+**AC**：(1) 单题写键序 `N\r` 后 TUI 渲染 "● User answered Claude's questions: ⎿ · ... → option_label" 同 pid 续跑；(2) 多 question 串行写键每题渲染完成再写下一题；(3) 自由文本含特殊字符 byte-equal；(4) pty 已关闭时尝试写键序 → ticket failed + HIL 答案保留。
+
+**FR-012**：OpenCode HIL hooks 注册 Question 工具 → 与 Claude 同 schema 渲染到 HILInbox。**AC**：注册成功生成 HIL 控件；版本不兼容 → ticket failed + 升级提示。
+
+**FR-013**（保留）：HIL pty 穿透 PoC 20 轮 round-trip ≥ 95%。**AC**：(1) 20 轮 PoC 成功率 ≥ 95%；(2) < 5% → 冻结 HIL FR 上报用户重新决策。Wave 4 在新 hook bridge + TuiKeyEncoder 实现下重跑。
+
+**FR-014** [DEPRECATED Wave 4]：BannerConflictArbiter 整体废弃。新 AC = 代码路径已移除，grep 项目源码 0 引用；终止协调改走 SessionEnd hook + tool_use_id queue。
+
+**FR-015**（Wave 4 MOD）：`ToolAdapter` Python Protocol 7 方法 `build_argv / prepare_workdir / spawn / map_hook_event / parse_result / detect_anomaly / supports`。**AC**：(1) `mypy --strict` 检查 ClaudeCodeAdapter + OpenCodeAdapter 通过；(2) Mock Provider 实现 7 方法 → orchestrator 可 dispatch（FR-018 向后兼容）。
+
+**FR-016**（Wave 4 MOD）：argv 严格模板 `["claude", "--dangerously-skip-permissions", "--plugin-dir", <bundle>, "--settings", <isolated.settings.json>, "--setting-sources", "project"]`，可选 `--model <alias>` 插在 settings 之后；禁 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`。**AC**：(1) argv 列表 == 上述模板（含可选 --model 时插在 settings 之后）；(2) `dispatch.mcp_config` 非空 → v1 降级 + UI 提示。
+
+**FR-017**：OpenCodeAdapter argv 首 `opencode` + 可选 model/agent；指定 mcp_config → v1 降级 + UI 提示 "OpenCode MCP 延后 v1.1"。
+
+**FR-018**：ToolAdapter Protocol 接口稳定；新 provider 仅需实现同 Protocol（Wave 4 起为 7 方法）即可注册到 orchestrator。
+
+**FR-051**（Wave 4 NEW MUST）：`prepare_workdir` 三件套预置 — (a) `<workdir>/.claude.json`（hasCompletedOnboarding=true / projects.<cwd>.hasTrustDialogAccepted=true / lastOnboardingVersion 与 CLI 版本一致 / projectOnboardingSeenCount≥1）；(b) `<workdir>/.claude/settings.json`（env 块 + hooks 4 类 + skipDangerousModePermissionPrompt=true）；(c) `<workdir>/.claude/hooks/<bridge>` 0o755。env `HOME=<workdir>`；argv `--setting-sources project` 切断 user-scope。
+**AC**：(1) `prepare_workdir(spec)` 完成后三件套文件存在且 schema 校验通过；(2) run 前后 sha256 比对 `~/.claude/settings.json` + `~/.claude.json` 不变（NFR-009 强化）。
+
+**FR-052**（Wave 4 NEW SHOULD）：HIL 应答唯一通道 = harness UI；TUI 表单可见但 PTY focus 由 PtyWorker 独占；HilControl 顶部添加文案 "请在此处应答（不要直接操作 TUI）"。
+**AC**：(1) `hil_waiting` ticket 经 harness UI 提交答案 → PTY 写键序成功且 ticket 续跑；(2) HilControl 头部含 "请在此处应答" 提示。
+
+**FR-053**（Wave 4 NEW MUST）：`TuiKeyEncoder` 协议 — (a) 单选/多选每选项序号 N → bytes `f"{N}\r"`；多 question 串行 + poll PTY；(b) 自由文本 bytes `"\x1b[200~" + text.encode() + "\x1b[201~\r"`；(c) 中断 `b"\x03"`；退出 `b"\x03\x03"` 或 `b"/exit\r"`。
+**AC**：(1) 单题 option=1 → bytes `== b"1\r"`；(2) 自由文本 "hello" → bytes `== b"\x1b[200~hello\x1b[201~\r"`；(3) 多 question 表单 [Q1=opt2, Q2=opt1] 顺序写键 + 等待 PTY render → ticket 跨两题续跑。
+
+**NFR-014**：ToolAdapter 用 Python Protocol 定义；新增 provider 不改 orchestrator 代码。验证：`mypy --strict` + 代码 review。
+
+**IFR-001**（Wave 4 细化）：PTY 双向 + workdir-scoped settings.json hooks → harness `POST /api/hook/event` + TUI 键序回写。Hook stdin JSON 字段集 `{session_id, transcript_path, cwd, hook_event_name, tool_name, tool_use_id?, tool_input?, ts}`。SEC：env 白名单不含 `ANTHROPIC_*`（routing 经 settings.json `env` 块）。**AC-w4-1**：run 前后 `sha256(~/.claude/settings.json)` + `sha256(~/.claude.json)` 不变（含 ≥1 HIL 的完整 run）；**AC-w4-2**：hook bridge POST `/api/hook/event` payload schema 不符 → 415/422 拒绝且 ticket 不卡死。
+
+**IFR-002**：OpenCode hooks.json 注册成功；版本不兼容 → ticket failed + 升级提示。
+
+**ASM-009**：claude CLI hook stdin JSON schema 在 v2.1.119 起字段稳定（`session_id / transcript_path / cwd / hook_event_name / tool_name / tool_use_id / tool_input.questions[]`）。
+**ASM-010**：Claude TUI 键序协议在 v2.1.119 起稳定（option menu = `"<N>\r"` / prompt = bracketed paste + CR）。
 
 ## Interface Contract
 
 | Method | Signature | Preconditions | Postconditions | Raises |
-|---|---|---|---|---|
-| `ToolAdapter.build_argv` | `build_argv(spec: DispatchSpec) -> list[str]` | `spec.plugin_dir / spec.settings_path` 为 F10 setup_run 返回的隔离路径（非 `~/.claude`）；`spec.cwd` 位于 `.harness-workdir/<run>/` 树下 | 返回的 argv[0] 为 `claude` 或 `opencode`；FR-016 / FR-017 要求的全部必选 flag 按顺序存在；`--model` 仅在 `spec.model is not None` 时出现；`-p` 绝对不存在 | `ValidationError`（DispatchSpec 类型漂移）· `InvalidIsolationError`（plugin_dir/settings_path 未指向 `.harness-workdir/`）|
-| `ToolAdapter.spawn` | `spawn(spec: DispatchSpec) -> TicketProcess` | CLI 二进制在 PATH 可寻（`shutil.which(argv[0]) is not None`）；build_argv 已通过；env 白名单已 sanitise | 返回 `TicketProcess { ticket_id, pid, pty_handle_id, started_at }`；pty 子进程已 fork 且 `execvp` 成功；PtyWorker 线程已启动并开始向 byte_queue 推字节；IAPI-006 byte_queue 已挂在 PtyWorker | `SpawnError("Claude CLI not found")` / `SpawnError("OpenCode CLI not found")`（Err-B）· `AdapterError`（pty init 失败）· `OSError` 向上冒泡前必须包装成 `SpawnError` |
-| `ToolAdapter.extract_hil` | `extract_hil(event: StreamEvent) -> list[HilQuestion]` | `event.kind == "tool_use"` 且 `event.payload.get("name")` ∈ {`AskUserQuestion`, `Question`} | 返回规范化后的 `HilQuestion` 列表；对缺 options 的项自动填 `[]` 并经 HilControlDeriver 推导 `kind ∈ {single_select, multi_select, free_text}`；每个 question `id` 不空；长度 >256B 的 `name`/`header`/`question` 被截断为 256B 带 `…` 后缀（FR-009 补齐 + IFR-002 边界）| `HilPayloadError`（payload 非 dict / questions 非 list）·（warning 用 structlog 发，不抛异常）|
-| `ToolAdapter.parse_result` | `parse_result(events: list[StreamEvent]) -> OutputInfo` | events 按 seq 单调；至少 1 条 `kind ∈ {text, tool_result, error, system}` | 返回 `OutputInfo { result_text, stream_log_ref, session_id }`；`result_text` 拼接所有 text 事件；`session_id` 来自 system 事件（若无则 None）| — |
-| `ToolAdapter.detect_anomaly` | `detect_anomaly(events: list[StreamEvent]) -> AnomalyInfo \| None` | — | 返回 `AnomalyInfo(cls ∈ {context_overflow, rate_limit, network, timeout, skill_error}, detail, retry_count=0)` 当匹配到已知模式（如 stderr 含 `context length exceeded` / `rate limited` / `EHOSTUNREACH` / `not authenticated` / SIGSEGV EOF）；否则 None | — |
-| `ToolAdapter.supports` | `supports(flag: CapabilityFlags) -> bool` | — | 返回固定布尔：ClaudeCodeAdapter `MCP_STRICT=True` / `HOOKS=False`；OpenCodeAdapter `MCP_STRICT=False` / `HOOKS=True` | — |
-| `ClaudeCodeAdapter.build_argv` | 同上 + `spec.mcp_config` 可为 None（omit `--mcp-config`）| FR-016 全 flag + 隔离约束 | argv 与 SRS FR-016 精确匹配；`--setting-sources user,project` 绝不含 `local` | `InvalidIsolationError`；`ValidationError` |
-| `OpenCodeAdapter.build_argv` | `build_argv(spec) -> list[str]` | 若 `spec.mcp_config is not None` → 进 McpDegradation 分支 | argv 首 `opencode`；可选 `--model` `--agent`；若 mcp_config 非 None → argv 不含任何 mcp flag 且 `McpDegradation.toast_pushed=True` | `ValidationError` |
-| `OpenCodeAdapter.ensure_hooks` | `ensure_hooks(paths: IsolatedPaths) -> Path` | `paths.cwd` 指向 `.harness-workdir/<run>/` | 写入 `<paths.cwd>/.opencode/hooks.json`（0o600）含 `onToolCall.match.name="Question"` / `action="emit"` / `channel="harness-hil"`；返回 hooks 文件绝对路径；路径必须 `resolve()` 后仍在 `<paths.cwd>` 子树（防目录逃逸）| `HookRegistrationError`（OpenCode 版本不兼容 / hooks 写入失败）· `InvalidIsolationError`（路径逃逸）|
-| `OpenCodeAdapter.parse_hook_line` | `parse_hook_line(raw: bytes) -> HookEvent \| None` | `raw` 单行 JSON | 返回 `HookEvent { channel, payload }`；长度 >256B 的 Question `name` 自动截断；非 JSON 或缺 channel → None 并记 warning | — |
-| `PtyWorker.start` | `start() -> None` | 未启动；`argv`、`env`、`cwd` 已注入构造器 | 后台 threading.Thread 启动；循环调用 `PtyProcessAdapter.read(4096)`；每次 read `call_soon_threadsafe(byte_queue.put_nowait, chunk)`；pty 退出 → 发送 sentinel None 并关 queue | `PtyError`（fork / execvp 失败）|
-| `PtyWorker.write` | `write(data: bytes) -> None` | pty 未关；`data` bytes；对 ASCII control chars 仅允许 `\n`、`\r`、`\t`（其他控制字符会触发 HilWriteback 侧的 EscapeError） | pty stdin 写入 `data`；写满阻塞最多 5s；`PtyClosedError` 表示 pty 已 EOF/崩溃 | `PtyClosedError`（FR-011 AC-2：保留 HIL 答案） |
-| `PtyWorker.close` | `close() -> None` | — | 向 pty child 发 SIGTERM → 等 5s → 未退则 SIGKILL；线程 join；byte_queue 关闭；幂等（重复调用 no-op） | — |
-| `JsonLinesParser.feed` | `feed(chunk: bytes) -> list[StreamEvent]` | chunk 为 UTF-8 编码 bytes（支持多字节续传）| 返回本 chunk 解析出的完整 StreamEvent 列表；半行保留在内部 buffer；非法 JSON 行记 warning + skip + 返回该 chunk 余下的合法事件（Err-D） | 不抛；`JSONDecodeError` 内吃掉转 warning |
-| `JsonLinesParser.events` | `events() -> AsyncIterator[StreamEvent]` | PtyWorker.byte_queue 已挂载 | 异步消费 byte_queue；每 chunk 调用 `feed`；对每条事件 yield；pty EOF 时 yield ErrorEvent 并停止 | — |
-| `BannerConflictArbiter.arbitrate` | `arbitrate(events: list[StreamEvent]) -> ArbitrationVerdict` | events 按 seq 单调 | 若存在未答 `AskUserQuestion`/`Question` 且同样存在终止横幅（`text` 事件含 `"# 终止"` / `"terminated"`）→ `verdict="hil_waiting"`；仅横幅无 HIL → `verdict="completed"`；仅 HIL → `verdict="hil_waiting"`（FR-014）| — |
-| `HilExtractor.extract` | `extract(event: StreamEvent) -> list[HilQuestion]` | `event.kind == "tool_use"` | 调 adapter.extract_hil；对每个 q 调用 `HilControlDeriver.derive(q) → kind`；emit `hil_captured` audit event；返回规范化 list | — |
-| `HilControlDeriver.derive` | `derive(raw: dict) -> Literal["single_select","multi_select","free_text"]` | — | FR-010 规则矩阵：`multi_select==True` → multi_select；`allow_freeform==True and len(options)==0` → free_text；其余 len(options)>=2 → single_select；len(options)==1 + freeform → single_select（含 "其他…"）| — |
-| `HilWriteback.write_answer` | `write_answer(answer: HilAnswer) -> None` | 对应 ticket 处于 `hil_waiting`；PtyWorker 未关；answer bytes 经转义（`\x00-\x1f` 除 `\n\r\t` 外禁用；`\` 与 `"` 转义）| 调 PtyWorker.write；成功则发 `hil_answered` audit 并转 ticket 至 classifying | `PtyClosedError` → 上报 FR-011 AC-2 failed + 答案保留；`EscapeError`（非法控制字符）|
-| `HilEventBus.publish_opened` | `publish_opened(q: HilQuestionOpened) -> None` | 事件 schema 完整 | broadcast 到 `/ws/hil`；append `hil_captured` AuditEvent（IAPI-009）| — |
-| `HilEventBus.publish_answered` | `publish_answered(a: HilAnswerAck) -> None` | — | broadcast 到 `/ws/hil`；append `hil_answered` AuditEvent | — |
+|--------|-----------|---------------|----------------|--------|
+| `ToolAdapter.build_argv` | `build_argv(spec: DispatchSpec) -> list[str]` | `spec.cwd / spec.plugin_dir / spec.settings_path` 非空且为隔离路径下；`spec.mcp_config` 可空（FR-016 v1 降级） | 返回严格白名单 argv（与 SRS FR-016 + 系统设计 §6.1.1 commit 92538da 文字等值）：**Claude** → 无 `model` 时 8 项 `["claude", "--dangerously-skip-permissions", "--plugin-dir", spec.plugin_dir, "--settings", spec.settings_path, "--setting-sources", "project"]`；含 `model` 时 10 项 `["claude", "--dangerously-skip-permissions", "--plugin-dir", spec.plugin_dir, "--settings", spec.settings_path, "--model", spec.model, "--setting-sources", "project"]`（`--model <alias>` 插在 `--settings <path>` 之后、`--setting-sources project` 之前）。**OpenCode** → `["opencode"] (+ ["--model", spec.model] if model) (+ ["--agent", spec.agent] if agent)`。argv 永不含 `-p / --print / --output-format / --include-partial-messages / --mcp-config / --strict-mcp-config`（FR-008/016/017 AC）；同输入下 idempotent | `InvalidIsolationError`（plugin_dir/settings_path 不在 `.harness-workdir/` 下） |
+| `ToolAdapter.prepare_workdir` | `prepare_workdir(spec: DispatchSpec, paths: IsolatedPaths) -> IsolatedPaths` | F10 `EnvironmentIsolator.setup_run` 已产出 `paths`（IAPI-017）；spec.cwd == paths.cwd；spec.tool ∈ {"claude","opencode"} | **幂等**：连续两次同 run_id 调用文件等价（mtime 可不同；内容字节一致）。Claude 分支：(a) `<paths.cwd>/.claude.json` 含 `hasCompletedOnboarding=true / projects.<paths.cwd>.hasTrustDialogAccepted=true / lastOnboardingVersion / projectOnboardingSeenCount≥1`；(b) `<paths.cwd>/.claude/settings.json` 含 `env / hooks(PreToolUse|PostToolUse|SessionStart|SessionEnd) / enabledPlugins=[] / model? / skipDangerousModePermissionPrompt=true`；(c) `<paths.cwd>/.claude/hooks/claude-hook-bridge.py` 存在且 mode `0o755`。OpenCode 分支：写 `<paths.cwd>/.opencode/hooks.json`（mode `0o600`）。所有写路径必须为 `paths.cwd` 子树；user-scope `~/.claude/settings.json` + `~/.claude.json` 全程 0 写（FR-051 AC + NFR-009 强化）。返回 `paths` 透传 | `WorkdirPrepareError`（mkdir/write/copyfile 失败）；`InvalidIsolationError`（写路径越界 user-scope） |
+| `ToolAdapter.spawn` | `spawn(spec: DispatchSpec, paths: IsolatedPaths) -> TicketProcess` | `prepare_workdir(spec, paths)` 已成功执行（IAPI-005 [Wave4 MOD]）；CLI 在 PATH | spawn 子进程经 `PtyWorker.start`；env 白名单透传 `PATH/PYTHONPATH/SHELL/LANG/USER/LOGNAME/TERM/HOME` + 注入 `HOME=<paths.cwd>` + `HARNESS_BASE_URL=http://127.0.0.1:<port>`；返回 `TicketProcess { ticket_id, pid, pty_handle_id, started_at, worker, byte_queue }`；`byte_queue` 仅供 stdout 镜像归档（写 `<workdir>/.harness/streams/<ticket_id>.raw`），不再供下游消费（IAPI-006 [Wave4 MOD]） | `SpawnError`（CLI 缺失 / PTY init 失败 / PtyWorker.start 失败）；`AdapterError`；`HookRegistrationError`（OpenCode 版本 < 0.3.0） |
+| `ToolAdapter.map_hook_event` | `map_hook_event(payload: HookEventPayload) -> list[HilQuestion]` | `payload` 经 IAPI-020 路由 pydantic 验证；`payload.tool_input` 可缺 | 仅 `payload.hook_event_name == "PreToolUse"` 且 `payload.tool_name in {"AskUserQuestion","Question"}` 时派生 `HilQuestion[]`；其他情况返回空 `[]`（不抛）；每条 question 字段：`id`（来自 `payload.tool_use_id` + index 派生）/ `kind`（由 `multiSelect / options 数 / allowFreeformInput` 经 `HilControlDeriver.derive` 派生）/ `header / question / options[] / multi_select / allow_freeform`，每个字符串字段 UTF-8 ≤ 256B 截断（与既有 `HilExtractor._truncate_utf8` 一致）；缺字段用默认值补齐 + warning（FR-009 AC-3） | 不抛（FR-009 健壮性约束） |
+| `ToolAdapter.parse_result` | `parse_result(events: list[StreamEvent]) -> OutputInfo` | `events` 为本 ticket 全量 `TicketStreamEvent`（hook event 派生） | 返回 `OutputInfo { result_text, stream_log_ref, session_id }`；`session_id` 取首条 `SessionStart` event 的 `payload.session_id`（hook 流 lifecycle 锚） | 不抛 |
+| `ToolAdapter.detect_anomaly` | `detect_anomaly(events: list[StreamEvent]) -> AnomalyInfo \| None` | events 顺序到达 | 关键字匹配 `not authenticated / context length exceeded / rate limited / ehostunreach / timeout / sigsegv / eof` → 返 `AnomalyInfo(cls=...)`；否则 `None` | 不抛 |
+| `ToolAdapter.supports` | `supports(flag: CapabilityFlags) -> bool` | flag ∈ enum | Claude → `MCP_STRICT=False`（Wave 4 起 mcp_config 走 v1 降级）+ `HOOKS=True`；OpenCode → `HOOKS=True`、`MCP_STRICT=False` | 不抛 |
+| `HookEventMapper.parse` | `parse(payload: HookEventPayload) -> list[HilQuestion]` | 见 `map_hook_event` precondition（adapter 委托给本类） | 见 `map_hook_event` postcondition；同时记录 `tool_use_id` 入 `HilEventBus` 的 `tool_use_id queue`（FR-014 替代逻辑：SessionEnd hook 触发后查 queue 处理未答 HIL 终止协调） | 不抛 |
+| `TuiKeyEncoder.encode_radio` | `encode_radio(option_index: int) -> bytes` | `option_index >= 1`（1-based per FR-053） | 返 `f"{option_index}\r".encode()`；e.g. `encode_radio(1) == b"1\r"`（FR-053 AC-1） | `ValueError`（option_index < 1） |
+| `TuiKeyEncoder.encode_checkbox` | `encode_checkbox(option_indices: list[int]) -> bytes` | 每个 index ≥ 1 | 返串接的多次 down arrow + space + enter（按 claude TUI checkbox 协议；reference puncture v8 单选已验证，多选键序在 PoC 重跑期固化） | `ValueError` |
+| `TuiKeyEncoder.encode_freeform` | `encode_freeform(text: str) -> bytes` | `text` 不含禁用控制字符 `\x03 / \x04 / \x1b`（除 bracketed paste 包裹由本方法添加） | 返 `b"\x1b[200~" + text.encode("utf-8") + b"\x1b[201~\r"`；e.g. `encode_freeform("hello") == b"\x1b[200~hello\x1b[201~\r"`（FR-053 AC-2）；UTF-8 多字节字符 byte-equal 守恒 | `EscapeError`（text 含 `\x03 / \x04 / \x1b`） |
+| `TuiKeyEncoder.encode_interrupt` | `encode_interrupt() -> bytes` | — | 返 `b"\x03"`（中断当前 turn） | 不抛 |
+| `HookEventToStreamMapper.map` | `map(payload: HookEventPayload, ticket_id: str, seq: int) -> TicketStreamEvent` | seq 单调递增 | 返 `TicketStreamEvent(ticket_id, seq, ts=str(payload.ts), kind, payload=dict)`；`kind` 派生：`SessionStart/SessionEnd → "system"`；`PreToolUse + tool_name in {AskUserQuestion,Question} → "tool_use"`；`PreToolUse + 其他 tool → "tool_use"`；`PostToolUse → "tool_result"`；`payload` dict 含原 hook payload 字段（不带 type） | 不抛 |
+| `HookRouter.post_hook_event` | `POST /api/hook/event → 200 { accepted: bool }` (IAPI-020) | content-type `application/json` | (1) pydantic 验证 `HookEventPayload`；(2) 由 `request.app.state.adapter_registry` 选 adapter（claude/opencode）调 `map_hook_event` → 入 `HilEventBus.publish_opened`（pre-AskUserQuestion）或 `HilEventBus.tool_use_id_queue.append`（其他工具）；(3) `HookEventToStreamMapper.map` → 入 `TicketStream broadcaster`；(4) 返 `{accepted: True}` | `415`（content-type 非 JSON / IFR-001 AC-w4-2）；`422`（pydantic schema 失败 / IFR-001 AC-w4-2） |
+| `PtyWriterRouter.post_pty_write` | `POST /api/pty/write → 200 { written_bytes: int }` (IAPI-021) | body `{ ticket_id: str, payload: str (base64) }` | (1) pydantic 验证；(2) base64 解码；(3) 经 `request.app.state.ticket_repo.get(ticket_id)` 查 ticket → 取 `PtyWorker` → `worker.write(decoded_bytes)`；(4) 返 `{written_bytes: len(decoded_bytes)}` | `400 ticket-not-running`（state ∉ {running, hil_waiting}）；`400 b64-decode-error`；`404 ticket-not-found` |
+| `HilWriteback.write_answer` | `write_answer(answer: HilAnswer) -> None` | ticket state == `hil_waiting`；`answer` 已通过 `HilControl` 校验 | (1) 由 `answer` 派生 `HilQuestion.kind` 取对应 `TuiKeyEncoder.encode_*`；(2) base64 编码后 POST `/api/pty/write`（经 IAPI-021）；(3) 成功 → `HilEventBus.publish_answered`（audit `hil_answered` + WS broadcast）+ ticket 状态 `hil_waiting → classifying`；(4) 失败（pty 已关闭）→ 答案保留至 `pending_answers` + ticket 状态 `hil_waiting → failed`（FR-011 AC-4） | `PtyClosedError`；`EscapeError`（freeform 含禁用控制字符）；`HTTPException`（IAPI-021 4xx 透传） |
 
-**方法状态依赖**：PtyWorker 与 HilWriteback 的行为依赖显式状态（已启动 / 运行中 / 关闭），嵌入下图。
+**`prepare_workdir` 状态依赖**：方法行为依赖 `paths` 是否已被 F10 setup_run 创建 + 三件套是否已存在（首次 vs 重入）。两态触发 `stateDiagram-v2`：
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Initialized
-    Initialized --> Running : start()
-    Running --> Running : read_bytes / write_bytes
-    Running --> Closing : close() or pty_eof
-    Closing --> Closed : thread_joined
-    Closed --> [*]
-    Running --> Crashed : pty_unexpected_exit
-    Crashed --> Closed : close()
-    Closed --> Closed : close()
+    [*] --> PathsSetup
+    PathsSetup --> ArtifactsWriting : prepare_workdir(spec, paths) called
+    ArtifactsWriting --> ArtifactsReady : all three files written + chmod 0o755
+    ArtifactsReady --> ArtifactsWriting : prepare_workdir(spec, paths) re-called (idempotent rewrite)
+    ArtifactsWriting --> PrepareFailed : mkdir/write/copy raises OSError
+    ArtifactsReady --> SpawnReady : spawn(spec, paths) precondition met
+    PrepareFailed --> [*] : WorkdirPrepareError raised
+    SpawnReady --> [*] : TicketProcess returned
 ```
 
-**Ticket 状态机外部影响**（FR-014 + FR-011 AC-2，`harness.domain.state_machine` 既有矩阵不变，F18 仅在以下转换路径驱动）：
+**Design rationale**:
+- argv 模板以 SRS FR-016 严格白名单为权威（`["claude", "--dangerously-skip-permissions", "--plugin-dir", <bundle>, "--settings", <isolated.settings.json>, "--setting-sources", "project"]` + 可选 `--model <alias>` 插在 `--settings <path>` 之后；含 `--model` 时 10 项，否则 8 项）。SRS FR-016 / 系统设计 §6.1.1 + §4.3.2（commit `92538da` 修订后）/ ATS §3.1 FR-016 验收行 / 本设计 §Interface Contract `build_argv` Postcondition 四处文字等值；冲突已由用户裁决消化（2026-04-27），见 §Clarification Addendum Resolved 第 1 行。
+- `map_hook_event` 不抛是 FR-009 健壮性约束（缺字段补默认 + warning）；schema 不合的硬错误由 `HookRouter` 层 422 拒绝（IAPI-020 错误码），永不进入 mapper。
+- `byte_queue` 字段保留为 backward compat 占位（IAPI-006 [Wave4 MOD]）；新代码不得消费，Test Inventory 加 1 条断言「`worker.byte_queue` 不被订阅；下游 supervisor 改用 `HookEventToStreamMapper` 输出」。
+- `TuiKeyEncoder.encode_freeform` 拒绝 `\x03 / \x04 / \x1b`（除本方法添加的 bracketed paste 包裹）→ 防 ATS FR-011 SEC「禁注入控制字符」攻击面；同时 byte-equal 自由文本守恒（FR-053 AC-2 + ATS INT-001 SEC）。
+- 跨特性契约对齐：本特性为 IAPI-005 / IAPI-007 / IAPI-020 / IAPI-021 Provider；`spawn` 签名（spec, paths）+ `HilWriteback` payload bytes 与系统设计 §6.2 Wave 4 MOD 版本逐字对齐。
 
-```mermaid
-stateDiagram-v2
-    [*] --> running : ToolAdapter.spawn
-    running --> classifying : stream EOF or banner_no_hil
-    classifying --> hil_waiting : BannerConflictArbiter=hil_waiting
-    hil_waiting --> classifying : HilWriteback.write_answer ok
-    hil_waiting --> failed : PtyClosedError (FR-011 AC-2 答案保留)
-    classifying --> completed : no HIL pending
-```
+## Visual Rendering Contract
 
-**Design rationale**：
-- **argv 精确匹配 vs 宽松**：FR-016 AC-1 要求 "必含上述所有必选 flag"；实现采用 **equality list assertion**（非 subset），避免未来误加 `-p` 绕过 FR-008 检查。
-- **JSON-Lines 半行 buffer**：NFR-002 要 p95 <2s；若等整行则一次 4096 byte chunk 可能分裂一条 1KB+ tool_use，所以 `feed` 必须支持半行。
-- **HIL 答案 escape 白名单 vs 黑名单**：选白名单（`\n\r\t` 允许、其余 control char 拒）使命令注入窗口最小（ATS FR-011 SEC）。
-- **Hooks.json 路径 resolve 断言**：IFR-002 SEC 要求防目录逃逸；`pathlib.Path.resolve().is_relative_to(paths.cwd)` 守卫。
-- **Question name 256B 截断**：IFR-002 SEC BNDRY；UTF-8 字节长度而非字符长度（防 CJK 边界分裂 → 用 `raw.encode('utf-8')[:256]` 后 `.decode('utf-8', errors='ignore')`）。
-- **Protocol via typing.Protocol + runtime_checkable**：FR-018 AC 要求 "mock provider 实现 6 方法可被注册"；`@runtime_checkable` 使 `isinstance(obj, ToolAdapter)` 在 orchestrator 层用作 registry 闸。
-- **跨特性契约对齐**：IAPI-005/006/007/008 由本特性 Provider；所有方法签名与 Design §6.2.4 pydantic schema 等价。IAPI-015 F19 未实现 → 本特性以 protocol stub `ModelResolverStub.resolve() -> ResolveResult(model=spec.model, provenance="cli-default")` 临时填洞（见 §Clarification Addendum A1）。
-
-## Visual Rendering Contract（仅 ui: true）
-
-N/A — backend-only feature (`ui: false` in feature-list.json)。WebSocket 广播的 `HilQuestionOpened` 最终被 F21 Fe-RunViews 渲染；本特性只负责发事件、不渲染。
+> N/A — backend-only feature。`feature-list.json` `ui: false`。HilControl 顶部 "请在此处应答（不要直接操作 TUI）" 文案由 F21 HILInbox 渲染（FR-052 + NFR-011 扩展），不在本特性范围。
 
 ## Implementation Summary
 
-**主要类与文件布局**：按 Design §4.3.3 建议拆为 4 子包。`harness/adapter/protocol.py` 存 `ToolAdapter` Protocol 与 `CapabilityFlags` enum；`harness/adapter/claude.py` 与 `harness/adapter/opencode.py` 各自放一个实现类；`harness/adapter/opencode/hooks.py` 拆出 `HookConfigWriter / HookQuestionParser / McpDegradation / VersionCheck`（子模块文件，不是子包）。`harness/pty/protocol.py` 放 `PtyProcessAdapter` Protocol；`harness/pty/posix.py` 用 `ptyprocess`（仅 POSIX import）；`harness/pty/windows.py` 用 `pywinpty`（仅 Windows import）；`harness/pty/worker.py` 放 `PtyWorker`（platform-neutral · threading + asyncio bridge）。`harness/stream/parser.py` 放 `JsonLinesParser`；`harness/stream/events.py` 放 `StreamEvent` pydantic union；`harness/stream/banner_arbiter.py` 放 `BannerConflictArbiter`。`harness/hil/extractor.py` / `question.py`（薄包装或直接 re-export `harness.domain.ticket.HilQuestion`）/ `control.py`（`HilControlDeriver`）/ `writeback.py`（`HilWriteback`）/ `event_bus.py`（`HilEventBus`）。新加异常文件 `harness/adapter/errors.py`、`harness/pty/errors.py`、`harness/stream/errors.py`、`harness/hil/errors.py`。
+**1. 主要类与文件布局（Wave 4）**：本特性触及 12 个新增 / 修改源文件。新增 `harness/hil/hook_mapper.py`（`HookEventMapper`，约 80 行）/ `harness/hil/tui_keys.py`（`TuiKeyEncoder` 三方法 + interrupt/exit 常量，约 60 行）/ `harness/orchestrator/hook_to_stream.py`（`HookEventToStreamMapper.map`，约 50 行）/ `harness/api/hook.py`（FastAPI router POST `/api/hook/event` + pydantic `HookEventPayload`，约 70 行）/ `harness/api/pty_writer.py`（FastAPI router POST `/api/pty/write` + pydantic `PtyWriteRequest`，约 60 行）/ `harness/adapter/workdir_artifacts.py`（`SettingsArtifactWriter` / `SkipDialogsArtifactWriter` / `HookBridgeScriptDeployer`，约 120 行）/ `scripts/claude-hook-bridge.py`（仓库根 stdin → POST 桥接脚本，约 30 行）。修改 `harness/adapter/protocol.py`（Protocol 6→7 方法）/ `harness/adapter/claude.py`（删 `extract_hil` + 加 `prepare_workdir / map_hook_event` + argv 模板调整）/ `harness/adapter/opencode/__init__.py`（同步 7 方法）/ `harness/hil/writeback.py`（payload 由 JSON 改 TUI 键序 + 经 IAPI-021 写）/ `harness/api/__init__.py`（追加 2 个 `app.include_router`）。物理删除 `harness/hil/extractor.py` / `harness/stream/parser.py` / `harness/stream/banner_arbiter.py`。
 
-**运行时调用链**：`TicketSupervisor`（F20，未来）→ `ModelResolver.resolve`（IAPI-015，当前 stub）→ 构造 `DispatchSpec`（复用 `harness.domain.ticket.DispatchSpec`）→ `ClaudeCodeAdapter.build_argv` → `ClaudeCodeAdapter.spawn`（内部 `shutil.which` 校验 + `PtyWorker(argv, env_whitelist, paths.cwd).start()`）→ pty 子进程 stdout 字节经 `PtyWorker.byte_queue` → `JsonLinesParser.events()` async iterator → 每条 `StreamEvent` 分别递交 `HilExtractor`（kind==tool_use 时）与 `BannerConflictArbiter`（所有事件累积）与 `AuditWriter.append`（hil_captured 时）与 `TicketRepository.save`（state transition 时）与 `WebSocket /ws/hil broadcast`。HIL 答案反向链：F21 UI `POST /api/hil/:ticket_id/answer` → `HilWriteback.write_answer` → `PtyWorker.write`（bytes）→ pty stdin → CLI 续跑 → 新一批 stream 事件。
+**2. 调用链**：`Orchestrator.run_ticket` → `EnvironmentIsolator.setup_run(run_id)` → `IsolatedPaths` → `ToolAdapter.prepare_workdir(spec, paths)`（写三件套）→ `ToolAdapter.spawn(spec, paths)` → `PtyWorker.start` → claude TUI 子进程。当 skill 调 AskUserQuestion 工具时：claude TUI → stdin → `<isolated_cwd>/.claude/hooks/claude-hook-bridge.py`（被 settings.json 注册）→ POST `<HARNESS_BASE_URL>/api/hook/event` → `harness.api.hook.HookRouter` → 内部 fan-out（`adapter.map_hook_event` → `HilEventBus.publish_opened` → `/ws/hil` 推前端 + `HookEventToStreamMapper.map` → `TicketStream broadcaster` → `/ws/stream/:ticket_id`）→ 200 OK 给 hook bridge → bridge exit 0。HIL 回写：前端 → `HilAnswerSubmit` → `POST /api/hil/:ticket_id/answer` → `HilWriteback.write_answer` → `TuiKeyEncoder.encode_*` → base64 → POST `/api/pty/write` → `PtyWriterRouter.post_pty_write` → `PtyWorker.write(bytes)` → 写 PTY stdin → claude TUI 收键 → 续跑。
 
-**关键设计决策**：(1) `ToolAdapter` 用 `typing.Protocol + @runtime_checkable` 而非 `abc.ABC`，避免 GeminiAdapter（未来）被迫继承具体基类；mypy `--strict` 在 CI 强制跑（NFR-014 测量方法）。(2) PTY 阻塞 I/O 必须跑在 worker thread —— 不能用 `asyncio.loop.add_reader(fd)`，因 pywinpty ConPTY 句柄非 POSIX fd；统一走线程确保跨平台一致（Design §2.1）。(3) `JsonLinesParser.feed` 用 `bytearray` buffer + `split(b"\n")` 增量模式；chunk 末若不以 `\n` 结尾则最后一片进 buffer；空行过滤掉；**非 JSON 行**记 structlog warning 并继续（Err-D）。(4) `BannerConflictArbiter` 不存状态，每次输入完整 events list 返回 verdict；便于复现与 fixture 驱动（ATS 要求 ≥10 条 fixture）。(5) HIL 答案 escape 用 **白名单**策略：`bytes(b for b in answer if b >= 0x20 or b in (0x09, 0x0a, 0x0d))`；非法输入直接抛 `EscapeError`，不静默 drop。(6) FR-013 PoC 20-round 集成测试在 `tests/integration/test_hil_poc.py` 用真 `claude` CLI（`@pytest.mark.integration` 可跳过到 CI matrix job），每轮：spawn → 等 AskUserQuestion → write 答案 → 等下一轮 → close；统计成功率写入 `docs/poc/<date>-hil-poc.md`（`docs/poc/` 目录由 TDD Green 创建）。
+**3. 关键设计决策与陷阱**：(a) hook 子进程是**短命** subprocess，每次 hook fire 由 claude TUI 自行 spawn 桥接脚本；harness 不持有 hook bridge process。(b) `claude-hook-bridge.py` 必须在 spawn 前 chmod `0o755`，否则 claude TUI 无法 exec — 这是 FR-051 AC-1 显式断言项。(c) `HOME=<paths.cwd>` + `--setting-sources project` 是 NFR-009 强化的关键：CLI 的 user-scope `~/.claude/settings.json` + `~/.claude.json` 全程不被读不被写 → run 前后 sha256 守恒可作可测断言（FR-051 AC-2 + IFR-001 AC-w4-1）。(d) bracketed paste mode：claude TUI 启用 `\x1b[?2004h`，所有 prompt 提交必须用 `\x1b[200~...\x1b[201~` 包围（reference puncture v8 实测）；`TuiKeyEncoder.encode_freeform` 直接构造，不调 `_validate_escape`（旧 `HilWriteback` 校验白名单中的 `\x09/\x0a/\x0d` 已不再适用 → 旧 `EscapeError` 仅用于自由文本中**用户意图**包含的禁用控制字符）。(e) FR-014 死代码 grep 检查：CI 静态分析阶段 `grep -r "BannerConflictArbiter\|JsonLinesParser\|HilExtractor" harness/ scripts/ tests/` 必须 0 命中（旧文件已物理删除）。(f) `HookEventMapper` 字段 schema 与本设计锁定的 ASM-009 字段集严格等值（见 §7 Test Inventory `T-HOOK-SCHEMA-CANARY` schema canary）。
 
-**遗留/存量代码交互点**：(1) `harness.domain.ticket.DispatchSpec` / `HilQuestion` / `HilAnswer` / `HilOption` / `HilInfo` 已存在（F02 已 passing），F18 **直接复用**（见 §Existing Code Reuse），**禁**在 `harness.adapter` 下重定义。(2) `harness.domain.state_machine` 矩阵已覆盖 `classifying → hil_waiting → classifying` / `classifying → {completed,failed}` 全部 F18 需要的转换路径；`HilWriteback` 调 `validate_transition` 而非硬编码转换逻辑。(3) `harness.env.isolator.EnvironmentIsolator.setup_run` 已返回 `IsolatedPaths { cwd, plugin_dir, settings_path, mcp_config_path }` → `build_argv` 直接读 `paths.plugin_dir` / `paths.settings_path`；F18 不重跑 isolation。(4) `harness.persistence.audit.AuditWriter.append` 已实现 IAPI-009 契约（fsync + per-file asyncio.Lock）→ `HilEventBus` 直接注入并调用。(5) env-guide §4.1/§4.2/§4.3 全为 greenfield 占位 → 无强制内部库 / 禁用 API / 命名风格；Python 命名依 PEP 8（`snake_case` 函数、`PascalCase` 类）与既有 `harness/` 目录一致（验证：`harness/domain/ticket.py` 命名符合 PEP 8）。
+**4. 遗留 / 存量代码交互点**：(a) `harness.domain.ticket.HilQuestion / HilOption / HilAnswer` 复用（pydantic schema 不改）；(b) `harness.hil.control.HilControlDeriver.derive` 复用（FR-010 规则矩阵不变）；(c) `harness.env.EnvironmentIsolator.setup_run` 复用（IAPI-017 不变；F10 已 passing）；(d) `harness.pty.PtyWorker` 复用 + `byte_queue` 字段语义降级（写 stdout 镜像归档；不再供下游消费）；(e) `harness.hil.HilEventBus.publish_opened / publish_answered` 复用 + 新增 `tool_use_id_queue` 实例字段以承接 FR-014 替代逻辑；(f) `harness.api.hil` 既有 `/api/hil/:ticket_id/answer` 路由不变，路由内调用从「写 PTY JSON」改为「`HilWriteback.write_answer` → IAPI-021」；(g) env-guide §4.5 Wave 4 隔离三件套规约是 `prepare_workdir` 实现的事实源（已写入 env-guide.md 并审批通过）。env-guide §4.1 / §4.2 / §4.3 均为 greenfield placeholder，无强制内部库 / 禁用 API / 命名约定。
 
-**§4 Internal API Contract 集成**：F18 是 **Provider** of IAPI-005/006/007/008（内聚 + 对 F20/F21）；IAPI-009 **Consumer**（调 AuditWriter.append）；IAPI-011 **Consumer**（调 TicketRepository）；IAPI-017 **Consumer**（调 EnvironmentIsolator）；IAPI-015 **Consumer**（本 wave F19 未实现 → stub，见 Clarification Addendum A1）。IAPI-001 `/ws/hil` 由 F21 拥有 WebSocket hub，F18 通过 `HilEventBus` 注入 broadcast callable；**不**直接持有 FastAPI `WebSocket` 对象以保持分层干净。所有 pydantic schema 复用 `harness.domain.ticket` 与 Design §6.2.4 定义，0 新建 schema。
+**5. §4 Internal API Contract 集成**：本特性是 IAPI-005 / IAPI-007 [MOD]、IAPI-020 / IAPI-021 [NEW] 的 Provider，IAPI-006 [MOD]（PtyHandle byte_queue 降级语义）的 Provider，IAPI-015 / IAPI-017 / IAPI-011 / IAPI-009 的 Consumer。`HookEventPayload` pydantic 字段集与系统设计 §6.2.4 schema 严格等值（`session_id / transcript_path / cwd / hook_event_name / tool_name? / tool_use_id? / tool_input? / ts`）；`PtyWriteRequest` 字段 `{ ticket_id: str, payload: str (base64) }`；返 `PtyWriteAck { written_bytes: int }`。错误码：IAPI-020 → 415 / 422；IAPI-021 → 400 ticket-not-running / 400 b64-decode-error / 404 ticket-not-found。`/ws/stream/:ticket_id` envelope 由 `HookEventToStreamMapper` 产出 `TicketStreamEvent`（schema 字段集等价于旧 `StreamEvent`，前端 zod 重新生成即可）。
 
-**方法内决策分支**（`OpenCodeAdapter.build_argv` 与 `BannerConflictArbiter.arbitrate` 各含 ≥3 决策分支，嵌入 flowchart）：
-
-```mermaid
-flowchart TD
-    Start([OpenCodeAdapter.build_argv called]) --> CheckMcp{spec.mcp_config is not None?}
-    CheckMcp -->|yes| McpDegrade[McpDegradation.push_toast + drop mcp flags]
-    CheckMcp -->|no| NoMcp[no mcp flags]
-    McpDegrade --> CheckModel{spec.model is not None?}
-    NoMcp --> CheckModel
-    CheckModel -->|yes| AddModel[argv += --model spec.model]
-    CheckModel -->|no| SkipModel[skip]
-    AddModel --> CheckAgent{spec.agent is not None?}
-    SkipModel --> CheckAgent
-    CheckAgent -->|yes| AddAgent[argv += --agent spec.agent]
-    CheckAgent -->|no| SkipAgent[skip]
-    AddAgent --> Return([return argv starting with 'opencode'])
-    SkipAgent --> Return
-```
+**`prepare_workdir` 决策分支**（≥3 决策分支触发 `flowchart TD`）：
 
 ```mermaid
 flowchart TD
-    AStart([BannerConflictArbiter.arbitrate called]) --> ScanHil{events contain unanswered AskUserQuestion/Question?}
-    ScanHil -->|no| ScanBanner1{events contain terminate banner?}
-    ScanHil -->|yes| ScanBanner2{events contain terminate banner?}
-    ScanBanner1 -->|yes| Completed([verdict=completed])
-    ScanBanner1 -->|no| Running([verdict=running])
-    ScanBanner2 -->|yes| HilWins([verdict=hil_waiting · FR-014])
-    ScanBanner2 -->|no| HilOnly([verdict=hil_waiting])
+    Start([prepare_workdir spec paths called]) --> CheckTool{spec.tool == claude?}
+    CheckTool -->|no| OpenCodeBranch{spec.tool == opencode?}
+    OpenCodeBranch -->|no| RaiseUnknown([raise WorkdirPrepareError unknown tool])
+    OpenCodeBranch -->|yes| WriteOpenCodeHooks([write paths.cwd/.opencode/hooks.json mode 0o600]) --> ReturnPaths
+    CheckTool -->|yes| CheckEscape{paths.cwd under .harness-workdir?}
+    CheckEscape -->|no| RaiseIsolation([raise InvalidIsolationError write path escapes user-scope])
+    CheckEscape -->|yes| WriteSkipDialogs([SkipDialogsArtifactWriter writes paths.cwd/.claude.json]) --> WriteSettings
+    WriteSettings([SettingsArtifactWriter writes paths.cwd/.claude/settings.json])
+    WriteSettings --> DeployBridge{HARNESS_BASE_URL set in env?}
+    DeployBridge -->|no| RaisePrepareError([raise WorkdirPrepareError HARNESS_BASE_URL required])
+    DeployBridge -->|yes| CopyBridge([HookBridgeScriptDeployer copies scripts/claude-hook-bridge.py to paths.cwd/.claude/hooks/ chmod 0o755]) --> ReturnPaths
+    ReturnPaths([return paths])
 ```
 
 ### Boundary Conditions
 
 | Parameter | Min | Max | Empty/Null | At boundary |
-|---|---|---|---|---|
-| `DispatchSpec.argv` | 1 元素（CLI name） | 无硬限 | 空 list → `ValidationError` | 长度 1 时 `build_argv` 补齐 FR-016 flags |
-| `DispatchSpec.model` | — | — | None → argv 不含 `--model` | 空字符串 → `ValidationError` |
-| `DispatchSpec.mcp_config` | — | — | None → Claude omit flag / OpenCode 无降级 | 非 None 时 OpenCode 触发 McpDegradation |
-| `HilQuestion.header`/`question` bytes | 0 | 256B (UTF-8) | 空字符串合法但 warning | 超过 256B → 截断 + `…` 后缀 |
-| `HilQuestion.options.length` | 0 | 无硬限 | 0 + freeform=True → kind=free_text；0 + freeform=False → warning + kind=free_text 回退 | 1 + freeform=True → single_select + "其他" |
-| `HilAnswer.selected_labels` | 0 | options.length | 空 + freeform_text 非空 合法 | 空 + freeform_text 空 → `EscapeError` |
-| `HilAnswer.freeform_text` bytes | 0 | 无硬限（但 pty write 超 64KB 会分片）| None 合法（含 selected_labels）| 控制字符白名单守卫 |
-| `JsonLinesParser.feed.chunk` size | 0 | 无硬限 | `b""` → 返回空列表 | 超长无 `\n` chunk 全进 buffer |
-| `PtyWorker.write.data` size | 0 | 无硬限 | `b""` 合法 no-op | 超过 PIPE_BUF 分片 |
-| `OpenCodeAdapter.ensure_hooks.paths.cwd` | 1 char | PATH_MAX | 空 → `InvalidIsolationError` | 非子目录 → `InvalidIsolationError` |
-| hook_event Question name bytes | 0 | 256B | 空 warning | 超过 256B 截断 |
+|-----------|-----|-----|------------|-------------|
+| `option_index` (TuiKeyEncoder.encode_radio) | 1 | 9 (claude TUI 单题最多 9 选项 + 2 内置 escape per puncture v8) | 0 → `ValueError`；负数 → `ValueError` | 1 → `b"1\r"`；9 → `b"9\r"` |
+| `option_indices` (TuiKeyEncoder.encode_checkbox) | `[1]` | 全选（≤ 9） | `[]` → 仅写 `b"\r"`（确认空选） | 跨选项需 down arrow 推进光标 + space toggle |
+| `text` (TuiKeyEncoder.encode_freeform) | 0 byte | 实测无硬上限（claude TUI 长 prompt 可 paste；reference puncture 验证 ~456 字符） | `""` → `b"\x1b[200~\x1b[201~\r"`（空 paste + CR） | UTF-8 多字节 emoji byte-equal 守恒 |
+| `payload.tool_name` (HookEventMapper.parse) | str | — | `None` → 派生空 `[]`（FR-009 健壮性） | `"AskUserQuestion"` / `"Question"` 派生 HIL；其他派 `[]` |
+| `payload.tool_input` (HookEventMapper.parse) | dict | — | `None` → 派生空 `[]` | `{"questions": []}` → 空 list；`{"questions": [{}]}` → 1 个 HilQuestion 全字段默认值 + warning |
+| `payload.hook_event_name` (HookEventMapper.parse) | Literal | — | 不允许（pydantic 422） | 4 类 enum 完全覆盖 |
+| `option_index` value passed to PostToolUse hook (queue tracking) | — | — | `tool_use_id == None` → fall-through（不入 queue） | tool_use_id 唯一性是 SessionEnd 终止协调的 join key |
+| `text` 含 `\x03` (interrupt) / `\x04` (EOT) / `\x1b` (ESC 非 paste 包裹) | — | — | 任一命中 → `EscapeError`（FR-053 SEC + FR-011 SEC） | 攻击面：bracketed paste 包裹外的 ESC 序列 |
 
 ### Existing Code Reuse
 
-**Step 1c 搜索**：对以下关键字在 `harness/` 下 grep：`Adapter` / `ToolAdapter` / `DispatchSpec` / `HilQuestion` / `HilAnswer` / `PtyWorker` / `StreamParser` / `AskUserQuestion` / `BannerConflictArbiter` / `ModelResolver` / `IsolatedPaths` / `AuditWriter` / `state_machine`。搜索结果：
+复用搜索词：`HilQuestion / HilOption / HilAnswer / HilControlDeriver / HilEventBus / EnvironmentIsolator / IsolatedPaths / PtyWorker / TicketProcess / HilWriteback / extract_hil / map_hook_event / TuiKey / HookEvent / hook_event / settings.json / .claude.json`。
 
 | Existing Symbol | Location (file:line) | Reused Because |
-|---|---|---|
-| `harness.domain.ticket.DispatchSpec` | `harness/domain/ticket.py:69` | 已完整匹配 Design §6.2.4 DispatchSpec schema（argv/env/cwd/model/model_provenance/mcp_config/plugin_dir/settings_path），F18 直接复用，禁重定义 |
-| `harness.domain.ticket.HilQuestion` | `harness/domain/ticket.py:111` | 已含 id/kind/header/question/options/multi_select/allow_freeform 全部 7 字段，满足 FR-009 + FR-010；`HilExtractor` 输出直接使用 |
-| `harness.domain.ticket.HilAnswer` | `harness/domain/ticket.py:123` | 含 question_id/selected_labels/freeform_text/answered_at；`HilWriteback.write_answer` 参数类型直接引用 |
-| `harness.domain.ticket.HilOption` | `harness/domain/ticket.py:104` | 与 HilQuestion 绑定 |
-| `harness.domain.ticket.HilInfo` | `harness/domain/ticket.py:132` | Ticket 聚合根上的 HIL 状态容器，HilEventBus 更新此字段 |
-| `harness.domain.ticket.AuditEvent` | `harness/domain/ticket.py:218` | `AuditEventType` 已包含 `hil_captured` / `hil_answered`；HilEventBus 直接构造 |
-| `harness.domain.state_machine.validate_transition` | `harness/domain/state_machine.py` | FR-006 状态转换矩阵已覆盖 `classifying→hil_waiting→classifying`；HilWriteback 调用它而非硬编码 |
-| `harness.persistence.audit.AuditWriter.append` | `harness/persistence/audit.py:46` | IAPI-009 Provider；`HilEventBus` 直接注入并调用（已含 per-file lock + fsync + IoError 降级）|
-| `harness.env.models.IsolatedPaths` | `harness/env/models.py:12` | IAPI-017 Response schema；`build_argv` 直接从此类读取 plugin_dir/settings_path/mcp_config_path |
-| `harness.env.isolator.EnvironmentIsolator.setup_run` | `harness/env/isolator.py:78` | `TicketSupervisor`（未来 F20）在 spawn 前调用；F18 只消费返回值，不触发 isolation |
-
-**0 重实现**：所有复用列表符号在 Interface Contract 里作为参数类型或内部调用出现；F18 只新增 ToolAdapter/PtyWorker/JsonLinesParser/BannerConflictArbiter/HilExtractor/HilWriteback/HilEventBus 及其 errors 子模块。
+|-----------------|---------------------|----------------|
+| `harness.domain.ticket.HilQuestion / HilOption / HilAnswer` | `harness/domain/ticket.py:104-129` | pydantic schema 已含 Wave 4 所需全部字段（id / kind / header / question / options / multi_select / allow_freeform）；不重定义 |
+| `harness.hil.control.HilControlDeriver` | `harness/hil/control.py:19-37` | FR-010 规则矩阵 Wave 4 不变；`HookEventMapper` 直接委托 |
+| `harness.hil.event_bus.HilEventBus` | `harness/hil/event_bus.py:26-78` | `publish_opened` / `publish_answered` 既有签名 Wave 4 不变；HookRouter / HilWriteback 直接复用；新增 `tool_use_id_queue` 作 instance 字段（FR-014 替代逻辑） |
+| `harness.env.EnvironmentIsolator.setup_run` | `harness/env/isolator.py:78-148` | IAPI-017 不变；产出 `IsolatedPaths` 透传给 `ToolAdapter.prepare_workdir` |
+| `harness.env.models.IsolatedPaths` | `harness/env/models.py:10-22` | pydantic schema 不变；Wave 4 spawn 第二参数 |
+| `harness.pty.PtyWorker` | `harness/pty/worker.py:25-138` | `start / write / close / pid` 既有 API Wave 4 不变；`byte_queue` 字段保留（语义降级为 stdout 镜像归档） |
+| `harness.adapter.process.TicketProcess` | `harness/adapter/process.py:10-27` | 返值 schema 不变 |
+| `harness.adapter.errors.{InvalidIsolationError, SpawnError, HookRegistrationError}` | `harness/adapter/errors.py` | 异常类型既有；新增 `WorkdirPrepareError` 增量 |
+| `harness.adapter.opencode.HookConfigWriter / HookQuestionParser / McpDegradation / VersionCheck` | `harness/adapter/opencode/hooks.py` | OpenCode 分支 `prepare_workdir` 写 hooks.json 复用 `HookConfigWriter`；版本检查 / MCP 降级不变 |
+| `harness.api.hil` (`/api/hil/:ticket_id/answer` route) | `harness/api/hil.py:24-49` | 路由不动；内部从写 PTY JSON 改为 `HilWriteback.write_answer` 委托（IAPI-021 透传） |
+| `harness.hil.writeback.HilWriteback._validate_escape` (control byte whitelist) | `harness/hil/writeback.py:43-47` | 校验思路复用（仅迁移到 `TuiKeyEncoder.encode_freeform` 内）；白名单调整为「拒 `\x03 / \x04 / \x1b`（除本方法添加的 bracketed paste）」 |
+| `harness.adapter.protocol.CapabilityFlags` | `harness/adapter/protocol.py:26-30` | enum 复用；保留 `MCP_STRICT / HOOKS` 两值 |
+| `harness.api.__init__.app.include_router` 模式 | `harness/api/__init__.py:80-109` | Wave 4 新增 2 行 `app.include_router(_hook_router)` + `app.include_router(_pty_writer_router)` 沿用 |
 
 ## Test Inventory
 
-共 32 行（26 自动定性负向 / 正向 / 边界；6 集成与 PoC）。负向占比 16/32 = 50% ≥ 40%。Category 遵循 `MAIN/subtag` 格式。
-
 | ID | Category | Traces To | Input / Setup | Expected | Kills Which Bug? |
-|---|---|---|---|---|---|
-| T01 | FUNC/happy | FR-016 AC-1 · §Interface Contract ClaudeCodeAdapter.build_argv | `DispatchSpec(argv=["claude"], env={...}, cwd="/tmp/.harness-workdir/r1", model=None, mcp_config="/tmp/.harness-workdir/r1/mcp.json", plugin_dir=..., settings_path=...)` | argv 顺序：`claude`, `--dangerously-skip-permissions`, `--output-format`, `stream-json`, `--include-partial-messages`, `--plugin-dir`, `<path>`, `--mcp-config`, `<path>`, `--strict-mcp-config`, `--settings`, `<path>`, `--setting-sources`, `user,project`；不含 `-p` 与 `--model` | 漏 flag / 含 `-p` / setting-sources 误加 `local` |
-| T02 | FUNC/happy | FR-016 AC-2 | DispatchSpec 同上但 `model="sonnet-4"` | argv 包含 `--model sonnet-4` 且位置合规 | 模型名未透传到 argv |
-| T03 | FUNC/error | §Interface Contract build_argv Raises · IFR-001 SEC | DispatchSpec `plugin_dir="/home/user/.claude/plugins"`（非隔离）| 抛 `InvalidIsolationError` | build_argv 放行非隔离路径（违反 NFR-009） |
-| T04 | FUNC/happy | FR-017 AC-1 · OpenCodeAdapter.build_argv | DispatchSpec tool=opencode, model=None, mcp_config=None | argv 首 `opencode`；不含任何 `--model`/`--agent`/mcp 相关 flag | argv 顺序错误 / 额外 flag 注入 |
-| T05 | FUNC/error | FR-017 AC-2 · INT-013 | DispatchSpec tool=opencode, mcp_config="/tmp/mcp.json" | argv 不含 mcp 相关 flag；`McpDegradation.toast_pushed == True`；UI `/ws/anomaly` 收到降级消息 | mcp_config 被透传给 OpenCode（违反 v1 降级约定） |
-| T06 | FUNC/happy | FR-008 · §Interface Contract ClaudeCodeAdapter.spawn | mock `shutil.which→"/usr/bin/claude"`；mock PtyProcessAdapter | 返回 TicketProcess；argv 不含 `-p`；pty 子进程命令为 claude | spawn 传入 `-p` / 绕过 pty |
-| T07 | FUNC/error | §Interface Contract spawn Raises · ATS Err-B | mock `shutil.which→None` | 抛 `SpawnError("Claude CLI not found")` | spawn 静默失败 / 继续挂死 |
-| T08 | FUNC/error | ATS Err-J · FR-046 | mock CLI exit 非零 stderr 含 "not authenticated" | detect_anomaly 返回 `AnomalyInfo(cls="skill_error")` | 把 auth 失败误判为 context_overflow |
-| T09 | FUNC/happy | FR-009 AC-1 · §Interface Contract extract_hil | StreamEvent(kind="tool_use", payload={"name":"AskUserQuestion","input":{"questions":[{"header":"A","question":"B","options":[{"label":"x"}],"multiSelect":False,"allowFreeformInput":False}]}}) | 返回 1 个 HilQuestion(kind=single_select, options=[HilOption(label="x")]) | HIL 解析漏字段 / kind 推导错误 |
-| T10 | FUNC/error | FR-009 AC-2 · §Interface Contract extract_hil | tool_use payload 缺 options 字段 | 返回 1 个 HilQuestion(options=[], kind=free_text)；structlog warning 命中 | 缺字段导致 KeyError 崩溃 |
-| T11 | BNDRY/edge | §Boundary Conditions · IFR-002 SEC BNDRY | hook_event Question name 字段 500B 长 | parse_hook_line 截断至 256B 并附 `…`；不崩 | UTF-8 边界切割乱码 / 缓冲溢出 |
-| T12 | BNDRY/edge | §Boundary Conditions · FR-010 · HilControlDeriver | `{multi_select:True, options:[{"label":"a"},{"label":"b"}], allow_freeform:False}` | kind=multi_select | kind 规则矩阵错位 |
-| T13 | BNDRY/edge | §Boundary Conditions · HilControlDeriver | `{multi_select:False, options:[], allow_freeform:True}` | kind=free_text | 空 options 误判 single_select |
-| T14 | BNDRY/edge | §Boundary Conditions · HilControlDeriver | `{multi_select:False, options:[{"label":"x"}], allow_freeform:True}` | kind=single_select（含 "其他…" 标记） | freeform 标记丢失 |
-| T15 | FUNC/happy | FR-009 · §Design Alignment seq msg#5 · JsonLinesParser.feed | chunk=b'{"type":"tool_use","name":"AskUserQuestion",...}\n{"type":"text","text":"hi"}\n' | 返回 2 个 StreamEvent | 半行 buffer 未清理 |
-| T16 | BNDRY/edge | §Boundary Conditions · JsonLinesParser | 半行输入：chunk1=b'{"type":"text",' chunk2=b'"text":"hi"}\n' | feed(chunk1) 返 []；feed(chunk2) 返 1 个事件 | 跨 chunk 半行丢失 |
-| T17 | FUNC/error | ATS Err-D · JsonLinesParser | chunk=b'{invalid json\n{"type":"text","text":"ok"}\n' | 返回 1 个合法 event；structlog warning 命中 | 非法 JSON 导致整条流崩 |
-| T18 | FUNC/happy | FR-014 · §Design Alignment seq msg#7 · BannerConflictArbiter | events = [text("# 终止"), tool_use(AskUserQuestion 未答)] | verdict=hil_waiting | 终止横幅覆盖未答 HIL |
-| T19 | BNDRY/edge | FR-014 · BannerConflictArbiter 10 fixture 子集 | events 仅 banner 无 HIL | verdict=completed | 仲裁漏掉纯 banner 分支 |
-| T20 | BNDRY/edge | FR-014 · BannerConflictArbiter | events 仅 HIL 无 banner | verdict=hil_waiting | 纯 HIL 被误判 running |
-| T21 | FUNC/happy | FR-011 AC-1 · §Design Alignment seq msg#10 · HilWriteback.write_answer | HilAnswer(selected_labels=["x"])；mock PtyWorker.write 成功 | PtyWorker.write 被调；audit hil_answered append；ticket transition classifying | 答案未写 stdin |
-| T22 | FUNC/error | FR-011 AC-2 · §Interface Contract PtyClosedError | mock PtyWorker.write 抛 PtyClosedError | ticket 转 failed；`ticket.hil.answers` 保留该 HilAnswer | 答案丢失 |
-| T23 | FUNC/error | §Interface Contract EscapeError · ATS FR-011 SEC | HilAnswer.freeform_text=b"hello\x03world"（含 SIGINT 控制字符） | 抛 `EscapeError`；PtyWorker.write 未被调用 | 命令注入漏洞 |
-| T24 | FUNC/happy | FR-012 AC-1 · OpenCodeAdapter.ensure_hooks | paths.cwd=`/tmp/.harness-workdir/r1` | 写入 `/tmp/.harness-workdir/r1/.opencode/hooks.json`；文件 0o600；内容含 `"name":"Question"` + `"channel":"harness-hil"` | hooks 未写 / 权限错 |
-| T25 | SEC/bndry | FR-012 AC-2 · IFR-002 SEC · OpenCodeAdapter.ensure_hooks | paths.cwd=`/tmp/.harness-workdir/r1`；但构造 symlink `<cwd>/.opencode -> /etc` | 抛 `InvalidIsolationError`；`/etc/hooks.json` 未被写 | 目录逃逸漏洞 |
-| T26 | FUNC/error | FR-012 AC-2 | mock OpenCode 版本检测返回 `< 0.3.0`（hooks 不支持） | spawn 抛 `HookRegistrationError`；提示升级 OpenCode | 静默降级错 skill |
-| T27 | FUNC/happy | FR-015 · FR-018 · NFR-014 | `class MockProvider: ...` 实现 6 方法；`isinstance(MockProvider(), ToolAdapter) is True` | runtime_checkable Protocol 通过 | Protocol 定义漏方法 |
-| T28 | FUNC/error | FR-015 AC · FR-018 error path · NFR-014 | `class Broken: def build_argv(self,s): ...`（仅 1 方法） | `isinstance(Broken(), ToolAdapter) is False`；mypy --strict 在 CI fixture 上报 error | Protocol 误放行缺失方法 |
-| T29 | INTG/cli | IFR-001 · FR-008 · ATS INT-001 · HIL PoC | 真 `claude` CLI（`@pytest.mark.integration`）；spawn → pty 读第一条 tool_use AskUserQuestion → write 答案 → 等下一条 tool_use | 同 pid 续跑；TicketProcess.pid 不变；时间线含至少 2 条 tool_use | pty 真实运行时 fd 泄漏 / CLI 版本漂移 |
-| T30 | INTG/cli | FR-013 HIL PoC gate · ATS INT-001 | 真 `claude` CLI × 20 轮 HIL round-trip；`@pytest.mark.poc` | 成功率 ≥95%（至少 19/20）；统计报告写入 `docs/poc/<date>-hil-poc.md` | pty 时序不稳 / HIL 答案格式错导致续跑失败 |
-| T31 | PERF/latency | NFR-002 · ATS 276 行 | 100 events burst；测量 pty read → WebSocket push 端到端 | p95 < 2s | 增量解析被阻塞 / queue 堆积 |
-| T32 | INTG/audit | IAPI-009 · FR-009 · ATS INT-001 | mock AuditWriter；触发 hil_captured 事件 | AuditWriter.append 被调一次；`event_type="hil_captured"`；`payload` 含 questions list | 审计遗漏 / 事件字段错 |
+|----|----------|-----------|---------------|----------|-----------------|
+| T01 | FUNC/happy | FR-016 AC-1 + ATS §3.1 FR-016 + Design seq msg#3 + 系统设计 §6.1.1（commit 92538da） | `ClaudeCodeAdapter().build_argv(spec)` 含 `plugin_dir / settings_path` 在 `.harness-workdir/` 下，`model=None`，`mcp_config=None` | argv 列表**完全等值**于 SRS FR-016 严格 8 项白名单：`["claude", "--dangerously-skip-permissions", "--plugin-dir", spec.plugin_dir, "--settings", spec.settings_path, "--setting-sources", "project"]`（`len(argv) == 8`；逐项 `==` 比对，不允许多 / 漏 / 顺序错） | argv 漏掉某 flag / 加错 flag / 把 `--output-format stream-json` 写回去 / 顺序错 |
+| T02 | FUNC/happy | FR-016 AC-1 含可选 `--model` + 系统设计 §6.1.1（commit 92538da） | `spec.model = "opus"`；其余同 T01 | argv 列表**完全等值**于 SRS FR-016 严格 10 项模板（`--model <alias>` 插在 `--settings <path>` 之后、`--setting-sources project` 之前）：`["claude", "--dangerously-skip-permissions", "--plugin-dir", spec.plugin_dir, "--settings", spec.settings_path, "--model", "opus", "--setting-sources", "project"]`（`len(argv) == 10`；逐项 `==` 比对） | `--model` 位置错（如追加到末尾）/ 漏 / 把模型 alias 当 flag 名 |
+| T03 | FUNC/error | FR-008 AC-1 negative | argv 任意构造路径 | `assert "-p" not in argv and "--print" not in argv and "--output-format" not in argv and "--include-partial-messages" not in argv` | 误把 `-p` 加回 |
+| T04 | FUNC/error | FR-016 AC-2 + flowchart#3 OpenCodeBranch | OpenCode `spec.mcp_config = "/path/x"` | argv 不含 `--mcp-config / --strict-mcp-config`；`adapter.mcp_degrader.toast_pushed[0]` 含 "OpenCode MCP 延后 v1.1" | OpenCode mcp 仍写入 argv |
+| T05 | BNDRY/edge | §Boundary Conditions `option_index` | `TuiKeyEncoder().encode_radio(0)` | `ValueError` | 1-based off-by-one；0 被错认为合法 |
+| T06 | FUNC/happy | FR-053 AC-1 | `encode_radio(1)` | `b"1\r"`（byte-equal） | `\n` 误用替 `\r`；多余空格 |
+| T07 | FUNC/happy | FR-053 AC-2 + ATS INT-001 SEC byte-equal | `encode_freeform("hello")` | `b"\x1b[200~hello\x1b[201~\r"` | bracketed paste 序列写错 / 漏 CR |
+| T08 | SEC/inject | FR-053 SEC + FR-011 SEC + ATS FR-011 SEC | `encode_freeform("a\x03b")` | `EscapeError` | 控制字符注入未拦 |
+| T09 | BNDRY/edge | §Boundary Conditions `text` UTF-8 | `encode_freeform("中文😀")` | bytes byte-equal `b"\x1b[200~" + "中文😀".encode("utf-8") + b"\x1b[201~\r"` | UTF-8 多字节被破坏 |
+| T10 | FUNC/error | FR-053 AC-3 multi-question | `[encode_radio(2), encode_radio(1)]` 串行写入 + poll PTY render | 每条 bytes 与单条等价；ticket 跨两题续跑（FakePty 验证写入序列） | 串行写键合并 / 时序错 |
+| T11 | FUNC/happy | FR-009 AC-1 + Design seq msg#7 + IFR-001 hook stdin schema | `HookEventMapper().parse(payload)` payload 来自 reference/f18-tui-bridge/puncture v8 实测 PreToolUse(AskUserQuestion) JSON（载有 questions[0]={header:"Lang",question:"Which language?",options:[{label:"Python",description:"Python language"},...],multiSelect:false}） | `HilQuestion[0].header == "Lang" / question == "Which language?" / options==[HilOption(label="Python",description="Python language"),...] / multi_select==False / kind=="single_select"` | header / options 字段错位；UTF-8 截断错 |
+| T12 | FUNC/error | FR-009 AC-3 缺字段补默认 | payload `tool_input.questions[0]` 无 `options` 字段 | `HilQuestion[0].options == []`；warning 日志命中 "missing 'options'"；不抛 | mapper 直接抛 |
+| T13 | BNDRY/edge | FR-009 AC-2 + Design seq msg#7 cross-turn | 同 session 多 hook event；session_id 一致 | `HilEventBus.tool_use_id_queue` 跨 turn 累积；session_id 稳定 | 跨 turn HIL 错乱 |
+| T14 | FUNC/error | §Interface Contract Raises map_hook_event | `payload.hook_event_name == "PostToolUse"` 或 `tool_name == "Read"` | mapper 返 `[]`（不抛） | 误把 PostToolUse 当 HIL |
+| **T-HOOK-SCHEMA-CANARY** | **UT/BNDRY** | **FR-009 + ASM-009 + IFR-001 hook stdin JSON 字段** | **加载 `tests/fixtures/hook_event_askuserquestion_v2_1_119.json`**（由 `reference/f18-tui-bridge/puncture.py` 实测捕获并提交入库的 golden fixture，源自 evidence-summary §C 真实样本：`{session_id, transcript_path, cwd, hook_event_name:"PreToolUse", tool_name:"AskUserQuestion", tool_use_id, tool_input:{questions:[{header,question,options:[{label,description}],multiSelect}]}}`）；调 `HookEventMapper().parse(payload)` 与 `HookEventPayload.model_validate(payload)` | 字段集合（递归键名集，含嵌套，`set` 等值断言）严格 == 当前锁定 schema：top-level `{session_id, transcript_path, cwd, hook_event_name, tool_name, tool_use_id, tool_input, ts}` + `tool_input.questions[*]` `{header, question, options, multiSelect}` + `tool_input.questions[*].options[*]` `{label, description}`。失败时输出 `set(fixture_keys) ^ set(schema_keys)` diff 并 FAIL；提示维护者：(1) 重跑 `reference/f18-tui-bridge/puncture.py` 取最新真实 hook stdin JSON；(2) 替换 fixture；(3) 更新 `HookEventMapper` 字段提取与 ASM-009 SRS 假设；(4) 重跑 UT 直到等值。**不写 task-progress** — 仅在 UT 层产生 FAIL 信号 | **claude CLI 升级后 hook stdin schema 字段重命名 / 嵌套结构变化 / 新增字段 / 缺失字段 → mapper 静默失配**（`map_hook_event` 因 pydantic `extra="ignore"` 默认行为不报错但派 `HilQuestion` 字段空 / 错置）。本 canary 是 ASM-009「字段稳定」假设的硬关卡 |
+| T15 | FUNC/happy | IAPI-020 happy + Design seq msg#8 | TestClient POST `/api/hook/event`，body 为 T-HOOK-SCHEMA-CANARY fixture，content-type `application/json` | 200 OK `{accepted: True}`；`HilEventBus._ws_broadcast` 收 `{"kind":"hil_event", "payload":{...}}`；`TicketStream broadcaster` 收 `TicketStreamEvent.kind == "tool_use"` | router fan-out 漏一支 |
+| T16 | FUNC/error | IAPI-020 415 + IFR-001 AC-w4-2 | POST `/api/hook/event` 带 `content-type: text/plain`，body 任意 | `HTTPException 415`；audit 日志含 warning；ticket 不卡死 | 415 处理漏 |
+| T17 | FUNC/error | IAPI-020 422 + IFR-001 AC-w4-2 | POST `/api/hook/event` body `{"foo":"bar"}`（缺 required 字段） | `HTTPException 422`；pydantic errors 列出缺失字段 | schema 校验绕过 |
+| T18 | FUNC/happy | IAPI-021 happy + Design seq msg#15 | POST `/api/pty/write` body `{"ticket_id":"<t>","payload":"<base64('1\r')>"}`，ticket state == hil_waiting | 200 `{written_bytes: 2}`；`PtyWorker.write` 收 `b"1\r"` | base64 解码错 / write 调错 |
+| T19 | FUNC/error | IAPI-021 400 ticket-not-running | ticket state == completed | 400 `error_code: ticket-not-running` | 死 ticket 仍写 |
+| T20 | FUNC/error | IAPI-021 404 + IAPI-021 400 b64 | ticket_id 不存在 → 404；payload 非合法 base64 → 400 b64-decode-error | 404 / 400 分支正确 | 错误码混淆 |
+| T21 | FUNC/happy | FR-015 AC-1 + NFR-014 + ATS FR-015 | `mypy --strict harness/adapter/claude.py harness/adapter/opencode/__init__.py` | exit 0；7 方法签名匹配 Protocol | mypy 漏一方法 |
+| T22 | FUNC/error | FR-015 AC-2 + FR-018 + ATS FR-015 Error | Mock Provider 缺 `prepare_workdir` 或 `map_hook_event` | `mypy --strict` 报错 + 运行时 isinstance(adapter, ToolAdapter) `False` + orchestrator 拒注册 `TypeError` | Mock 漏方法静默通过 |
+| T23 | FUNC/happy | FR-051 AC-1 + Design flowchart `prepare_workdir` | `prepare_workdir(spec, paths)` 完成后 `os.path.exists(paths.cwd + "/.claude.json")` && `...settings.json` && `...hooks/claude-hook-bridge.py` | 三件套存在；`os.stat(...).st_mode & 0o777 == 0o755`（hooks/bridge）；settings.json 含 `env / hooks / enabledPlugins / skipDangerousModePermissionPrompt` 全字段 | bridge 漏 chmod；settings 缺字段 |
+| T24 | BNDRY/idempotent | §Interface Contract `prepare_workdir` postcondition idempotent | 连续两次同 run_id 调用 | 文件内容字节一致（mtime 可不同） | 第二次写出错 / 文件丢字段 |
+| T25 | SEC/isolation | FR-051 AC-2 + IFR-001 AC-w4-1 + NFR-009 + ATS INT-001 SEC | run 前 sha256 `~/.claude/settings.json` + `~/.claude.json`（mock 用户家目录），完整 run（含 ≥1 HIL round-trip），run 后再 sha256 | 两 hash 字节级守恒（before == after） | user-scope 被写 |
+| T26 | SEC/escape | §Boundary Conditions write path escape + flowchart#5 RaiseIsolation | `paths.cwd = "/tmp/foo"`（不在 `.harness-workdir/` 下） | `InvalidIsolationError` | 越界写未拦 |
+| T27 | FUNC/happy | FR-052 AC-1 | `hil_waiting` ticket，前端 `POST /api/hil/:ticket_id/answer` | `HilWriteback.write_answer` 调 `TuiKeyEncoder` + POST `/api/pty/write`；ticket 状态 → `classifying`；`HilEventBus.publish_answered` 触发 audit `hil_answered` | UI 通道断；状态转移漏 |
+| T28 | FUNC/error | FR-011 AC-4 | pty 已关闭尝试写键序 | `PtyClosedError`；`HilWriteback.pending_answers` 保留 `answer`；ticket 状态 → `failed` | 答案丢失 |
+| T29 | INTG/cli | FR-013 + FR-008/009/011/051/053 + ATS INT-001 [Wave 4 REWRITE] + Design seq full | 真 claude CLI ≥ v2.1.119（env-guide §3 锁定）spawn 到 isolated `.harness-workdir/<run-id>/`；`prepare_workdir` 已写三件套；触发 1× AskUserQuestion → POST `/api/hook/event` → `HookEventMapper` → `HilQuestion` → `/ws/hil` 推前端 → 前端答 → `TuiKeyEncoder` → `/api/pty/write` → PtyWorker stdin → claude TUI 续跑 | full round-trip 成功；`hook_fires == 1`；ticket 同 pid 续跑；audit `hil_captured` + `hil_answered` 各 1；user-scope sha256 守恒；TUI 渲染 "● User answered Claude's questions: ⎿ · ... → option_label" | 协议链路任一环失配 |
+| T30 | INTG/perf | FR-013 PoC gate 重跑 + ATS INT-001 PoC | T29 路径跑 20 轮跨 user_turn HIL × hook + 键序回写 | 成功率 ≥ 95%（19/20）；< 5% → 冻结 HIL FR；输出 `docs/explore/wave4-hil-poc-report.md`（每轮耗时 + hook event timestamps） | 单轮失败传染 |
+| T31 | FUNC/happy | FR-014 [DEPRECATED Wave 4] new AC + ATS FR-014 | `grep -r "BannerConflictArbiter\|JsonLinesParser\|HilExtractor" harness/ scripts/ tests/` | 0 hit（旧文件物理删除） | 死代码残留 |
+| T32 | FUNC/happy | FR-014 替代逻辑 + Design rationale (e) | session 中 PreToolUse(AskUserQuestion) fire 但用户未答，随后 SessionEnd hook 触发 | `HilEventBus.tool_use_id_queue` 含 unanswered tool_use_id；SessionEnd handler 判 queue 非空 → ticket state `hil_waiting`（不是 completed）；UI 显示终止 + 未答 HIL 协调 | SessionEnd 错误判 completed |
+| T33 | FUNC/happy | IAPI-006 [MOD] byte_queue 字段语义降级 | spawn ticket 后 `worker.byte_queue` 仍存在 | `worker.byte_queue` 不被任何 supervisor / parser 订阅；下游 `TicketStreamEvent` 仅经 `HookEventToStreamMapper` 派生；audit grep `harness/orchestrator/` 0 个 `byte_queue.get` 调用 | byte_queue 仍被消费（违 IAPI-006 MOD） |
+| T34 | FUNC/happy | `HookEventToStreamMapper.map` kind 派生矩阵 | 4 类 hook_event_name × 多 tool_name 派生 | `SessionStart/End → "system"`；`PreToolUse + AskUserQuestion → "tool_use"`；`PreToolUse + Read → "tool_use"`；`PostToolUse → "tool_result"` | kind 派生错 |
+| T35 | FUNC/happy | `claude-hook-bridge.py` stdin → POST | mock claude TUI stdin JSON；脚本 spawn → POST harness | 脚本 exit 0；harness `/api/hook/event` 收到 POST | bridge 脚本 POST 失败仍 exit 0 |
+| T36 | FUNC/error | `claude-hook-bridge.py` POST 失败 | harness 不可达 | 脚本 stderr `[harness-hook-bridge] POST failed: ...`；exit 非 0；不阻塞 claude TUI 但 hook 副作用丢失（audit warning + UI 横幅） | bridge 静默吞错 |
+| T37 | INTG/api | FR-012 + IFR-002 + ATS FR-012 | OpenCode hooks.json 注册成功 → skill 调 Question 工具 → POST `/api/hook/event`（OpenCode 侧 hooks 输出到 stdout 桥接）→ `OpenCodeAdapter.map_hook_event` 派 HilQuestion | HIL 控件生成；与 Claude 同 schema | OpenCode hooks schema 错位 |
+| T38 | FUNC/error | FR-012 AC-2 | OpenCode 版本 < 0.3.0 | `HookRegistrationError`；ticket failed + UI 升级提示 | 老版本仍跑 |
+| T39 | UT/SEC | IFR-002 SEC + ATS IFR-002 BNDRY | Question name > 256B | 截断到 256B + ellipsis；不崩 | 长 name 崩溃 |
 
-**Design Interface Coverage Gate 核查**：§4.3.2 Key Types 所列函数 / 方法逐一检查覆盖情况：
-- `ToolAdapter.build_argv` → T01/T02/T03/T04/T05 ✓
-- `ToolAdapter.spawn` → T06/T07 ✓
-- `ToolAdapter.extract_hil` → T09/T10/T11 ✓
-- `ToolAdapter.parse_result` → T29（集成中覆盖，stream 全量 events 拼接）✓
-- `ToolAdapter.detect_anomaly` → T08 ✓
-- `ToolAdapter.supports` → T27（MockProvider 实现 6 方法含 supports）✓
-- `ClaudeCodeAdapter.build_argv` → T01/T02/T03 ✓
-- `OpenCodeAdapter.build_argv` → T04/T05 ✓
-- `OpenCodeAdapter.ensure_hooks` → T24/T25 ✓
-- `OpenCodeAdapter.parse_hook_line` → T11 ✓
-- `PtyWorker.start/write/close` → T21/T22（write 正/负）+ T29（真 spawn 覆盖 start/close）✓
-- `JsonLinesParser.feed` → T15/T16/T17 ✓
-- `JsonLinesParser.events` → T29/T31（集成与性能）✓
-- `BannerConflictArbiter.arbitrate` → T18/T19/T20 ✓
-- `HilExtractor.extract` → T09/T10 ✓
-- `HilControlDeriver.derive` → T12/T13/T14 ✓
-- `HilWriteback.write_answer` → T21/T22/T23 ✓
-- `HilEventBus.publish_opened/answered` → T32 ✓
+**Test Inventory 统计**：40 行（T01-T39 + T-HOOK-SCHEMA-CANARY）。负向 / 边界 / 安全行（FUNC/error + BNDRY/* + SEC/* + UT/SEC + UT/BNDRY canary）：T03/T04/T05/T08/T09/T10/T12/T14/T16/T17/T19/T20/T22/T24/T26/T28/T31/T36/T38/T39 + T-HOOK-SCHEMA-CANARY = **21 行 / 40 行 = 52.5%**（≥ 40% 阈值通过）。
 
-**ATS 类别对齐**：F18 在 ATS §2.1 对应行要求的主要类别：FUNC / BNDRY / SEC / PERF。Test Inventory：FUNC ✓（T01/T02/T04/T06/T09/T15/T18/T21/T24/T27 等）、BNDRY ✓（T11/T12/T13/T14/T16/T19/T20）、SEC ✓（T03/T23/T25 — env 隔离 / 命令注入 / 目录逃逸）、PERF ✓（T31）、INTG ✓（T29/T30/T32）。ATS INT-001 HIL full round-trip 在 T29/T30 直接映射。
+**ATS 类别对齐**：FR-008 (FUNC/BNDRY/SEC) → T01/T03/T16/T25 ✓；FR-009 (FUNC/BNDRY/SEC) → T11/T12/T13/T14/T-HOOK-SCHEMA-CANARY/T17 ✓；FR-011 (FUNC/BNDRY/SEC) → T06/T07/T08/T09/T10/T28 ✓；FR-013 (FUNC/BNDRY/PERF) → T29/T30 ✓；FR-015 (FUNC/BNDRY) → T21/T22 ✓；FR-016 (FUNC/BNDRY) → T01/T02/T03/T04 ✓；FR-051 (FUNC/BNDRY/SEC) → T23/T24/T25/T26 ✓；FR-052 (FUNC/BNDRY/SEC) → T27 + F21 HilControl 文案断言（跨 feature 落 F21 §Visual Rendering Contract）；FR-053 (FUNC/BNDRY/SEC) → T05/T06/T07/T08/T09/T10 ✓。INT-001 [Wave 4 REWRITE] → T29/T30。
 
-**UML 追溯契约**：
-- `classDiagram` 节点 9 个（Protocol + 2 实现 + PtyWorker + JsonLinesParser + BannerConflictArbiter + HilExtractor + HilWriteback + HilEventBus），全部在 Test Inventory "Traces To" 或方法覆盖中命中。
-- `sequenceDiagram` 13 条消息（`spawn → start → exec → bytes → chunk → StreamEvent → publish_opened → ws push → audit → Submit → write_answer → write → next stream`）；追溯：msg#1 T06，msg#4/5 T15/T29，msg#6 T09，msg#7 T18/T32，msg#8 T32，msg#9 T32，msg#11 T21，msg#12 T21/T22，msg#13 T29。
-- PtyWorker `stateDiagram-v2` 的 Initialized→Running→Running→Closing→Closed / Running→Crashed→Closed：T29（真 run Running/Closed）、T22（Crashed via PtyClosedError）。
-- Ticket `stateDiagram-v2` 的 classifying→hil_waiting、hil_waiting→classifying、hil_waiting→failed：T18/T21/T22 对应。
-- `OpenCodeAdapter.build_argv` flowchart 3 决策菱形（McpDegrade / Model / Agent）→ T04（无 model+无 mcp）+ T05（有 mcp）；追加 T02 族覆盖 model 分支已包含。
-- `BannerConflictArbiter` flowchart 2 决策菱形（HIL? / Banner?）→ T18（HIL+Banner）T19（仅 Banner）T20（仅 HIL）。
+**Design Interface Coverage Gate（§4.3.2 / §4.3.3 全部具名项）**：`build_argv`(T01/T02/T03/T04) / `prepare_workdir`(T23/T24/T26) / `spawn`(T29 含 PtyWorker.start) / `map_hook_event`(T11/T12/T13/T14) / `parse_result`(T29 间接) / `detect_anomaly`(既有 T-anomaly 在 F18 coverage_supplement 沿用) / `supports`(T21 mypy 间接) / `HookEventMapper.parse`(T11-T14 + T-HOOK-SCHEMA-CANARY) / `TuiKeyEncoder.encode_radio/checkbox/freeform/encode_interrupt`(T05-T10) / `HookEventToStreamMapper.map`(T34) / `HookRouter.post_hook_event`(T15/T16/T17/T35/T36) / `PtyWriterRouter.post_pty_write`(T18/T19/T20) / `HilWriteback.write_answer`(T27/T28) / `HilEventBus.publish_opened/answered`(T15/T27 间接) / `HilEventBus.tool_use_id_queue`(T13/T32) / `SettingsArtifactWriter / SkipDialogsArtifactWriter / HookBridgeScriptDeployer`(T23/T24) / `claude-hook-bridge.py`(T35/T36) / `OpenCodeAdapter.prepare_workdir + ensure_hooks`(T37/T38) / FR-014 残留 grep（T31）+ byte_queue 降级断言（T33）+ Question name 截断（T39 IFR-002 SEC）= **全部具名项 ≥ 1 行 Test Inventory 覆盖**。
 
-**INTG 覆盖声明**：F18 有多类外部依赖（Claude Code CLI / OpenCode CLI / pty syscalls / 文件系统 hooks.json），每类依赖 ≥1 条 INTG 行：Claude CLI → T29/T30/T31；OpenCode CLI 集成：由 T24/T25 的 `ensure_hooks` 文件系统 + T11（parse_hook_line）共同覆盖（真 CLI 集成推迟到 TDD Green 的 `@pytest.mark.integration` 可选跑）；文件系统 → T24/T25；AuditWriter → T32。
+**UML Element Trace Coverage**：`classDiagram` 节点 19 个（每个 NEW / MODIFIED 类经至少 1 行 Test Inventory 命中）；`sequenceDiagram` 消息 ≥ 16 条（msg#1-16，T29 全链路覆盖 + T15/T18 子链）；`stateDiagram-v2` transition 5 条（PathsSetup→ArtifactsWriting→ArtifactsReady [+ idempotent re-call]→SpawnReady [+ PrepareFailed 终态] T23/T24/T26 覆盖）；`flowchart TD` 决策菱形 4 个 + 错误终点 3 个（CheckTool / OpenCodeBranch / CheckEscape / DeployBridge + RaiseUnknown / RaiseIsolation / RaisePrepareError）由 T26（CheckEscape→RaiseIsolation）+ T23（happy path）+ T37（OpenCodeBranch→WriteOpenCodeHooks）+ `WorkdirPrepareError unknown tool` 隐含通过 mypy `Literal["claude","opencode"]` 静态保护（不需要单独行）覆盖。
 
 ## Verification Checklist
-- [x] 全部 SRS 验收准则（FR-008/009/011/012/013/014/015/016/017/018 + NFR-014 + IFR-001/002）已追溯到 Interface Contract postcondition
-- [x] 全部 SRS 验收准则已追溯到 Test Inventory 行
-- [x] Interface Contract Raises 列覆盖所有预期错误条件（SpawnError / AdapterError / PtyClosedError / EscapeError / HookRegistrationError / InvalidIsolationError / HilPayloadError / ValidationError）
-- [x] Boundary Conditions 表覆盖所有非平凡参数
-- [x] Implementation Summary 为 5 段具体散文（含文件路径 + 类名）+ 嵌入 2 张 flowchart TD 对应 OpenCodeAdapter.build_argv 与 BannerConflictArbiter.arbitrate 的 ≥3 分支
-- [x] Existing Code Reuse 表已填充（10 个复用符号）
-- [x] Test Inventory 32 行；负向占比 16/32 = 50% ≥ 40%
-- [x] ui:true N/A（本特性 ui:false）
-- [x] 每个 Visual Rendering Contract 元素 ≥1 UI/render 行：N/A（ui:false）
-- [x] UML 图节点 / 参与者 / 状态 / 消息均使用真实标识符（ToolAdapter / ClaudeCodeAdapter / PtyWorker / JsonLinesParser / BannerConflictArbiter / HilExtractor / HilEventBus / Running / Closing / Crashed / spawn / write_answer ...），无 A/B/C 代称
-- [x] 非类图（sequence / state / flowchart）不含色彩 / 图标 / rect / 皮肤装饰；classDiagram 仅用白名单 `classDef NEW`
-- [x] 每个图元素在 Test Inventory "Traces To" 被至少一行引用（见 UML 追溯契约段）
-- [x] 每个被跳过的章节写明 "N/A — [reason]"
-- [x] §4.3.2 所列函数 / 方法全部至少有一行 Test Inventory（Design Interface Coverage Gate 通过）
+
+- [x] 全部 SRS 验收准则（FR-008/009/011/012/013/015/016/017/018/051/052/053 + IFR-001/002 + NFR-014 + ASM-009/010）已追溯到 Interface Contract postcondition
+- [x] 全部 SRS 验收准则已追溯到 Test Inventory 行（含 T-HOOK-SCHEMA-CANARY canary）
+- [x] Interface Contract Raises 列覆盖所有预期错误条件（InvalidIsolationError / WorkdirPrepareError / SpawnError / HookRegistrationError / PtyClosedError / EscapeError / HTTPException 415/422/400/404）
+- [x] Boundary Conditions 表覆盖所有非平凡参数（option_index / option_indices / text / payload.tool_name / tool_input / hook_event_name / control bytes）
+- [x] Implementation Summary 为 5 段具体散文（含文件路径 + 类名）；`prepare_workdir` 含 ≥3 决策分支已嵌入 `flowchart TD`
+- [x] Existing Code Reuse 表已填充（13 行复用符号 + 1 行 `app.include_router` 模式）
+- [x] Test Inventory 负向占比 21 / 40 = 52.5%（≥ 40%）
+- [x] ui:false → Visual Rendering Contract 写明 N/A backend-only
+- [x] UML 图节点 / 参与者 / 状态 / 消息均使用真实标识符（ClassName / methodName / StateName）；无 A/B/C 代称
+- [x] 非类图（sequenceDiagram / stateDiagram-v2 / flowchart TD）不含色彩 / 图标 / `rect` / 皮肤等装饰
+- [x] 每个图元素（class 节点 / seq msg / state transition / flow 决策分支）在 Test Inventory "Traces To" 列被至少一行引用
+- [x] 每个被跳过的章节（仅 Visual Rendering Contract）已写明 N/A 原因
+- [x] §4.3.2 / §4.3.3 全部具名项至少 1 行 Test Inventory（Design Interface Coverage Gate 通过）
 
 ## Clarification Addendum
 
-本特性存在 1 个低影响假设（不影响 Interface Contract 签名与 Test Inventory 预期，仅影响 TDD Green 期的实现路径）。Authority = `assumed`。
+### Resolved Clarifications（已解决 · 用户裁决）
 
-| # | Category | Original Ambiguity | Resolution | Authority |
-|---|---|---|---|---|
-| A1 | DEP-AMBIGUOUS (low-impact) | IAPI-015 `ModelResolver.resolve`（F19 Provider）在本 wave（Wave 2）尚未实现 — F18 TDD 期若完整依赖 F19 将阻塞。设计 §11.3 与 task decomposition 显示 F19 与 F18 同为 M1/M2 P0-P1 并列，无严格先后。 | TDD Green 阶段暂用 `ModelResolverStub.resolve(ctx) → ResolveResult(model=ctx.ticket_override or ctx.run_default, provenance=("per-ticket" if ctx.ticket_override else "run-default" if ctx.run_default else "cli-default"))`；接口签名与 Design §6.2.4 `ResolveResult` 完全一致。F19 落地后 orchestrator 换实现 0 改动 F18 代码。Test Inventory 的 T01/T02/T04 用 Stub 即可独立跑；Interface Contract 无变更。 | assumed |
+| # | Category | Original Ambiguity | Resolution | Authority | Resolved Date | Channel |
+|---|----------|--------------------|------------|-----------|---------------|---------|
+| 1 | SRS-DESIGN-CONFLICT | SRS FR-016 严格模板（含 `--plugin-dir / --settings / --setting-sources project`，6+1 项）vs 系统设计 §6.1.1 简化叙述（仅 `claude --dangerously-skip-permissions [--model <alias>]`，2 项）—— argv 模板权威源不一致。 | **以 SRS FR-016 严格白名单为权威**。系统设计 §6.1.1 + §4.3.2 已由主 agent 在 commit `92538da` 同步修订：§6.1.1（L1095-1117）argv 代码块改写为与 SRS FR-016 一致的 8 项模板（含可选 `--model` 时 10 项），并新增"显式保留 `--plugin-dir / --settings / --setting-sources project` 三 flag 的设计动机"段落；§4.3.2 ClaudeCodeAdapter `[MOD]` 节（L360）argv 模板字段同步为 SRS FR-016 严格白名单全文。**对实现的指引**：`ClaudeCodeAdapter.build_argv` 必须严格输出 8/10 项 argv（含可选 `--model`）；TDD Red 阶段以 SRS FR-016 验收准则 + ATS §3.1 FR-016 行为契约写测试。 | **user-approved** | 2026-04-27 | 用户经主 agent approval-revise-loop 选择 B（Revise — 重写 §6.1.1 同步 SRS）；commit `92538da` |
 
-<!-- Section populated by SubAgent:
-     - A1 is low-impact because IAPI-015 is a Requires (not Provides) contract for F18;
-       stub swap is mechanical. Interface signatures remain §6.2.4 compliant.
--->
+### Open Assumptions（未解决 assumption）
 
+无。所有 SubAgent 在上一轮假设的 ambiguity 已通过用户裁决消化。
+
+<!-- Wave 4 协议层重构期，SubAgent 上一轮提交 1 条 assumption（authority=assumed）：argv 模板冲突。
+     主 agent 通过 approval-revise-loop 收集用户裁决（B = Revise — 重写 §6.1.1 同步 SRS），
+     已修订上游系统设计文档（commit 92538da：§6.1.1 + §4.3.2 argv 模板与 SRS FR-016 严格等值）。
+     本轮 feature-design 修订仅做：
+       (1) §Clarification Addendum 拆分为「Resolved」+「Open」两块；
+       (2) Resolved 行 Authority 由 "assumed" 升为 "user-approved"，标注裁决日期 + 渠道；
+       (3) Interface Contract `build_argv` 行已直接列出严格 argv 模板（与 SRS / 系统设计 §6.1.1 三处文字等值，无含糊措辞）；
+       (4) Test Inventory T01/T02 expected argv 与 SRS 等值（8/10 项）。
+     Feature-ST 读本节即可避免重复提问；TDD Red 直接以 SRS FR-016 验收准则 + ATS §3.1 行为契约写测试。 -->
