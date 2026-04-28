@@ -166,6 +166,26 @@ describe("RunOverviewPage Empty State (T34 UI/render)", () => {
   });
 });
 
+/** RunOverviewPage 现在 mount 时会自动 GET /api/workdirs；包装 fetch mock
+ * 拦截这条请求，避免它抢走 mockResolvedValueOnce 队列首项。 */
+function withWorkdirsRouting(
+  fn: ReturnType<typeof vi.fn>,
+  current: string = "/tmp/test-wd",
+): (input: RequestInfo, init?: RequestInit) => Promise<Response> {
+  return (input: RequestInfo, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/workdirs")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ workdirs: [current], current }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return fn(input, init);
+  };
+}
+
 describe("RunOverviewPage pause/cancel (T31/T32/T33 FUNC/happy + error)", () => {
   it("T31 click [data-testid='btn-pause'] → POST /api/runs/r-42/pause 发出", async () => {
     const fetchMock = vi
@@ -184,7 +204,7 @@ describe("RunOverviewPage pause/cancel (T31/T32/T33 FUNC/happy + error)", () => 
           headers: { "Content-Type": "application/json" },
         }),
       );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     await waitFor(() => {
       expect(container.querySelector('[data-testid="btn-pause"]')).not.toBeNull();
@@ -216,7 +236,7 @@ describe("RunOverviewPage pause/cancel (T31/T32/T33 FUNC/happy + error)", () => 
           headers: { "Content-Type": "application/json" },
         }),
       );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     await waitFor(() => {
       expect(container.querySelector('[data-testid="btn-pause"]')).not.toBeNull();
@@ -245,7 +265,7 @@ describe("RunOverviewPage pause/cancel (T31/T32/T33 FUNC/happy + error)", () => 
           headers: { "Content-Type": "application/json" },
         }),
       );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     await waitFor(() => {
       expect(container.querySelector('[data-testid="btn-cancel"]')).not.toBeNull();

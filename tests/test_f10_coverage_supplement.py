@@ -675,51 +675,68 @@ def test_installer_pull_target_without_git_dir(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _set_workdir(app_, path) -> None:
+    """注入 app.state.workdir（替代旧 HARNESS_WORKDIR env）。"""
+    app_.state.workdir = str(path) if path is not None else None
+
+
+def _clear_workdir(app_) -> None:
+    if hasattr(app_.state, "workdir"):
+        try:
+            delattr(app_.state, "workdir")
+        except AttributeError:
+            pass
+
+
 @pytest.fixture
-def app_client_without_workdir(monkeypatch: pytest.MonkeyPatch):
+def app_client_without_workdir():
     from harness.api import app
 
-    monkeypatch.delenv("HARNESS_WORKDIR", raising=False)
+    _clear_workdir(app)
     with TestClient(app) as client:
         yield client
+    _clear_workdir(app)
 
 
-def test_api_skills_missing_workdir_env_returns_500(app_client_without_workdir) -> None:
-    """Covers api/skills line 37 — HARNESS_WORKDIR unset."""
+def test_api_skills_missing_workdir_returns_400(app_client_without_workdir) -> None:
+    """workdir 未配置 → 400 workdir_not_selected。"""
     resp = app_client_without_workdir.post(
         "/api/skills/install",
         json={"kind": "clone", "source": "https://github.com/org/x.git", "target_dir": "plugins/x"},
     )
-    assert resp.status_code == 500
-    assert "HARNESS_WORKDIR" in resp.json()["detail"]
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert isinstance(detail, dict)
+    assert detail.get("error_code") == "workdir_not_selected"
 
 
-def test_api_skills_workdir_pointing_at_non_dir_returns_500(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Covers api/skills line 43 — workdir not a directory."""
+def test_api_skills_workdir_pointing_at_non_dir_returns_400(tmp_path: Path) -> None:
+    """app.state.workdir 指向非目录 → 400 invalid_workdir。"""
     from harness.api import app
 
     bogus = tmp_path / "not_a_dir"
     bogus.write_text("", encoding="utf-8")
-    monkeypatch.setenv("HARNESS_WORKDIR", str(bogus))
+    _set_workdir(app, bogus)
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/skills/install",
-            json={
-                "kind": "clone",
-                "source": "https://github.com/org/x.git",
-                "target_dir": "plugins/x",
-            },
-        )
-    assert resp.status_code == 500
-    assert "HARNESS_WORKDIR" in resp.json()["detail"]
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/skills/install",
+                json={
+                    "kind": "clone",
+                    "source": "https://github.com/org/x.git",
+                    "target_dir": "plugins/x",
+                },
+            )
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict)
+        assert detail.get("error_code") == "invalid_workdir"
+    finally:
+        _clear_workdir(app)
 
 
-def test_api_skills_install_git_subprocess_error_returns_409(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_api_skills_install_git_subprocess_error_returns_409(tmp_path: Path) -> None:
     """Covers api/skills lines 60-61 — GitSubprocessError → 409."""
     from harness.api import app
 
@@ -729,22 +746,25 @@ def test_api_skills_install_git_subprocess_error_returns_409(
     (wd / "plugins").mkdir()
     (wd / "plugins" / "ltfa").mkdir()  # force target-exists GitSubprocessError
 
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
+    _set_workdir(app, wd)
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/skills/install",
-            json={
-                "kind": "clone",
-                "source": "https://github.com/org/ltfa.git",
-                "target_dir": "plugins/ltfa",
-            },
-        )
-    assert resp.status_code == 409
-    assert "git" in resp.json()["detail"]
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/skills/install",
+                json={
+                    "kind": "clone",
+                    "source": "https://github.com/org/ltfa.git",
+                    "target_dir": "plugins/ltfa",
+                },
+            )
+        assert resp.status_code == 409
+        assert "git" in resp.json()["detail"]
+    finally:
+        _clear_workdir(app)
 
 
-def test_api_skills_pull_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_api_skills_pull_happy_path(tmp_path: Path) -> None:
     """Covers api/skills lines 66-75 — POST /api/skills/pull happy path."""
     from harness.api import app
 
@@ -757,28 +777,29 @@ def test_api_skills_pull_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     (target / ".git").mkdir()
     _write_manifest(target, {"name": "n", "version": "1"})
 
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
+    _set_workdir(app, wd)
 
     def fake_run(argv, **kwargs):
         if "rev-parse" in argv:
             return subprocess.CompletedProcess(argv, 0, stdout="c" * 40 + "\n", stderr="")
         return subprocess.CompletedProcess(argv, 0, stdout="Already up to date.\n", stderr="")
 
-    with patch("harness.skills.installer.subprocess.run", side_effect=fake_run):
-        with patch("harness.skills.registry.subprocess.run", side_effect=fake_run):
-            with TestClient(app) as client:
-                resp = client.post(
-                    "/api/skills/pull",
-                    json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
-                )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["ok"] is True
+    try:
+        with patch("harness.skills.installer.subprocess.run", side_effect=fake_run):
+            with patch("harness.skills.registry.subprocess.run", side_effect=fake_run):
+                with TestClient(app) as client:
+                    resp = client.post(
+                        "/api/skills/pull",
+                        json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
+                    )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["ok"] is True
+    finally:
+        _clear_workdir(app)
 
 
-def test_api_skills_pull_invalid_target_returns_400(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_api_skills_pull_invalid_target_returns_400(tmp_path: Path) -> None:
     """Covers api/skills lines 76-77 — TargetPathEscapeError → 400."""
     from harness.api import app
 
@@ -786,19 +807,20 @@ def test_api_skills_pull_invalid_target_returns_400(
     wd.mkdir()
     (wd / ".harness").mkdir()
     (wd / "plugins").mkdir()
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
+    _set_workdir(app, wd)
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/skills/pull",
-            json={"kind": "pull", "source": "", "target_dir": "../escape"},
-        )
-    assert resp.status_code == 400
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/skills/pull",
+                json={"kind": "pull", "source": "", "target_dir": "../escape"},
+            )
+        assert resp.status_code == 400
+    finally:
+        _clear_workdir(app)
 
 
-def test_api_skills_pull_run_lock_returns_409(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_api_skills_pull_run_lock_returns_409(tmp_path: Path) -> None:
     """Covers api/skills lines 78-79 — SkillsInstallBusyError on pull → 409."""
     from harness.api import app
 
@@ -811,19 +833,20 @@ def test_api_skills_pull_run_lock_returns_409(
     (target / ".git").mkdir()
     (wd / ".harness" / "run.lock").write_text("", encoding="utf-8")
 
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
+    _set_workdir(app, wd)
 
-    with TestClient(app) as client:
-        resp = client.post(
-            "/api/skills/pull",
-            json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
-        )
-    assert resp.status_code == 409
+    try:
+        with TestClient(app) as client:
+            resp = client.post(
+                "/api/skills/pull",
+                json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
+            )
+        assert resp.status_code == 409
+    finally:
+        _clear_workdir(app)
 
 
-def test_api_skills_pull_git_subprocess_error_returns_409(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_api_skills_pull_git_subprocess_error_returns_409(tmp_path: Path) -> None:
     """Covers api/skills lines 80-81 — GitSubprocessError on pull → 409."""
     from harness.api import app
 
@@ -836,15 +859,18 @@ def test_api_skills_pull_git_subprocess_error_returns_409(
     (target / ".git").mkdir()
     _write_manifest(target, {"name": "n", "version": "1"})
 
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
+    _set_workdir(app, wd)
 
-    with patch("harness.skills.installer.subprocess.run", side_effect=OSError("boom")):
-        with TestClient(app) as client:
-            resp = client.post(
-                "/api/skills/pull",
-                json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
-            )
-    assert resp.status_code == 409
+    try:
+        with patch("harness.skills.installer.subprocess.run", side_effect=OSError("boom")):
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/api/skills/pull",
+                    json={"kind": "pull", "source": "", "target_dir": "plugins/ltfa"},
+                )
+        assert resp.status_code == 409
+    finally:
+        _clear_workdir(app)
 
 
 # ---------------------------------------------------------------------------

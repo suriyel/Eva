@@ -14,7 +14,9 @@ router = APIRouter()
 
 @router.get("/api/files/tree")
 async def get_tree(request: Request, root: str = Query(default="docs")) -> dict[str, Any]:
-    svc = request.app.state.files_service
+    svc = getattr(request.app.state, "files_service", None)
+    if svc is None:
+        return {"name": root, "type": "dir", "children": []}
     try:
         return cast(dict[str, Any], await svc.read_file_tree(root))
     except PathTraversalError as exc:
@@ -25,7 +27,12 @@ async def get_tree(request: Request, root: str = Query(default="docs")) -> dict[
 
 @router.get("/api/files/read")
 async def get_read(request: Request, path: str = Query(default="")) -> dict[str, Any]:
-    svc = request.app.state.files_service
+    svc = getattr(request.app.state, "files_service", None)
+    if svc is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "file_not_found", "message": "未选择工作目录"},
+        )
     try:
         return cast(dict[str, Any], await svc.read_file_content(path))
     except PathTraversalError as exc:

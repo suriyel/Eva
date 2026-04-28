@@ -105,6 +105,29 @@ function makeFetchSequence(
   return fn;
 }
 
+/**
+ * 在 fetchMock 顶层拦截 /api/workdirs 系列请求 —— RunOverviewPage 现在 mount
+ * 时会自动 GET /api/workdirs（用于决定 Start 按钮文案）。返回一个已选 workdir
+ * 的状态，以维持原 sequence-based 测试不被新增请求消费。
+ */
+function withWorkdirsRouting(
+  fn: ReturnType<typeof vi.fn>,
+  current: string = "/tmp/test-wd",
+): (input: RequestInfo, init?: RequestInit) => Promise<Response> {
+  return (input: RequestInfo, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/workdirs")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ workdirs: [current], current }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    return fn(input, init);
+  };
+}
+
 // --------------------------------------------------------------------- B1-P1
 describe("B1-P1 UI/render — Start 按钮 click 触发 fetch (onClick wired)", () => {
   it("liveStatus == null 时 Start button click → ≥1 次 fetch call (onClick wired)", async () => {
@@ -122,7 +145,7 @@ describe("B1-P1 UI/render — Start 按钮 click 触发 fetch (onClick wired)", 
         headers: { "Content-Type": "application/json" },
       }),
     );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     const btn = await waitFor(() => {
       const b = container.querySelector('button[data-testid="btn-start-run"]');
@@ -159,7 +182,7 @@ describe("B1-P2 FUNC/happy — handleStart 触 POST /api/runs/start", () => {
       // GET /api/runs/current refetch
       { status: 200, body: startResponseBody },
     ]);
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     const btn = await waitFor(() => {
       const b = container.querySelector('button[data-testid="btn-start-run"]');
@@ -224,7 +247,7 @@ describe("B1-P3 UI/render — 6 元素在 Start click → invalidate → 渲染�
         headers: { "Content-Type": "application/json" },
       }),
     );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
 
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     // Click Start.
@@ -277,7 +300,7 @@ describe("B1-N1 FUNC/error — fetch 409 → toast + button restore enabled", ()
       { status: 404, body: { detail: "no run" } },
       { status: 409, body: { detail: { error_code: "STATE_CONFLICT", message: "run already running" } } },
     ]);
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const unhandled: string[] = [];
     const onUnhandled = (ev: PromiseRejectionEvent): void => {
       unhandled.push(String(ev.reason));
@@ -338,7 +361,7 @@ describe("B1-N3 FUNC/error — Start click while pending must NOT fire double PO
         headers: { "Content-Type": "application/json" },
       }),
     );
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const { container } = render(<RunOverviewPage />, { wrapper: Wrapper });
     const btn = await waitFor(() => {
       const b = container.querySelector('button[data-testid="btn-start-run"]');
@@ -382,7 +405,7 @@ describe("B1-N2 FUNC/error — fetch network reject → toast + button restore",
       }),
     );
     fetchMock.mockRejectedValueOnce(new Error("Network error"));
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = withWorkdirsRouting(fetchMock);
     const unhandled: string[] = [];
     const onUnhandled = (ev: PromiseRejectionEvent): void => {
       unhandled.push(String(ev.reason));

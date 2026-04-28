@@ -3,14 +3,13 @@
 POST /api/skills/install   → SkillsInstallResult (200) | 400 | 409
 POST /api/skills/pull      → SkillsInstallResult (200) | 400 | 409
 
-The workdir is resolved from the ``HARNESS_WORKDIR`` env var (F01
-convention). Subprocess calls happen via ``SkillsInstaller`` which uses
-argv lists — never ``shell=True`` (NFR-008 / §Implementation Summary).
+workdir 来源于 ``app.state.workdir``（由 ``wire_services`` 注入）；UI 通过
+``/api/workdirs/select`` 显式选择 + 持久化。Subprocess 调用走
+``SkillsInstaller``，使用 argv list 而非 ``shell=True``（NFR-008）。
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -29,27 +28,28 @@ from harness.skills import (
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
 
-def _resolve_workdir() -> Path:
-    """Derive the active workdir from ``HARNESS_WORKDIR`` env var."""
-
-    env = os.environ.get("HARNESS_WORKDIR", "")
-    if not env:
+def _resolve_workdir(request: Request) -> Path:
+    wd = getattr(request.app.state, "workdir", None)
+    if not wd:
         raise HTTPException(
-            status_code=500,
-            detail="HARNESS_WORKDIR 未设置，无法执行 skills 安装",
+            status_code=400,
+            detail={"error_code": "workdir_not_selected", "message": "请先选择工作目录"},
         )
-    wd = Path(env)
-    if not wd.is_dir():
+    p = Path(wd)
+    if not p.is_dir():
         raise HTTPException(
-            status_code=500,
-            detail=f"HARNESS_WORKDIR 指向的目录不存在: {wd}",
+            status_code=400,
+            detail={
+                "error_code": "invalid_workdir",
+                "message": f"工作目录已失效: {p}",
+            },
         )
-    return wd
+    return p
 
 
 @router.post("/install", response_model=SkillsInstallResult)
-def post_install(req: SkillsInstallRequest) -> SkillsInstallResult:
-    workdir = _resolve_workdir()
+def post_install(req: SkillsInstallRequest, request: Request) -> SkillsInstallResult:
+    workdir = _resolve_workdir(request)
     installer = SkillsInstaller()
     try:
         return installer.install(req, workdir=workdir)
@@ -65,26 +65,17 @@ def post_install(req: SkillsInstallRequest) -> SkillsInstallResult:
 def get_tree(request: Request, path: str | None = None) -> dict[str, object]:
     """Return ``SkillTree {root, plugins[]}``.
 
-    F22 RT06 SEC: any '..' path-traversal probe is rejected with 400 BEFORE
-    the workdir lookup so production app rejects regardless of whether
-    HARNESS_WORKDIR / app.state.workdir is wired.
+    F22 RT06 SEC：任何 ``..`` 路径穿越仍在 workdir 解析前被 400 拦截。
+    workdir 未配置时返回空 tree（FE 渲染 EmptyState），不报 500。
     """
     if path is not None and (".." in path or path.startswith("/")):
         raise HTTPException(
             status_code=400,
             detail={"error_code": "path_traversal", "path": path},
         )
-    # Resolve workdir from app.state first (F22 wire_services), env var fallback.
-    workdir: Path | None = None
     wd = getattr(request.app.state, "workdir", None)
-    if wd:
-        workdir = Path(wd)
-    if workdir is None:
-        env = os.environ.get("HARNESS_WORKDIR", "")
-        if env:
-            workdir = Path(env)
+    workdir = Path(wd) if wd else None
     if workdir is None or not workdir.is_dir():
-        # No workdir → empty tree; do NOT 500 (FE just renders EmptyState).
         return {"root": "", "plugins": [], "name": "root", "kind": "plugin", "children": []}
     plugins_root = workdir / "plugins"
     plugins: list[dict[str, object]] = []
@@ -103,13 +94,11 @@ def get_tree(request: Request, path: str | None = None) -> dict[str, object]:
 
 
 @router.post("/pull", response_model=SkillsInstallResult)
-def post_pull(req: SkillsInstallRequest) -> SkillsInstallResult:
-    workdir = _resolve_workdir()
+def post_pull(req: SkillsInstallRequest, request: Request) -> SkillsInstallResult:
+    workdir = _resolve_workdir(request)
     installer = SkillsInstaller()
-    # For pull, ``target_dir`` may be a relative path under workdir/plugins/.
     target_dir = req.target_dir or "plugins/longtaskforagent"
     try:
-        # Pre-validate target before running git.
         from harness.skills.installer import _validate_target_dir
 
         target_path = _validate_target_dir(target_dir, workdir)

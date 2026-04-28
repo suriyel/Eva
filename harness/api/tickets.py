@@ -19,11 +19,13 @@ async def get_tickets(
     tool: str | None = Query(default=None),
     parent: str | None = Query(default=None),
 ) -> list[dict[str, Any]]:
-    repo = request.app.state.ticket_repo
     if not run_id:
         raise HTTPException(
             status_code=400, detail={"error_code": "invalid_param", "field": "run_id"}
         )
+    repo = getattr(request.app.state, "ticket_repo", None)
+    if repo is None:
+        return []
     rows = await repo.list_by_run(run_id, state=None, tool=tool, parent=parent)
     if state:
         rows = [t for t in rows if t.state.value == state]
@@ -32,7 +34,9 @@ async def get_tickets(
 
 @router.get("/api/tickets/{ticket_id}")
 async def get_ticket(ticket_id: str, request: Request) -> dict[str, Any]:
-    repo = request.app.state.ticket_repo
+    repo = getattr(request.app.state, "ticket_repo", None)
+    if repo is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
     row = await repo.get(ticket_id)
     if row is None:
         raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
@@ -49,12 +53,18 @@ async def get_ticket_stream(
         raise HTTPException(
             status_code=400, detail={"error_code": "invalid_param", "field": "offset"}
         )
-    repo = request.app.state.ticket_repo
+    repo = getattr(request.app.state, "ticket_repo", None)
+    if repo is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
     row = await repo.get(ticket_id)
     if row is None:
         raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
-    orch = request.app.state.orchestrator
-    events = orch.stream_events_for(ticket_id) if hasattr(orch, "stream_events_for") else []
+    orch = getattr(request.app.state, "orchestrator", None)
+    events = (
+        orch.stream_events_for(ticket_id)
+        if orch is not None and hasattr(orch, "stream_events_for")
+        else []
+    )
     events = [e for e in events if e.get("seq", 0) >= offset]
     events.sort(key=lambda e: e.get("seq", 0))
     return events

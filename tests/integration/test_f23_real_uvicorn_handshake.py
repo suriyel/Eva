@@ -112,9 +112,30 @@ def _spawn_real_uvicorn(
     port = _free_port()
     env = os.environ.copy()
     env.update(env_extra or {})
-    env["HARNESS_WORKDIR"] = str(workdir)
     # Force HARNESS_HOME to a workdir-scoped path so config writes are isolated.
     env.setdefault("HARNESS_HOME", str(workdir / ".harness"))
+
+    # Pre-seed config.json so lifespan auto-wires this workdir on startup
+    # (replaces the old HARNESS_WORKDIR env contract).
+    harness_home = Path(env["HARNESS_HOME"])
+    harness_home.mkdir(parents=True, exist_ok=True)
+    config_path = harness_home / "config.json"
+    if not config_path.exists():
+        config_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "provider_refs": {},
+                    "retention_run_count": 20,
+                    "ui_density": "comfortable",
+                    "workdirs": [str(workdir)],
+                    "current_workdir": str(workdir),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
     args = [
         sys.executable,

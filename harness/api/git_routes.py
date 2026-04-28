@@ -10,7 +10,6 @@ flag binary files via ``kind='binary' placeholder=true`` (FR-041 BNDRY).
 from __future__ import annotations
 
 import asyncio
-import os
 import subprocess
 from dataclasses import asdict
 from pathlib import Path
@@ -24,9 +23,9 @@ from harness.api.git import DiffNotFound, GitCommit
 router = APIRouter()
 
 
-def _resolve_workdir(request: Request) -> Path:
-    raw = getattr(request.app.state, "workdir", None) or os.getcwd()
-    return Path(raw)
+def _resolve_workdir(request: Request) -> Path | None:
+    raw = getattr(request.app.state, "workdir", None)
+    return Path(raw) if raw else None
 
 
 def _is_git_repo(workdir: Path) -> bool:
@@ -52,6 +51,8 @@ async def get_commits(
     limit: int | None = Query(default=None),
 ) -> Any:
     workdir = _resolve_workdir(request)
+    if workdir is None:
+        return []
     if not _is_git_repo(workdir):
         raise HTTPException(
             status_code=502,
@@ -60,8 +61,10 @@ async def get_commits(
                 "message": f"workdir is not a git repository: {workdir}",
             },
         )
-    svc = request.app.state.commit_list_service
-    rows: list[GitCommit] = await svc.list_commits(run_id=run_id, feature_id=feature_id)
+    svc = getattr(request.app.state, "commit_list_service", None)
+    rows: list[GitCommit] = (
+        await svc.list_commits(run_id=run_id, feature_id=feature_id) if svc else []
+    )
     out = [asdict(row) for row in rows]
     # Augment with on-disk git log when the in-memory registry is empty so the
     # FE sees real commits without an explicit seed step.
@@ -109,7 +112,7 @@ async def _list_git_log(workdir: Path, *, limit: int) -> list[dict[str, Any]]:
 @router.get("/api/git/diff/{sha}")
 async def get_diff(sha: str, request: Request) -> dict[str, Any]:
     workdir = _resolve_workdir(request)
-    if _is_git_repo(workdir):
+    if workdir is not None and _is_git_repo(workdir):
         try:
             return await _real_git_diff(workdir, sha)
         except DiffNotFound:
@@ -117,7 +120,9 @@ async def get_diff(sha: str, request: Request) -> dict[str, Any]:
                 status_code=404, detail={"error_code": "diff_not_found", "sha": sha}
             )
     # Fallback — service stub (used by tests that seed the in-memory registry).
-    svc = request.app.state.diff_loader
+    svc = getattr(request.app.state, "diff_loader", None)
+    if svc is None:
+        raise HTTPException(status_code=404, detail={"error_code": "diff_not_found", "sha": sha})
     try:
         return cast(dict[str, Any], await svc.load_diff(sha))
     except DiffNotFound:

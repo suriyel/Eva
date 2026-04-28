@@ -163,6 +163,7 @@ class AppBootstrap:
                     "Harness",
                     f"http://{self._host}:{chosen_port}",
                 )
+                fastapi_app.state.webview_window = webview_window
             except Exception as exc:
                 # Tear down uvicorn before bubbling the error up.
                 server.should_exit = True

@@ -658,16 +658,15 @@ async def test_f23_feature_23_r17_get_skills_tree_returns_skill_registry(
     tmp_path: Path,
 ) -> None:
     """feature 23 R17 INTG/asgi-rest: /api/skills/tree returns SkillTree with
-    plugins[] derived from HARNESS_WORKDIR plugin registry."""
+    plugins[] derived from app.state.workdir plugin registry."""
     from harness.api import app
 
     _git_init(tmp_path)
     plugins_dir = tmp_path / "plugins" / "longtaskforagent"
     plugins_dir.mkdir(parents=True)
-    with _env_override(HARNESS_WORKDIR=str(tmp_path)):
-        _wire_app_for_test(app, workdir=tmp_path)
-        async with _client_for_app(app) as client:
-            resp = await client.get("/api/skills/tree")
+    _wire_app_for_test(app, workdir=tmp_path)
+    async with _client_for_app(app) as client:
+        resp = await client.get("/api/skills/tree")
 
     assert (
         resp.status_code == 200

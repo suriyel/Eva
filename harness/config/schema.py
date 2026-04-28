@@ -51,6 +51,8 @@ class HarnessConfig(BaseModel):
     provider_refs: dict[str, ApiKeyRef] = Field(default_factory=dict)
     retention_run_count: int = 20
     ui_density: Literal["compact", "comfortable"] = "comfortable"
+    workdirs: list[str] = Field(default_factory=list)
+    current_workdir: str | None = None
 
     @classmethod
     def default(cls) -> "HarnessConfig":

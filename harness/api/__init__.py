@@ -19,10 +19,10 @@ by ``AppBootstrap`` or by integration tests).
 from __future__ import annotations
 
 import contextlib
-import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import AsyncIterator
 
@@ -32,6 +32,8 @@ from starlette.staticfiles import StaticFiles
 
 from .. import __version__
 from ..auth import ClaudeAuthDetector, ClaudeAuthStatus
+from ..config.schema import ConfigCorruptError, HarnessConfig
+from ..config.store import ConfigStore
 from .wiring import wire_services
 
 
@@ -42,18 +44,25 @@ TTL_SEC = 30.0
 
 @contextlib.asynccontextmanager
 async def _lifespan(app_: FastAPI) -> AsyncIterator[None]:
-    """Auto-wire services from HARNESS_WORKDIR when launched via uvicorn.
+    """Auto-wire services based on ``config.current_workdir``.
 
-    Tests that drive the app via TestClient/ASGITransport call
-    :func:`wire_services` themselves; the lifespan path is only exercised by
-    the real uvicorn subprocess (F23 R22-R27).
+    UI 端通过 ``/api/workdirs/select`` 显式选/切换 workdir；lifespan 仅在
+    重启时把上次 current 自动 wire 起来。无 current 或路径失效时**不报错**，
+    所有依赖 orchestrator 的路由会优雅返回空态。
     """
-    workdir_env = os.environ.get("HARNESS_WORKDIR", "").strip()
-    if workdir_env and not getattr(app_.state, "orchestrator", None):
+    store = ConfigStore(ConfigStore.default_path())
+    try:
+        cfg = store.load()
+    except ConfigCorruptError:
+        cfg = HarnessConfig.default()
+    target = cfg.current_workdir
+    if target and pathlib.Path(target).is_dir():
         try:
-            wire_services(app_, workdir=pathlib.Path(workdir_env))
-        except Exception:
-            pass
+            wire_services(app_, workdir=pathlib.Path(target))
+        except Exception as exc:
+            sys.stderr.write(
+                f"[harness] wire_services failed for {target}: {exc}\n"
+            )
     # B9 — initialise the lazy-probe cache; do NOT freeze cli_versions /
     # claude_auth here. The cache is refreshed by ``health()`` on demand
     # (TTL=30s via time.monotonic()).
@@ -99,6 +108,7 @@ from .general_settings import router as _general_settings_router  # noqa: E402
 from .validate import router as _validate_router  # noqa: E402
 from .hook import router as _hook_router  # noqa: E402  (F18 Wave 4 IAPI-020)
 from .pty_writer import router as _pty_writer_router  # noqa: E402  (F18 Wave 4 IAPI-021)
+from .workdir import router as _workdir_router  # noqa: E402
 
 app.include_router(_runs_router)
 app.include_router(_tickets_router)
@@ -111,6 +121,7 @@ app.include_router(_general_settings_router)
 app.include_router(_validate_router)
 app.include_router(_hook_router)
 app.include_router(_pty_writer_router)
+app.include_router(_workdir_router)
 
 
 def _probe_cli_version(name: str) -> str | None:

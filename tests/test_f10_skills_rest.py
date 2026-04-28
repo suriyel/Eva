@@ -24,19 +24,28 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def workdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Provide an isolated workdir the Skills REST routes resolve from.
+def workdir(tmp_path: Path) -> Path:
+    """Provide an isolated workdir + inject it into ``app.state.workdir``.
 
-    F10 design says install/pull consume ``workdir`` — the REST layer likely
-    derives it from ``HARNESS_WORKDIR`` env or ConfigStore. We set the env
-    var so the route picks it up regardless of the chosen resolution path.
+    Skills REST 路由从 ``app.state.workdir`` 取（由 ``wire_services`` 设置）。
+    测试这里直接 monkey-patch app.state.workdir，避免触发完整的 wire 链路。
     """
+    from harness.api import app
+
     wd = tmp_path / "project"
     wd.mkdir()
     (wd / ".harness").mkdir()
     (wd / "plugins").mkdir()
-    monkeypatch.setenv("HARNESS_WORKDIR", str(wd))
-    return wd
+    prev = getattr(app.state, "workdir", None)
+    app.state.workdir = str(wd)
+    yield wd
+    if prev is None:
+        try:
+            delattr(app.state, "workdir")
+        except AttributeError:
+            pass
+    else:
+        app.state.workdir = prev
 
 
 # ---------------------------------------------------------------------------

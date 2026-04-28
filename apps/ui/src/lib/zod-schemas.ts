@@ -287,3 +287,21 @@ export const processFileSchemas: Record<string, z.ZodTypeAny> = {
   "long-task-guide.md": z.string(),
   ".env.example": z.string(),
 };
+
+// ---------------------------------------------------------------------------
+// Workspace 管理 — /api/workdirs
+// ---------------------------------------------------------------------------
+export const workdirStateSchema = z
+  .object({
+    workdirs: z.array(z.string()),
+    current: z.string().nullable(),
+  })
+  .passthrough();
+
+export const workdirSelectRequestSchema = z.object({
+  path: z.string().min(1),
+});
+
+export const workdirPickNativeResponseSchema = z.object({
+  path: z.string().nullable(),
+});

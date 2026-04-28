@@ -20,7 +20,9 @@ async def post_skip(ticket_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=400, detail={"error_code": "invalid_param", "field": "ticket_id"}
         )
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
     try:
         decision: RecoveryDecision = await orch.skip_anomaly(ticket_id)
     except TicketNotFound:
@@ -36,7 +38,9 @@ async def post_force_abort(ticket_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(
             status_code=400, detail={"error_code": "invalid_param", "field": "ticket_id"}
         )
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        raise HTTPException(status_code=404, detail={"error_code": "ticket_not_found"})
     try:
         decision: RecoveryDecision = await orch.force_abort_anomaly(ticket_id)
     except TicketNotFound:
@@ -50,7 +54,12 @@ async def post_force_abort(ticket_id: str, request: Request) -> dict[str, Any]:
 async def post_test_inject_anomaly(request: Request) -> dict[str, Any]:
     """Test-only hook used by the F23 real-uvicorn handshake suite (R24)."""
     raw = await request.json()
-    bus = request.app.state.run_control_bus
+    bus = getattr(request.app.state, "run_control_bus", None)
+    if bus is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error_code": "workdir_not_selected"},
+        )
     bus.broadcast_anomaly(
         AnomalyEvent(
             kind="AnomalyDetected",
@@ -66,7 +75,12 @@ async def post_test_inject_anomaly(request: Request) -> dict[str, Any]:
 async def post_test_inject_stream(request: Request) -> dict[str, Any]:
     """Test-only hook for /ws/stream/{tid} broadcaster (R26)."""
     raw = await request.json()
-    bus = request.app.state.run_control_bus
+    bus = getattr(request.app.state, "run_control_bus", None)
+    if bus is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"error_code": "workdir_not_selected"},
+        )
     bus.broadcast_stream_event(
         {
             "ticket_id": raw.get("ticket_id"),

@@ -155,3 +155,41 @@ class ConfigStore:
                     pass
             if old_umask is not None:
                 os.umask(old_umask)
+
+    # ---------------------------------------------------------------- workdirs
+    def add_workdir(self, path: str) -> HarnessConfig:
+        """Append ``path`` to ``workdirs`` (no-op if already present); persist."""
+        try:
+            cfg = self.load()
+        except ConfigCorruptError:
+            cfg = HarnessConfig.default()
+        if path not in cfg.workdirs:
+            cfg = cfg.model_copy(update={"workdirs": [*cfg.workdirs, path]})
+            self.save(cfg)
+        return cfg
+
+    def set_current_workdir(self, path: str | None) -> HarnessConfig:
+        """Mark ``path`` as the active workdir (must be in ``workdirs``)."""
+        try:
+            cfg = self.load()
+        except ConfigCorruptError:
+            cfg = HarnessConfig.default()
+        if path is not None and path not in cfg.workdirs:
+            raise ValueError(f"workdir not registered: {path!r}")
+        cfg = cfg.model_copy(update={"current_workdir": path})
+        self.save(cfg)
+        return cfg
+
+    def remove_workdir(self, path: str) -> HarnessConfig:
+        """Remove ``path`` from ``workdirs``; clear ``current`` if it matched."""
+        try:
+            cfg = self.load()
+        except ConfigCorruptError:
+            cfg = HarnessConfig.default()
+        new_list = [p for p in cfg.workdirs if p != path]
+        new_current = None if cfg.current_workdir == path else cfg.current_workdir
+        cfg = cfg.model_copy(
+            update={"workdirs": new_list, "current_workdir": new_current}
+        )
+        self.save(cfg)
+        return cfg

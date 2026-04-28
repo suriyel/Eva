@@ -243,25 +243,20 @@ def test_f22_git_routes_parse_unified_diff_text_lines() -> None:
 
 
 # ---------------------------------------------------------------------------
-# harness.api.skills — get_tree env-fallback + plugin enumeration
+# harness.api.skills — get_tree 通过 app.state.workdir 解析 + plugin 枚举
 # Traces To FR-033 + IFR-006 (RT06)
 # ---------------------------------------------------------------------------
-def test_f22_skills_get_tree_uses_env_workdir_when_app_state_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When `app.state.workdir` is unset, `get_tree` falls back to
-    `HARNESS_WORKDIR` env (lines 83-85)."""
+def test_f22_skills_get_tree_reads_app_state_workdir(tmp_path: Path) -> None:
+    """``app.state.workdir`` 已注入时，``get_tree`` 列出 plugins/ 子目录。"""
     from harness.api.skills import router
 
-    # Build a tiny FastAPI app with NO `app.state.workdir`.
     app = FastAPI()
     app.include_router(router)
 
-    # Layout: tmp/plugins/foo/ and tmp/plugins/bar/
     (tmp_path / "plugins").mkdir()
     (tmp_path / "plugins" / "foo").mkdir()
     (tmp_path / "plugins" / "bar").mkdir()
-    monkeypatch.setenv("HARNESS_WORKDIR", str(tmp_path))
+    app.state.workdir = str(tmp_path)
 
     client = TestClient(app)
     resp = client.get("/api/skills/tree")
@@ -272,15 +267,12 @@ def test_f22_skills_get_tree_uses_env_workdir_when_app_state_missing(
     assert plugin_names == ["bar", "foo"]
 
 
-def test_f22_skills_get_tree_returns_empty_when_no_workdir(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No app.state.workdir AND no env → empty tree, 200 (lines 86-88)."""
+def test_f22_skills_get_tree_returns_empty_when_no_workdir() -> None:
+    """无 ``app.state.workdir`` → 空 tree，200。"""
     from harness.api.skills import router
 
     app = FastAPI()
     app.include_router(router)
-    monkeypatch.delenv("HARNESS_WORKDIR", raising=False)
 
     client = TestClient(app)
     resp = client.get("/api/skills/tree")

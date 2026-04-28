@@ -31,7 +31,9 @@ router = APIRouter()
 
 @router.get("/api/runs/current")
 async def get_runs_current(request: Request) -> Any:
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        return None
     rows = await orch.run_repo.list_active()
     if not rows:
         return None
@@ -59,7 +61,9 @@ async def get_runs(
         raise HTTPException(
             status_code=400, detail={"error_code": "invalid_param", "field": "offset"}
         )
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        return []
     repo = orch.run_repo
     list_recent = getattr(repo, "list_recent", None)
     if list_recent is None:
@@ -88,7 +92,15 @@ async def post_start_run(request: Request) -> dict[str, Any]:
             status_code=400,
             detail={"error_code": "invalid_workdir", "errors": exc.errors()},
         )
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "workdir_not_selected",
+                "message": "请先选择工作目录",
+            },
+        )
     try:
         status: RunStatus = await orch.start_run(body)
     except RunStartError as exc:
@@ -104,7 +116,12 @@ async def post_start_run(request: Request) -> dict[str, Any]:
 
 @router.post("/api/runs/{run_id}/pause")
 async def post_pause(run_id: str, request: Request) -> dict[str, Any]:
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "run_not_found", "run_id": run_id},
+        )
     try:
         status: RunStatus = await orch.pause_run(run_id)
     except RunNotFound as exc:
@@ -116,7 +133,12 @@ async def post_pause(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/api/runs/{run_id}/cancel")
 async def post_cancel(run_id: str, request: Request) -> dict[str, Any]:
-    orch = request.app.state.orchestrator
+    orch = getattr(request.app.state, "orchestrator", None)
+    if orch is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error_code": "run_not_found", "run_id": run_id},
+        )
     try:
         status: RunStatus = await orch.cancel_run(run_id)
     except RunNotFound as exc:

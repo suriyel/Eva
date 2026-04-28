@@ -15,6 +15,11 @@ import { PhaseStepper } from "@/components/phase-stepper";
 import { Icons } from "@/components/icons";
 import { resolveApiBaseUrl } from "@/api/client";
 import {
+  useWorkdirs,
+  useSelectWorkdir,
+  pickNativeWorkdir,
+} from "@/api/routes/workdirs";
+import {
   runOverviewReducer,
   type RunStatus,
   type RunEvent,
@@ -99,14 +104,17 @@ export function RunOverviewPage(): React.ReactElement {
   const [controlError, setControlError] = React.useState<{ code: string; message: string } | null>(
     null,
   );
+  const workdirsQ = useWorkdirs();
+  const selectWorkdirMut = useSelectWorkdir();
+  const currentWorkdir = workdirsQ.data?.current ?? null;
   // F24 B1 — useStartRun (POST /api/runs/start) wraps the Start button click.
-  const startRun = useMutation<RunStatus, Error, void>({
+  const startRun = useMutation<RunStatus, Error, string>({
     retry: false,
-    mutationFn: async () => {
+    mutationFn: async (workdir: string) => {
       const resp = await fetch(`${resolveApiBaseUrl()}/api/runs/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ workdir }),
       });
       if (!resp.ok) {
         const text = await resp.text();
@@ -129,9 +137,6 @@ export function RunOverviewPage(): React.ReactElement {
       return parsed;
     },
     onSuccess: (data) => {
-      // Optimistically seed the live status so the 6-element UI renders
-      // synchronously after the mutation completes; then invalidate to refetch
-      // canonical /api/runs/current.
       if (data && typeof data === "object" && (data as { run_id?: string }).run_id) {
         setLiveStatus(data);
       }
@@ -142,11 +147,36 @@ export function RunOverviewPage(): React.ReactElement {
       setControlError({ code: e.code ?? "BAD_REQUEST", message: e.message ?? "" });
     },
   });
-  const handleStart = React.useCallback((): void => {
+  const handleStart = React.useCallback(async (): Promise<void> => {
     if (startRun.isPending) return;
     setControlError(null);
-    startRun.mutate();
-  }, [startRun]);
+    let target = currentWorkdir;
+    if (!target) {
+      // 未选 workdir → 触发文件夹选择（桌面壳 native; web 无 fallback 则提示用户去 sidebar）
+      try {
+        const outcome = await pickNativeWorkdir();
+        if (outcome.ok) {
+          if (!outcome.path) return; // 用户取消
+          await selectWorkdirMut.mutateAsync({ path: outcome.path });
+          queryClient.invalidateQueries({ queryKey: ["GET", "/api/workdirs"] });
+          target = outcome.path;
+        } else {
+          setControlError({
+            code: "NO_WORKDIR",
+            message: "请在左侧 Workspace 选择器选择工作目录后再启动",
+          });
+          return;
+        }
+      } catch (err) {
+        setControlError({
+          code: "BAD_REQUEST",
+          message: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+    }
+    if (target) startRun.mutate(target);
+  }, [startRun, currentWorkdir, selectWorkdirMut, queryClient]);
 
   // sync server query into local state
   React.useEffect(() => {
@@ -220,12 +250,29 @@ export function RunOverviewPage(): React.ReactElement {
         }}
       >
         <div style={{ fontSize: 32, marginBottom: 12 }}>🌙</div>
-        <div style={{ fontSize: 16, fontWeight: 500 }}>无运行中的 run</div>
+        <div style={{ fontSize: 16, fontWeight: 500 }}>
+          {currentWorkdir ? "无运行中的 run" : "请先选择工作目录"}
+        </div>
+        {currentWorkdir && (
+          <div
+            data-testid="run-overview-current-workdir"
+            style={{
+              marginTop: 8,
+              fontSize: 11,
+              color: "var(--fg-mute)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {currentWorkdir}
+          </div>
+        )}
         <button
           data-testid="btn-start-run"
           type="button"
-          onClick={handleStart}
-          disabled={startRun.isPending}
+          onClick={() => {
+            void handleStart();
+          }}
+          disabled={startRun.isPending || selectWorkdirMut.isPending}
           aria-busy={startRun.isPending ? "true" : "false"}
           style={{
             marginTop: 24,
@@ -240,7 +287,11 @@ export function RunOverviewPage(): React.ReactElement {
             opacity: startRun.isPending ? 0.6 : 1,
           }}
         >
-          {startRun.isPending ? "Starting…" : "Start"}
+          {startRun.isPending
+            ? "Starting…"
+            : currentWorkdir
+              ? "Start"
+              : "选择工作目录"}
         </button>
         {controlError && (
           <div

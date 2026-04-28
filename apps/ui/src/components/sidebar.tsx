@@ -8,6 +8,7 @@ import * as React from "react";
 import { useQuery, QueryClientContext } from "@tanstack/react-query";
 import { Icons } from "./icons";
 import { resolveApiBaseUrl } from "../api/client";
+import { WorkdirPicker } from "./workdir-picker";
 
 const APP_VERSION = "v1.0.0";
 
@@ -210,6 +211,8 @@ export function Sidebar({ active, hilCount = 0, onNavigate }: SidebarProps): Rea
           </>
         )}
       </div>
+
+      <WorkdirPicker collapsed={collapsed} />
 
       {!collapsed && currentRun?.run_id && (
         <div
