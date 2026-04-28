@@ -14,18 +14,21 @@ Real test guarantees per `feature-list.json#real_test`:
   - test_dir = tests/integration
   - mock_patterns:        we MUST NOT patch the running server with any
                           test-double framework on the primary dependency.
-  - silent-skip ban:      we use `assert` to fail when the server isn't up,
-                          and NEVER call any pytest test-skip helper.
-
-Feature ref: feature 24
 
 [integration] — uses REAL HTTP socket against ``http://127.0.0.1:8765``.
+The ``running_uvicorn`` module-scope fixture spawns a real uvicorn subprocess
+and polls /api/health until ready, so the test suite no longer needs a manual
+``svc-api-start.sh`` precondition. If a server is already listening on 8765
+(e.g. dev started one manually) the fixture reuses it instead of double-binding.
 """
 
 from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
+import sys
+import time
 
 import httpx
 import pytest
@@ -45,31 +48,63 @@ def _server_up() -> bool:
         return False
 
 
+@pytest.fixture(scope="module", autouse=True)
+def running_uvicorn():
+    """Start uvicorn against ``harness.api:app`` on 127.0.0.1:8765.
+
+    Reuses an already-running server if one is listening, otherwise spawns
+    a subprocess and polls /api/health until 200 (≤15s boot budget).
+    """
+    if _server_up():
+        yield
+        return
+
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "harness.api:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8765",
+            "--log-level",
+            "warning",
+        ],
+        cwd=str(repo_root),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    deadline = time.monotonic() + 15.0
+    last_err: Exception | None = None
+    while time.monotonic() < deadline:
+        if _server_up():
+            break
+        time.sleep(0.3)
+    else:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        pytest.fail(f"uvicorn boot timeout after 15s; last_err={last_err!r}")
+
+    try:
+        yield
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
 @pytest.mark.real_http
 def test_b9_p1_real_health_schema_against_running_uvicorn() -> None:
-    """Real GET /api/health round-trip — 4 schema fields + TTL refresh observable.
-
-    End-to-end TTL verification: 2 sequential calls inside a 30s window must
-    return identical cli_versions (cache hit). A wrong-impl that re-probes
-    every request would still pass the schema check; we add a same-value
-    invariant to defeat that.
-
-    Combined with a fix-presence check on the cache shape: we hit
-    /api/health twice and assert both responses are identical AND the second
-    response carries a `_cache_age` hint header (post-fix). In Red the fix
-    has not been applied so the second response is still cached but the
-    cache shape lacks `_ts` — we observe via response equality alone.
-    However, because the existing _lifespan freezes the cache, two calls do
-    happen to yield identical results today. To force a Red failure we
-    additionally probe a fix-presence sentinel via /api/health response
-    headers: post-fix the endpoint MUST emit X-Health-TTL header indicating
-    seconds remaining; in Red no such header.
-    """
-    assert _server_up(), (
-        f"[ENV-PRECONDITION] no harness API server at {API_BASE}; "
-        f"start via env-guide §1 svc-api-start.sh and retry."
-    )
-
+    """Real GET /api/health round-trip — 4 schema fields + TTL refresh observable."""
     with httpx.Client(timeout=5.0) as c:
         resp = c.get(f"{API_BASE}/api/health")
     assert (
@@ -91,13 +126,9 @@ def test_b9_p1_real_health_schema_against_running_uvicorn() -> None:
     # Fix-presence: source-level inspection of harness/api/__init__.py for
     # the TTL constant + monotonic gating. Independent of test-order
     # pollution (other tests may write to app.state._health_cache).
-    import pathlib as _pl
-
     api_src = (
-        _pl.Path(__file__).resolve().parents[2] / "harness" / "api" / "__init__.py"
+        pathlib.Path(__file__).resolve().parents[2] / "harness" / "api" / "__init__.py"
     ).read_text(encoding="utf-8")
-    # The fix introduces a TTL constant (per §IS B9: "TTL_SEC = 30.0") and
-    # a `time.monotonic()` comparison in the health() body.
     has_ttl_const = "TTL_SEC" in api_src
     has_monotonic_compare = "time.monotonic()" in api_src
     assert (
@@ -112,9 +143,6 @@ def test_b9_p1_real_health_schema_against_running_uvicorn() -> None:
 @pytest.mark.real_http
 def test_b4_p1_real_spa_fallback_serves_hil_subpath() -> None:
     """Real GET /hil → 200 text/html with `id="root"` mount node."""
-    assert _server_up(), f"[ENV-PRECONDITION] no harness API server at {API_BASE}"
-
-    # Confirm dist exists; the running server requires it for SPA fallback.
     repo_root = pathlib.Path(__file__).resolve().parents[2]
     if not (repo_root / "apps" / "ui" / "dist" / "index.html").is_file():
         pytest.fail(
@@ -134,11 +162,7 @@ def test_b4_p1_real_spa_fallback_serves_hil_subpath() -> None:
 
 @pytest.mark.real_http
 def test_b4_n1_real_api_unknown_route_stays_404_json() -> None:
-    """Real GET /api/nonexistent must remain 404 JSON, not swallowed by SPA.
-
-    Combined with fix-presence: the in-process harness.api.app must register
-    the catch-all `/{full_path:path}` route. Red phase: route absent.
-    """
+    """Real GET /api/nonexistent must remain 404 JSON, not swallowed by SPA."""
     from harness.api import app as _app_in_proc
 
     paths = [getattr(r, "path", None) for r in _app_in_proc.router.routes]
@@ -147,7 +171,6 @@ def test_b4_n1_real_api_unknown_route_stays_404_json() -> None:
         f"harness.api.app — fix not applied. routes (last 10): {paths[-10:]}"
     )
 
-    assert _server_up(), f"[ENV-PRECONDITION] no harness API server at {API_BASE}"
     with httpx.Client(timeout=5.0) as c:
         resp = c.get(f"{API_BASE}/api/nonexistent-route-xyz")
     assert resp.status_code == 404, f"/api/* 404 leaked: {resp.status_code}; body={resp.text[:200]}"
