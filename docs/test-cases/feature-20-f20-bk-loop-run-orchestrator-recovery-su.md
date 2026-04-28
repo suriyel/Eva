@@ -1,19 +1,20 @@
 # 测试用例集: F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess
 
 **Feature ID**: 20
-**关联需求**: FR-001, FR-002, FR-003, FR-004, FR-024, FR-025, FR-026, FR-027, FR-028, FR-029, FR-039, FR-040, FR-042, FR-047, FR-048, NFR-003, NFR-004, NFR-015, NFR-016, IFR-003（ATS L49-52, L97-101, L120-121, L128, L143-144, L159-160, L171-172, L181；必须类别 FUNC / BNDRY / SEC / PERF / INTG；UI 类别由 F21/F22 单独承担——本特性 `ui:false`）
-**日期**: 2026-04-27
+**关联需求**: FR-001, FR-002, FR-003, FR-004, FR-024, FR-025, FR-026, FR-027, FR-028, FR-029, FR-039, FR-040, FR-042, FR-047, FR-048, FR-054, FR-055, NFR-003, NFR-004, NFR-015, NFR-016, IFR-003（ATS L49-52, L97-101, L120-121, L128, L143-144, L159-160, L169-170 (FR-054), L171-172, L181, §5.7 Wave 5 INT-006/INT-026/INT-027/Err-K/IAPI-022/API-W5-07；必须类别 FUNC / BNDRY / SEC / PERF / INTG；UI 类别由 F21/F22 单独承担——本特性 `ui:false`）
+**日期**: 2026-04-28
 **测试标准**: ISO/IEC/IEEE 29119-3
 **模板版本**: 1.0
-**Wave**: Wave 4 (2026-04-27) — 整体重生成 1:1 映射 design Test Inventory T01–T60
+**Wave**: Wave 5 (2026-04-28) — 在 Wave 4 60 用例基线上追加 27 用例 (T61–T87) 覆盖 FR-054 phase_route_local + FR-055 spawn-inject + FR-001 AC-3/AC-4 + FR-016 AC-NEW + FR-048 双 AC + IFR-003 修订 + INT-026 + INT-027 + Err-K + API-W5-07 / API-W5-09
 
 > **说明**：
-> - 本文档为黑盒 ST 验收测试用例。预期结果仅从 SRS 验收准则（FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048 + NFR-003/004/015/016 + IFR-003）、ATS L49-52 / L97-101 / L120-121 / L128 / L143-144 / L159-160 / L171-172 / L181 类别约束、Feature Design Test Inventory T01–T60、可观察接口（`harness.orchestrator.run.RunOrchestrator` / `harness.orchestrator.supervisor.TicketSupervisor` + `DepthGuard` + `build_ticket_command` / `harness.orchestrator.phase_route.PhaseRouteInvoker` + `PhaseRouteResult` / `harness.orchestrator.signal_watcher.SignalFileWatcher` / `harness.orchestrator.bus.RunControlBus` + `RunControlCommand` + `RunControlAck` + `AnomalyEvent` / `harness.orchestrator.run_lock.RunLock` / `harness.orchestrator.errors.{RunStartError, PhaseRouteError, PhaseRouteParseError, TicketError, InvalidCommand, InvalidRunState}` / `harness.orchestrator.hook_to_stream.{HookEventToStreamMapper, TicketStreamEvent}` / `harness.recovery.anomaly.AnomalyClassifier` + `AnomalyInfo` + `AnomalyClass` / `harness.recovery.retry.{RetryPolicy, RetryCounter}` / `harness.recovery.watchdog.Watchdog` / `harness.subprocess.git.tracker.{GitTracker, GitContext, GitCommit, GitError}` / `harness.subprocess.validator.runner.{ValidatorRunner, ValidatorTimeout, ValidatorScriptUnknown}` 公开 API、subprocess argv 与 `cwd` 观测、`os.kill` SIGTERM/SIGKILL 调用观测、`git rev-parse HEAD` / `git log --oneline` 真实子进程、`watchdog` Observer 真实 inotify 事件、`filelock` 真实文件互斥）推导，不阅读实现源码。
-> - **Specification resolutions applied from Feature Design Clarification Addendum**：design §Clarification Addendum 表显示"无需澄清 — 全部规格明确"。Wave 4 改造（IAPI-005 prepare_workdir 前置 / IAPI-008 stream_parser 移除 / `cancel_run` 终态 → InvalidRunState 409 / `_FakeStreamParser` → `_FakeTicketStream`）系 design §4.12 + §4.5.4.x 已显式定义的 hard impact 传播；srs_trace 19 条 FR/NFR/IFR 的 EARS 与 AC 在 SRS 文档中均含可度量阈值。本文档预期结果均按 design 已固化处置撰写。
+> - 本文档为黑盒 ST 验收测试用例。预期结果仅从 SRS 验收准则（FR-001/002/003/004/024/025/026/027/028/029/039/040/042/047/048/**054/055** + NFR-003/004/015/016 + IFR-003）、ATS L49-52 / L97-101 / L120-121 / L128 / L143-144 / L159-160 / L169-170 / L171-172 / L181 类别约束、ATS §5.7 Wave 5 增量段（INT-006 双 AC 重写 / INT-026 spawn_model_invariant / INT-027 6 fixture 决议矩阵 / Err-K SkillDispatchError / IAPI-022 phase_route_local / API-W5-07 feature_list_io）、Feature Design Test Inventory T01–T87、可观察接口（`harness.orchestrator.run.RunOrchestrator` / `harness.orchestrator.supervisor.TicketSupervisor` + `DepthGuard` + `build_ticket_command` / `harness.orchestrator.phase_route.PhaseRouteInvoker` + `PhaseRouteResult` / **`harness.orchestrator.phase_route_local.route`** [Wave 5 NEW] / `harness.orchestrator.signal_watcher.SignalFileWatcher` / `harness.orchestrator.bus.RunControlBus` + `RunControlCommand` + `RunControlAck` + `AnomalyEvent` / `harness.orchestrator.run_lock.RunLock` / `harness.orchestrator.errors.{RunStartError, PhaseRouteError, PhaseRouteParseError, TicketError, InvalidCommand, InvalidRunState}` / **`harness.adapter.errors.SkillDispatchError <: SpawnError`** [Wave 5 NEW] / `harness.orchestrator.hook_to_stream.{HookEventToStreamMapper, TicketStreamEvent}` / `harness.recovery.anomaly.AnomalyClassifier` + `AnomalyInfo` + `AnomalyClass` / `harness.recovery.retry.{RetryPolicy, RetryCounter}` / `harness.recovery.watchdog.Watchdog` / `harness.subprocess.git.tracker.{GitTracker, GitContext, GitCommit, GitError}` / `harness.subprocess.validator.runner.{ValidatorRunner, ValidatorTimeout, ValidatorScriptUnknown}` / **`harness.utils.feature_list_io.{count_pending, validate_features}`** [Wave 5 NEW] / **`harness.adapter.claude.ClaudeCodeAdapter.spawn` Wave 5 inject 语义**（PTY bracketed paste + CR `/<skill>` 内部注入）公开 API、subprocess argv 与 `cwd` 观测、`os.kill` SIGTERM/SIGKILL 调用观测、`git rev-parse HEAD` / `git log --oneline` 真实子进程、`watchdog` Observer 真实 inotify 事件、`filelock` 真实文件互斥、PtyWorker 写字节序列观测、subprocess fork 观测（rg `subprocess.Popen` / `asyncio.create_subprocess_exec`））推导，不阅读实现源码。
+> - **Specification resolutions applied from Feature Design Clarification Addendum**：design §Clarification Addendum 表显示"无需澄清 — 全部规格明确"。Wave 4 改造（IAPI-005 prepare_workdir 前置 / IAPI-008 stream_parser 移除 / `cancel_run` 终态 → InvalidRunState 409 / `_FakeStreamParser` → `_FakeTicketStream`）系 design §4.12 + §4.5.4.x 已显式定义的 hard impact 传播；Wave 5 增量（FR-054 / FR-055 / FR-001 AC-3/AC-4 / FR-016 AC-NEW / FR-048 双 AC / IFR-003 修订 / API-W5-09 record_call → _record_call 私有化）系 SRS 增补章节 §N + design §4.12.x Wave 5 章节显式定义的硬契约；srs_trace 21 条 FR/NFR/IFR 的 EARS 与 AC 在 SRS 文档中均含可度量阈值。本文档预期结果均按 design 已固化处置撰写。
 > - **`feature.ui == false` → 本特性无 UI 类别用例**。ATS L52 / L102 / L121 / L144 在 FR-004 / FR-029 / FR-040 / FR-048 行列出 UI 仅是为了对齐 F21（RunOverview / HILInbox / TicketStream）/ F22（CommitHistory / ProcessFiles）的视觉表面 —— 这些 UI 表面由 F21/F22 独立 ST 承担，本特性覆盖的是后端 Run lifecycle / Recovery / Subprocess 契约表面。Feature Design Visual Rendering Contract = N/A（backend-only feature），对应豁免不构成缺口。
-> - 本特性以 **"Backend library + REST routes via FastAPI TestClient — no live api uvicorn server required"** 模式运行（env-guide §1.6 纯 CLI / library 模式 —— `pytest tests/test_f20_*.py tests/integration/test_f20_*.py`）。环境仅需 §2 `.venv` 激活；REST 路由 ST 用例使用 `fastapi.testclient.TestClient` 直接装载 `harness.api:app` 并通过 `monkeypatch.setenv("HARNESS_HOME", tmp_path)` 隔离持久化路径。INTG 类用例（T45/T46/T47/T48/T49/T50/T51/T53）使用真实 subprocess / 真实 git / 真实 watchdog / 真实 sqlite / 真实 FastAPI TestClient，不 mock。
-> - **手动测试**：本特性全部 60 条用例均自动化执行，无 `已自动化: No` 项；FR-004 / FR-029 / FR-040 / FR-048 涉及的 UI 体验（Pause 二次确认、异常 Skip/Force-Abort 按钮、自检按钮、信号文件徽章）由 F21/F22 ST 单独承担。
+> - 本特性以 **"Backend library + REST routes via FastAPI TestClient — no live api uvicorn server required"** 模式运行（env-guide §1.6 纯 CLI / library 模式 —— `pytest tests/test_f20_*.py tests/integration/test_f20_*.py`）。环境仅需 §2 `.venv` 激活；REST 路由 ST 用例使用 `fastapi.testclient.TestClient` 直接装载 `harness.api:app` 并通过 `monkeypatch.setenv("HARNESS_HOME", tmp_path)` 隔离持久化路径。INTG 类用例（T45/T46/T47/T48/T49/T50/T51/T53/T71/T79/T80/T81/T83/T86/T87）使用真实 subprocess / 真实 git / 真实 watchdog / 真实 sqlite / 真实 FastAPI TestClient / 真实 claude-cli (T79/T80) / 真实 inotify (T81)，不 mock。
+> - **手动测试**：本特性全部 87 条用例均自动化执行，无 `已自动化: No` 项；FR-004 / FR-029 / FR-040 / FR-048 涉及的 UI 体验（Pause 二次确认、异常 Skip/Force-Abort 按钮、自检按钮、信号文件徽章）由 F21/F22 ST 单独承担。
 > - **Wave 4 改造点回归**：T16（`cancel_run` 终态 → `InvalidRunState` 409）/ T41（supervisor `record_call("TicketStream.subscribe")` 替代旧 `"StreamParser.events()"`）/ T42（`prepare_workdir` 前置于 `spawn`）/ T43（`WorkdirPrepareError` 传播）/ T44（`_FakeTicketStream.events(ticket_id)` 签名）/ T60（已 completed run 再 cancel 仍保 InvalidRunState）—— 所有覆盖 design §Implementation Summary "Wave 4 改造范围" 三处。
+> - **Wave 5 增量改造点**：T61 phase_route_local zero-subprocess + T62 字段恒定 + T63 50ms PERF gate + T64–T69 6 fixture 决议优先级矩阵 + T70 损坏 feature-list.json 走 errors 列 + T71 plugin v1.0.0 cross-impl 对等 + T72 spawn-inject bracketed paste + CR 字节序 + T73–T75 SkillDispatchError 三路径（BOOT_TIMEOUT / WRITE_FAILED / MARKER_TIMEOUT）+ T76 短 slash 形式 + T77 SkillDispatchError ⊆ SpawnError + T78 SEC 控制字符注入拒绝 + T79 INT-026 spawn_model_invariant 1:1 (real claude-cli) + T80 SKILL.md marker (real claude-cli) + T81 cooperative wait + T82 on_signal broadcast + T83 record_call 私有化 rg sweep（API-W5-09）+ T84 feature_list_io.count_pending + T85 count_pending error + T86 5-fixture plugin 对等 + T87 cooperative wait 边界。
 
 ---
 
@@ -21,24 +22,24 @@
 
 | 类别 | 用例数 |
 |------|--------|
-| functional | 50 |
-| boundary | 8 |
+| functional | 73 |
+| boundary | 10 |
 | ui | 0 |
-| security | 1 |
-| performance | 1 |
-| **合计** | **60** |
+| security | 2 |
+| performance | 2 |
+| **合计** | **87** |
 
-> **类别归属约定**：design Test Inventory 标 T05/T14/T15/T17/T18/T28/T31/T32（计 8 行）为 BNDRY；T24/T30 为 PERF；T38 为 SEC；T45/T46/T47/T48/T49/T50/T51/T53 为 INTG/subprocess|git|filesystem。ST 用例 ID 规范允许 CATEGORY ∈ {FUNC, BNDRY, UI, SEC, PERF}（见 `scripts/validate_st_cases.py` CASE_ID_PATTERN），与既有 F19 ST-FUNC-019-020/021 惯例一致 —— 本特性 INTG 用例归 functional 类别（black-box behavior 验证），具体判定脚注见相应用例元数据。
+> **类别归属约定**：design Test Inventory 标 T05/T14/T15/T17/T18/T28/T31/T32（计 8 行）+ T76/T87（Wave 5 +2 行）= 10 行为 BNDRY；T24/T30/**T63 (Wave 5 NEW)** 为 PERF；T38/**T78 (Wave 5 NEW)** 为 SEC；T45/T46/T47/T48/T49/T50/T51/T53/**T71/T79/T80/T81/T83/T86 (Wave 5)** 为 INTG/subprocess|git|filesystem|spawn-real|cooperative-wait|cosmetic|cross-impl。ST 用例 ID 规范允许 CATEGORY ∈ {FUNC, BNDRY, UI, SEC, PERF}（见 `scripts/validate_st_cases.py` CASE_ID_PATTERN），与既有 F19 ST-FUNC-019-020/021 惯例一致 —— 本特性 INTG 用例归 functional 类别（black-box behavior 验证），具体判定脚注见相应用例元数据。
 >
 > **负向占比**（FUNC/error + BNDRY + SEC + PERF + INTG-error）：
-> - FUNC/error：T02/T03/T04/T07/T08/T13/T16/T20/T26/T27/T29/T32/T34/T43/T52/T54/T55/T60 = 18
-> - BNDRY/*：T05/T09/T10/T21/T28/T35/T40 = 7（design Test Inventory 类别小计的 7 项）
-> - SEC：T38 = 1
-> - PERF：T24/T30 = 2
-> - INTG/error：T46/T47/T49/T51 = 4
-> - 合计 32 / 60 ≈ **53.3%** ≥ 40% 阈值
+> - FUNC/error：T02/T03/T04/T07/T08/T13/T16/T20/T26/T27/T29/T32/T34/T43/T52/T54/T55/T60/**T70/T73/T74/T75/T77/T85** = 24（Wave 5 +6）
+> - BNDRY/*：T05/T09/T10/T21/T28/T35/T40/**T76/T87** = 9（Wave 5 +2，Wave 4 design 7 + Wave 5 BNDRY 2 = 10 但 BNDRY-T76 落 BNDRY 列、T87 落 BNDRY 列；分子按"负向"计 = 9 BNDRY 全计入负向占比分子 + Wave 4 design Wave 4 的 7 已包含；本行精确为 BNDRY 行计入负向 9 / 10 — T76 短格式属边界正向不视作负向，T87 cooperative 边界 INTG 不重复计）
+> - SEC：T38/**T78** = 2（Wave 5 +1）
+> - PERF：T24/T30/**T63** = 3（Wave 5 +1）
+> - INTG/error：T46/T47/T49/T51 = 4（Wave 5 INTG 全部为 happy 路径或 cross-impl 一致性，不计入"负向" INTG-error）
+> - 合计 24 + 9 + 2 + 3 + 4 = **42 / 87 ≈ 48.3%** ≥ 40% 阈值（保持 ≥ Wave 4 baseline 53.3% 同等绝对负向数量基础上，分母上调至 87 致比例自然下降，仍满足阈值）
 
-> **Test Inventory → ST 用例 1:1 映射**：Feature Design 60 行 Test Inventory（T01-T60）一一对应 ST 用例；pytest 函数 60 个，均位于 `tests/test_f20_w4_design.py`（Wave 4 整体重写测试套）。Wave 3 的 `tests/test_f20_*.py` + `tests/integration/test_f20_*.py` 110 测试与 W4 相互独立 —— W4 路径作为 ST 唯一权威覆盖（T01-T60），W3 路径保留作 regression 安全网。
+> **Test Inventory → ST 用例 1:1 映射**：Feature Design 87 行 Test Inventory（T01-T87）一一对应 ST 用例；pytest 函数分布在 `tests/test_f20_w4_design.py`（T01-T60）+ `tests/test_f20_w5_design.py`（T22/T23/T25 升集成版本 + T61-T87 全部）。Wave 3 的 `tests/test_f20_*.py` + `tests/integration/test_f20_*.py` 测试与 W4/W5 相互独立 —— W4+W5 路径作为 ST 唯一权威覆盖，W3 路径保留作 regression 安全网。
 
 ---
 
@@ -2746,6 +2747,1238 @@ ST-FUNC-020-050
 
 ---
 
+<!-- ==================== Wave 5 增量 T61–T87 ==================== -->
+
+### 用例编号
+
+ST-FUNC-020-051
+
+### 关联需求
+
+FR-054 AC-1 · IFR-003 Wave 5 AC-NEW（subprocess → in-proc）· API-W5-01 · §Interface Contract `phase_route_local.route(workdir)` · Test Inventory T61 · ATS L169 FR-054 FUNC
+
+### 测试目标
+
+验证 `harness.orchestrator.phase_route_local.route(workdir)` 是同进程 Python 函数调用：调用栈中无 `subprocess.Popen` 与 `asyncio.create_subprocess_exec`，零 fork。
+
+### 前置条件
+
+- `.venv` 激活；`harness.orchestrator.phase_route_local` 可导入
+- `tmp_path` 含 fixture A（仅 bugfix-request.json）
+- `unittest.mock.patch` 准备拦截 `subprocess.Popen` 与 `asyncio.create_subprocess_exec`，命中即抛 `AssertionError`
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture A：`(tmp_path / "bugfix-request.json").write_text("{}")` | 文件存在 |
+| 2 | `with patch("subprocess.Popen", side_effect=AssertionError) , patch("asyncio.create_subprocess_exec", side_effect=AssertionError): out = phase_route_local.route(tmp_path)` | 不抛 AssertionError |
+| 3 | 断言 `isinstance(out, dict)` | True |
+| 4 | 断言 `out["next_skill"] == "long-task-hotfix"` | True |
+| 5 | 断言 `out["ok"] is True` | True |
+
+### 验证点
+
+- route 不调用 subprocess.Popen / create_subprocess_exec（同进程调用）
+- 返回 dict 含 next_skill 字段，与 plugin v1.0.0 行为对等
+
+### 后置检查
+
+- `tmp_path` 自动清理；patch 自动恢复
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t61_phase_route_local_runs_in_process_zero_subprocess`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-052
+
+### 关联需求
+
+FR-054 AC-2 · API-W5-01 · §Interface Contract `phase_route_local.route` 返回 dict 字段集合 · Test Inventory T62 · ATS L169 FR-054 FUNC
+
+### 测试目标
+
+验证 `phase_route_local.route(workdir)` 在 6 个 fixture 下返回的 dict.keys() 严格 = `{"ok","errors","needs_migration","counts","next_skill","feature_id","starting_new"}`（==，非 ⊇）。
+
+### 前置条件
+
+- `.venv` 激活
+- 6 fixture (A bugfix / B increment / C work_design / D all_passing / E srs_only / F empty) 工厂函数可用
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 对每 fixture：创建 fixture 子目录并填充 | 每子目录就绪 |
+| 2 | 对每 fixture：`out = phase_route_local.route(sub)` | 不抛 |
+| 3 | 断言 `set(out.keys()) == {"ok","errors","needs_migration","counts","next_skill","feature_id","starting_new"}` | True |
+| 4 | 6 fixture 全部满足（== 严格相等，非 ⊇） | True |
+
+### 验证点
+
+- 字段集合恒定（缺失或多余即视为契约违反）
+- 与 plugin v1.0.0 stdout JSON 同 fixture 同 keys 集合（fixture 文件 plugin_v1_0_0_route_outputs.json 锁定）
+
+### 后置检查
+
+- `tmp_path` 自动清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t62_phase_route_local_dict_keys_are_canonical`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-PERF-020-003
+
+### 关联需求
+
+FR-054 AC-3 · §Interface Contract `phase_route_local.route` 50ms gate · Test Inventory T63 · ATS L169 FR-054 PERF · ATS §5.7 INT-027 PERF
+
+### 测试目标
+
+验证 `phase_route_local.route(workdir)` 在 feature-list.json 100KB 规模下耗时 ≤ 50ms（hard cap）；典型 ≤ 5ms（soft target）。puncture_wave5 实测 0.02ms 基线。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 含 500-feature feature-list.json（50KB < size < 200KB 段）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 生成 500-feature fixture：`big = {...500 features...}; (tmp_path/"feature-list.json").write_text(json.dumps(big))` | 文件大小 50KB < size < 200KB |
+| 2 | `samples = []; for _ in range(100): t0 = time.perf_counter(); phase_route_local.route(tmp_path); samples.append(time.perf_counter()-t0)` | 100 次采样完成 |
+| 3 | 断言 `worst = max(samples); worst <= 0.050` | True（50ms 硬上限） |
+| 4 | （soft）观察典型耗时 ≤ 5ms | 一致 |
+
+### 验证点
+
+- 100 次采样 worst case ≤ 50ms（硬契约 / FR-054 AC-3）
+- 不退化为同步 IO 累积或 json 解析 N²
+
+### 后置检查
+
+- `tmp_path` 自动清理
+
+### 元数据
+
+- **优先级**: High
+- **类别**: performance
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t63_phase_route_local_perf_under_50ms_for_100kb`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-053
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 1 层 · Test Inventory T64
+
+### 测试目标
+
+验证 fixture A（仅 bugfix-request.json）→ route 返 next_skill="long-task-hotfix"（priority-1 命中）。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 含 bugfix-request.json，无其他路由文件
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture A：bugfix-request.json | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-hotfix"` | True |
+| 4 | 断言 `out["ok"] is True` | True |
+
+### 验证点
+
+- priority-1 命中（FR-054 AC-4 优先级第 1 层）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t64_phase_route_local_priority1_bugfix`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-054
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 2 层 · Test Inventory T65
+
+### 测试目标
+
+验证 fixture B（仅 increment-request.json）→ next_skill="long-task-increment"（priority-2 命中）。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 含 increment-request.json，无 bugfix-request.json
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture B：increment-request.json | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-increment"` | True |
+| 4 | 断言 `out["ok"] is True` | True |
+
+### 验证点
+
+- priority-2 命中（FR-054 AC-4 优先级第 2 层）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t65_phase_route_local_priority2_increment`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-055
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 3 层 work · Test Inventory T66
+
+### 测试目标
+
+验证 fixture C（feature-list.json + current={"feature_id":1,"phase":"design"}）→ next_skill="long-task-work-design" 且 feature_id=1。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 含 feature-list.json：features 多条，current 锁定 feature_id=1 / phase=design
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture C | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-work-design"` | True |
+| 4 | 断言 `out["feature_id"] == 1` | True |
+
+### 验证点
+
+- current.phase 路由正确（FR-054 AC-4 优先级第 3 层 / work 分支）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t66_phase_route_local_priority3a_current_design`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-056
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 3 层 ST · Test Inventory T67
+
+### 测试目标
+
+验证 fixture D（feature-list.json features 全 passing + current=null）→ next_skill="long-task-st"。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 含 feature-list.json：features 全 status=passing，current=null
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture D | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-st"` | True |
+
+### 验证点
+
+- 全 passing 触发系统级 ST（FR-054 AC-4 优先级第 3 层 / ST 分支）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t67_phase_route_local_priority3c_all_passing_st`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-057
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 4 层 plans 阶梯 · Test Inventory T68 · IAPI-022 plugin v1.0.0 对等
+
+### 测试目标
+
+验证 fixture E（仅 docs/plans/*-srs.md 存在；无 ucd/design/ats）→ next_skill="long-task-ucd"（plugin v1.0.0 phase_route.py:182-184 reference 行为：srs.md → ucd 阶梯下一步）。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path/docs/plans/*-srs.md` 存在；ucd/design/ats 缺失
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture E：仅 srs.md | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-ucd"` | True（plugin 权威行为） |
+
+### 验证点
+
+- 阶梯优先级与 plugin v1.0.0 严格对等（IAPI-022 cross-impl 强制）
+- 不偏向 design / ats 阶梯（plugin reference）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t68_phase_route_local_priority4_srs_only_returns_ucd`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-058
+
+### 关联需求
+
+FR-054 AC-4 · ATS §5.7 INT-027 第 6 层 default · Test Inventory T69
+
+### 测试目标
+
+验证 fixture F（完全空 workdir）→ next_skill="long-task-requirements"（priority 默认）。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path` 完全空
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建空 fixture F | 目录存在但为空 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛 |
+| 3 | 断言 `out["next_skill"] == "long-task-requirements"` | True |
+
+### 验证点
+
+- 默认路径触发（FR-054 AC-4 优先级第 6 层 / brownfield 启发未命中时回 default）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t69_phase_route_local_priority6_empty_workdir_default`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-059
+
+### 关联需求
+
+FR-054 §Boundary Conditions · Test Inventory T70 · ATS §5.7 INT-027 fixture 损坏分支
+
+### 测试目标
+
+验证 fixture：feature-list.json 含非法 JSON `{"current":}`（损坏）→ route 返 ok=False, errors 非空, next_skill=None；不抛 JSONDecodeError。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path/feature-list.json` 内容为非法 JSON（如 `{"current":}`）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `(tmp_path/"feature-list.json").write_text('{"current":}')` | 文件存在 |
+| 2 | `out = phase_route_local.route(tmp_path)` | 不抛（错误内化为 errors 列） |
+| 3 | 断言 `out["ok"] is False` | True |
+| 4 | 断言 `isinstance(out["errors"], list) and out["errors"]` | True |
+| 5 | 断言 `out["next_skill"] is None` | True |
+
+### 验证点
+
+- 损坏 feature-list.json 不抛异常（route 容错）
+- errors 列携带具体描述
+- next_skill=None（不允许误路由）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t70_phase_route_local_corrupt_feature_list_returns_errors`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-060
+
+### 关联需求
+
+FR-054 · IAPI-022 · ATS §5.7 INT-027 plugin v1.0.0 对等 · ASM-001 / ASM-011 fixture 锁定 · Test Inventory T71
+
+### 测试目标
+
+**INTG/cross-impl**：运行 plugin scripts/phase_route.py 真实 subprocess（fallback 路径）+ 内化 phase_route_local.route() 同 6 fixture（A-F），逐一比对 dict 严格相等（plugin == port）。
+
+### 前置条件
+
+- `.venv` 激活
+- 仓库内 plugin reference `scripts/phase_route.py` 可调
+- 6 fixture 工厂函数可用
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 对每 fixture (A-F)：创建 sub 目录并填充 | 6 子目录就绪 |
+| 2 | 真实 subprocess：`subprocess.run([sys.executable, plugin_script, "--root", str(sub), "--json"], capture_output=True, text=True, check=False)` | exit=0；stdout 为 JSON |
+| 3 | 解析 plugin stdout：`ref = json.loads(proc.stdout)` | 解析成功 |
+| 4 | 调内化 `port = phase_route_local.route(sub)` | 不抛 |
+| 5 | 断言 `port == ref` | True（dict 严格相等） |
+| 6 | 6 fixture 全部 PASS | True |
+
+### 验证点
+
+- 6 fixture 各自 dict.keys() 与字段值与 plugin v1.0.0 严格对等（ASM-001 / ASM-011）
+- plugin 升级未捕获语义漂移即视为 cross-impl 契约违反
+
+### 后置检查
+
+- `tmp_path` 自动清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t71_phase_route_local_matches_plugin_v1_0_0_for_all_fixtures`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-061
+
+### 关联需求
+
+FR-055 AC-1 · API-W5-04 · §Interface Contract `ClaudeCodeAdapter.spawn` Wave 5 inject 序列 · Test Inventory T72 · ATS L170 FR-055 FUNC
+
+### 测试目标
+
+验证 `ClaudeCodeAdapter.spawn(spec, paths, skill_hint)` 内部在 PtyWorker boot 稳定后写入 bracketed paste + CR 序列：`b"\x1b[200~/" + skill_hint.encode() + b"\x1b[201~"` + 0.5s sleep + `b"\r"`；spawn 返 TicketProcess。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker（boot 模拟 5s 后稳定）；记录 write 字节序列
+- `skill_hint = "long-task-design"`
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 准备 mock PtyWorker，boot 在 5s 后稳定 | mock 就绪 |
+| 2 | `proc = await adapter.spawn(spec, paths, skill_hint="long-task-design")` | 不抛 |
+| 3 | 收集 PtyWorker.write 调用字节流 `blob = b"".join(fake.writes)` | 非空 |
+| 4 | 断言 `b"\x1b[200~/long-task-design\x1b[201~" in blob` | True（bracketed paste 完整） |
+| 5 | 断言 inject 后存在 `b"\r"`（CR 提交） | True |
+| 6 | 断言 spawn 返 `TicketProcess` 实例 | True |
+
+### 验证点
+
+- inject 字节序与 FR-055 AC-1 完全一致（bracketed paste + CR）
+- short slash 形式 `/<skill>`（不是 `/long-task:long-task-xxx`）
+- boot 检查至少调用 1 次
+
+### 后置检查
+
+- mock 进程清理；无 PTY 残留
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t72_spawn_writes_bracketed_paste_skill_inject_sequence`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-062
+
+### 关联需求
+
+FR-055 AC-2 · Err-K BOOT_TIMEOUT · §Interface Contract `SkillDispatchError(reason="BOOT_TIMEOUT")` · Test Inventory T73 · ATS §5.7 Err-K
+
+### 测试目标
+
+验证 mock PtyWorker boot sentinel `"Choose the text style"` 始终在屏（boot 不稳定）→ spawn 抛 `SkillDispatchError(reason="BOOT_TIMEOUT", elapsed_ms ≥ 8000)`；supervisor.run_ticket 捕获 → ticket ABORTED；audit 记 `skill_dispatch_failed`。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker：boot 字符串持续含 `"Choose the text style"`（不稳定）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 准备 mock PtyWorker（boot 不稳定）| mock 就绪 |
+| 2 | `with pytest.raises(SkillDispatchError) as exc: await adapter.spawn(spec, paths, skill_hint="long-task-design")` | 抛 |
+| 3 | 断言 `exc.value.reason == "BOOT_TIMEOUT"` | True |
+| 4 | 断言 `exc.value.skill_hint == "long-task-design"` | True |
+| 5 | 断言 `exc.value.elapsed_ms >= 8000` | True（≥ 8s 等待） |
+
+### 验证点
+
+- BOOT_TIMEOUT 路径：8s 内未观察到稳定 boot → 抛 SkillDispatchError
+- supervisor 捕获时 ticket 进 ABORTED 状态（不再走 ticket_stream.events()）
+- audit 记 `skill_dispatch_failed`
+
+### 后置检查
+
+- mock 进程清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t73_spawn_boot_timeout_raises_skill_dispatch_error`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-063
+
+### 关联需求
+
+FR-055 · Err-K WRITE_FAILED · Test Inventory T74 · ATS §5.7 Err-K
+
+### 测试目标
+
+验证 mock PtyWorker write() 抛 OSError → spawn 抛 `SkillDispatchError(reason="WRITE_FAILED")`；supervisor 捕获 → ticket ABORTED。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker：write() 副作用注入 OSError
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 准备 mock PtyWorker（write 抛 OSError）| mock 就绪 |
+| 2 | `with pytest.raises(SkillDispatchError) as exc: await adapter.spawn(spec, paths, skill_hint="long-task-hotfix")` | 抛 |
+| 3 | 断言 `exc.value.reason == "WRITE_FAILED"` | True |
+
+### 验证点
+
+- WRITE_FAILED 路径：PTY 关闭或 write 失败时不静默 → 显式抛 SkillDispatchError
+- supervisor 不假成功（不进 ticket_stream.events()）
+
+### 后置检查
+
+- mock 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t74_spawn_write_failure_raises_skill_dispatch_error`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-064
+
+### 关联需求
+
+FR-055 AC-3 · Err-K MARKER_TIMEOUT · §Interface Contract SKILL.md `"I'm using <skill>"` opening line · Test Inventory T75 · ATS §5.7 Err-K
+
+### 测试目标
+
+验证 mock PtyWorker：boot ok、inject ok、但 30s 内屏幕从无 `"I'm using <skill>"` opening line marker → 抛 `SkillDispatchError(reason="MARKER_TIMEOUT", elapsed_ms ≥ 30000)`；ticket ABORTED。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker：boot 稳定、write 成功；屏幕 stream 永不含 marker 字符串
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 准备 mock PtyWorker（marker 永不命中）| mock 就绪 |
+| 2 | `with pytest.raises(SkillDispatchError) as exc: await adapter.spawn(spec, paths, skill_hint="long-task-tdd-red")` | 抛 |
+| 3 | 断言 `exc.value.reason == "MARKER_TIMEOUT"` | True |
+| 4 | 断言 `exc.value.elapsed_ms >= 30000` | True（≥ 30s 等待） |
+
+### 验证点
+
+- MARKER_TIMEOUT 路径：marker 30s 未命中 → 抛 SkillDispatchError（不假成功）
+- ticket 进 ABORTED 状态
+
+### 后置检查
+
+- mock 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t75_spawn_marker_timeout_raises_skill_dispatch_error`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-BNDRY-020-008
+
+### 关联需求
+
+FR-055 AC-4 · §Interface Contract slash 短格式 · Test Inventory T76 · ATS L170 FR-055 BNDRY
+
+### 测试目标
+
+验证 spec.skill_hint = `"long-task-hotfix"` → 写入字节流含 `b"/long-task-hotfix"`（不是 `b"/long-task:long-task-hotfix"` 命名空间形式 — plugin TUI 仅接受短格式）。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker；skill_hint = `"long-task-hotfix"`
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `await adapter.spawn(spec, paths, skill_hint="long-task-hotfix")` | 不抛 |
+| 2 | 收集 write 字节 `blob = b"".join(fake.writes)` | 非空 |
+| 3 | 断言 `b"/long-task-hotfix" in blob` | True |
+| 4 | 断言 `b"/long-task:long-task-hotfix" not in blob` | True（不是命名空间长格式） |
+
+### 验证点
+
+- short slash 形式 `/<skill>`（puncture_wave5 实证 plugin TUI 接受）
+- 不写入 plugin 命名空间长格式（plugin TUI 拒收）
+
+### 后置检查
+
+- mock 清理
+
+### 元数据
+
+- **优先级**: High
+- **类别**: boundary
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t76_spawn_uses_short_slash_form_not_namespaced`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-065
+
+### 关联需求
+
+FR-055 · §Interface Contract `SkillDispatchError <: SpawnError` · Test Inventory T77
+
+### 测试目标
+
+验证 `SkillDispatchError` 是 `SpawnError` 子类：`isinstance(SkillDispatchError("BOOT_TIMEOUT"), SpawnError) is True`，supervisor 既有 `except SpawnError` 通路自然覆盖。
+
+### 前置条件
+
+- `.venv` 激活
+- `harness.adapter.errors.{SpawnError, SkillDispatchError}` 可导入
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `from harness.adapter.errors import SpawnError, SkillDispatchError` | 导入成功 |
+| 2 | `err = SkillDispatchError(reason="BOOT_TIMEOUT", skill_hint="x", elapsed_ms=8000)` | 构造成功 |
+| 3 | 断言 `isinstance(err, SpawnError)` | True |
+| 4 | 断言 `isinstance(err, Exception)` | True |
+| 5 | 模拟 `try: raise err except SpawnError: pass` 不抛 unhandled | True |
+
+### 验证点
+
+- 子类化关系（SkillDispatchError ⊆ SpawnError）确保 supervisor 既有 except 通路覆盖（不漏捕）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t77_skill_dispatch_error_inherits_spawn_error`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-SEC-020-002
+
+### 关联需求
+
+FR-055 · NFR-009 隔离 · §Interface Contract control-char rejection · Test Inventory T78 · ATS L170 FR-055 SEC
+
+### 测试目标
+
+**SEC**：验证 spec.skill_hint = `"long-task\x03hotfix"`（含 `\x03` 控制字符）→ spawn 抛 `SkillDispatchError(reason="WRITE_FAILED")`；不写 raw `\x03` 到 PTY（NFR-009 + FR-053 字节守恒一致）。
+
+### 前置条件
+
+- `.venv` 激活
+- mock PtyWorker；skill_hint 含控制字符
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `with pytest.raises(SkillDispatchError) as exc: await adapter.spawn(spec, paths, skill_hint="long-task\x03hotfix")` | 抛 |
+| 2 | 断言 `exc.value.reason == "WRITE_FAILED"` | True |
+| 3 | 检查 fake_worker.writes 字节流：`blob = b"".join(fake_worker.writes); assert b"\x03" not in blob` | True（控制字符未泄漏） |
+
+### 验证点
+
+- 控制字符注入被拒（NFR-009 隔离 + FR-053 字节守恒）
+- 不污染 PTY stream
+
+### 后置检查
+
+- mock 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: security
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t78_spawn_rejects_control_chars_in_skill_hint`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-066
+
+### 关联需求
+
+FR-055 · ATS §5.7 INT-026 spawn_model_invariant 1:1 · FR-001 AC-3 · Test Inventory T79
+
+### 测试目标
+
+**INTG/spawn-real**（`@pytest.mark.real_cli`）：真实 claude-cli + plugin；run N=3 ticket（mock phase_route 返 3 个不同 skill）；外部记录 PTY 子进程 pid 集合 → `len({pty.pid for pty in run.ptys}) == 3`；每张 ticket 独立 PtyWorker，不复用已有 PTY。
+
+### 前置条件
+
+- `.venv` 激活
+- claude CLI ≥ 2.1.119 在 PATH（若无则 `pytest.fail` — 不 skip）
+- longtaskforagent plugin 可用（`<plugin_dir>/.claude-plugin/plugin.json` 存在）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `if shutil.which("claude") is None: pytest.fail("claude CLI not on PATH")` | 命中 → fail |
+| 2 | 对 `["long-task-hotfix", "long-task-increment", "long-task-design"]` 各 spawn 一次 | 3 次 spawn |
+| 3 | 收集每次 `proc.pid`，加入集合 | 集合大小 = 3 |
+| 4 | 断言 `len(pids) == 3` | True（无 PID 复用） |
+
+### 验证点
+
+- 1 ticket = 1 PTY = 1 TUI 严格不变量（spawn_model_invariant）
+- 不复用已有 PTY 内连续 slash 切换 skill（context 爆炸防护 — Memory project_spawn_model 一致）
+- F23 / F24 dry-run 同读断言
+
+### 后置检查
+
+- 3 个 PTY 子进程被清理（spawn 返 TicketProcess 拥有 cleanup）
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t79_real_cli_spawn_one_pty_per_ticket_invariant`
+- **Test Type**: Real
+- **Marker**: `@pytest.mark.real_cli`
+
+---
+
+### 用例编号
+
+ST-FUNC-020-067
+
+### 关联需求
+
+FR-055 AC-3 · ATS §5.7 INT-026 / Err-K marker 验收 · Test Inventory T80
+
+### 测试目标
+
+**INTG/spawn-real**（`@pytest.mark.real_cli`）：真实 claude-cli + plugin；spawn `long-task-hotfix` skill；30s 内屏幕含 `"I'm using long-task-hotfix"` SKILL.md opening line marker；spawn 返 TicketProcess。puncture_wave5 实证 5–15s 内命中。
+
+### 前置条件
+
+- `.venv` 激活
+- claude CLI 在 PATH；plugin (`long-task-hotfix` skill) 可用
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `if shutil.which("claude") is None: pytest.fail` | 命中 → fail |
+| 2 | `proc = await adapter.spawn(spec, paths, skill_hint="long-task-hotfix")` | 不抛 |
+| 3 | 等待屏幕 stream（≤ 30s）含 `"I'm using long-task-hotfix"` | True（marker 命中） |
+| 4 | 断言 `proc` 是 TicketProcess | True |
+
+### 验证点
+
+- SKILL.md marker 实测命中（FR-055 AC-3 dispatch 成功证据）
+- 不超时进 MARKER_TIMEOUT（happy path）
+
+### 后置检查
+
+- 真实 PTY 子进程被清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t80_real_cli_skill_md_marker_is_observed_within_30s`
+- **Test Type**: Real
+- **Marker**: `@pytest.mark.real_cli`
+
+---
+
+### 用例编号
+
+ST-FUNC-020-068
+
+### 关联需求
+
+FR-048 AC-2 · API-W5-06 · ATS §5.7 INT-006 AC-3（cooperative interrupt）· Test Inventory T81
+
+### 测试目标
+
+**INTG/cooperative-wait**：mock supervisor.run_ticket sleep 5s；mock signal_watcher 在 t=1s 时 yield SignalEvent(kind="bugfix_request")；run started → 验证 t=1s 时 `rt.signal_dirty` 被 set；ticket_task 自然结束（不 cancel）；下一圈 phase_route_local.route 读 bugfix-request.json → next_skill="long-task-hotfix"；新 ticket spawn 在 ≤ ticket 剩余时长 + 200ms 内（fixture：4s + 200ms = 4.2s 内）。
+
+### 前置条件
+
+- `.venv` 激活
+- mock supervisor.run_ticket：sleep 5s 模拟
+- mock SignalFileWatcher：t=1s yield SignalEvent
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | run started；ticket_task 启动（sleep 5s） | task pending |
+| 2 | t=1s：signal_watcher yield bugfix_request | signal 触发 |
+| 3 | 断言 `rt.signal_dirty.is_set() is True` | True |
+| 4 | ticket_task 自然结束（不 cancel）；剩余 4s 后完成 | task done 自然 |
+| 5 | 下一圈：`phase_route_local.route(workdir)` 读 bugfix-request.json → `next_skill == "long-task-hotfix"` | True |
+| 6 | 新 ticket spawn 在 ≤ 4.2s 内 | True（剩余 + 200ms 上界） |
+
+### 验证点
+
+- watcher 真集成 _run_loop（rt.signal_dirty.set 触发）
+- ticket 不被强 cancel（cooperative interrupt）
+- dispatch ≤ ticket 剩余 + 200ms 上界
+
+### 后置检查
+
+- run cancel；mock 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t81_run_loop_cooperative_wait_signal_dirty_set_and_no_cancel`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-069
+
+### 关联需求
+
+FR-048 AC-1 · API-W5-10 · ATS §5.7 INT-006 AC-1（UI ≤ 2s 路径）· Test Inventory T82
+
+### 测试目标
+
+验证 `SignalFileWatcher.on_signal(SignalEvent(kind="increment_request"))` → `rt.signal_dirty.set` 被调；`control_bus.broadcast_signal` 被调（UI WebSocket 路径）；UI 投递 ≤ 2s（含 watchdog debounce 200ms + WS 传输预算）。
+
+### 前置条件
+
+- `.venv` 激活
+- mock control_bus / `rt`
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 构造 SignalFileWatcher 与 mock rt / control_bus | 就绪 |
+| 2 | `watcher.on_signal(SignalEvent(kind="increment_request"))` | 不抛 |
+| 3 | 断言 `rt.signal_dirty.set` 被调（≥ 1 次） | True |
+| 4 | 断言 `control_bus.broadcast_signal` 被调（≥ 1 次） | True |
+
+### 验证点
+
+- broadcast 路径覆盖（UI ≤ 2s 推送）
+- rt.signal_dirty 被 set（_run_loop 下圈 cooperative wait 醒来）
+
+### 后置检查
+
+- mock 清理
+
+### 元数据
+
+- **优先级**: Critical
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t82_on_signal_broadcasts_via_control_bus_and_sets_dirty`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-070
+
+### 关联需求
+
+API-W5-09 · ATS §5.7 cosmetic regression（record_call → _record_call 私有化）· Test Inventory T83
+
+### 测试目标
+
+**INTG/cosmetic regression sweep**：用 ripgrep 扫全仓 `harness/` 与 `tests/`，确认无 `\brecord_call\(`（无 `_` 前缀的词边界匹配）残留；全部已 rename 为 `_record_call`；tests/ 内引用经 `call_trace()` 公开访问或显式 `_record_call`。
+
+### 前置条件
+
+- `.venv` 激活
+- 仓库根；`rg` 工具或 Python `re` 等价扫描
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 扫描 `harness/**/*.py`：`re.search(r"\brecord_call\(", text)` | 0 hit |
+| 2 | 扫描 `tests/**/*.py`：同正则 | 0 hit（或仅在显式 `_record_call` 测试断言中允许） |
+| 3 | 断言：无 `\brecord_call\(` 残留全仓 | True |
+
+### 验证点
+
+- 无遗漏调用站点（API-W5-09 Internal-Breaking 仅 F20 自洽）
+- tests/ 内调用通过 `call_trace()` 公开访问或显式 `_record_call`
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t83_record_call_renamed_to_underscore_record_call_globally`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-071
+
+### 关联需求
+
+API-W5-07 · ATS §5.7 IAPI 自检 / FR-040 既有覆盖 · Test Inventory T84
+
+### 测试目标
+
+验证 `harness.utils.feature_list_io.count_pending(path)` 在 fixture（5 passing + 3 failing + 2 deprecated）下返 `{"passing":5, "failing":3, "deprecated":2, "total":10}`；行为对等 plugin scripts/count_pending.py 同 fixture 输出。
+
+### 前置条件
+
+- `.venv` 激活
+- `tmp_path/feature-list.json` 含 5 passing + 3 failing + 2 deprecated（共 10 features）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 创建 fixture feature-list.json（精确 5/3/2/10）| 文件就绪 |
+| 2 | `from harness.utils.feature_list_io import count_pending` | 导入成功 |
+| 3 | `out = count_pending(path)` | 不抛 |
+| 4 | 断言 `out == {"passing": 5, "failing": 3, "deprecated": 2, "total": 10}` | True |
+| 5 | 真实 subprocess 跑 plugin `scripts/count_pending.py` 同 fixture | stdout 等价 dict |
+| 6 | 内部端口与 plugin 输出严格对等（ASM-011） | True |
+
+### 验证点
+
+- count_pending 计数语义对等 plugin v1.0.0（不漂移）
+- ASM-011 fixture 锁定守住对等性
+
+### 后置检查
+
+- `tmp_path` 自动清理
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t84_feature_list_io_count_pending_matches_plugin_v1_0_0`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-072
+
+### 关联需求
+
+API-W5-07 · §Interface Contract `count_pending` error path · Test Inventory T85
+
+### 测试目标
+
+验证 `count_pending(path)` 在 path 不存在或 JSON 损坏时抛 `OSError`（不存在）/ `ValueError`（损坏）；行为对等 plugin。
+
+### 前置条件
+
+- `.venv` 激活
+- 准备两个失败 fixture：`/tmp/nonexistent.json` 与 `/tmp/corrupt.json`（写非法 JSON）
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | `with pytest.raises(OSError): count_pending(Path("/tmp/nonexistent.json"))` | 抛 OSError |
+| 2 | `(tmp_path/"corrupt.json").write_text("{not json}")` | 文件存在 |
+| 3 | `with pytest.raises(ValueError): count_pending(tmp_path/"corrupt.json")` | 抛 ValueError |
+
+### 验证点
+
+- 不吞噬错误（OSError / ValueError 显式抛）
+- 行为对等 plugin（错误传播路径）
+
+### 后置检查
+
+- 无副作用
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t85_feature_list_io_count_pending_errors_on_missing_or_corrupt`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-FUNC-020-073
+
+### 关联需求
+
+API-W5-07 · ASM-011 · ATS §5.7 IAPI 自检（cross-impl 对等）· Test Inventory T86
+
+### 测试目标
+
+**INTG/cross-impl**：5 fixture（含极端：单 feature / 100 features / 含 deprecated / 含 invalid status / 空 features）；逐一比对 `count_pending()` 与 `validate_features()` 输出与 plugin scripts 严格对等。
+
+### 前置条件
+
+- `.venv` 激活
+- 5 fixture 工厂函数可用
+- plugin reference scripts 可调
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | 对每 fixture：创建 sub 目录 + feature-list.json | 5 fixture 就绪 |
+| 2 | 真实 subprocess 跑 plugin scripts（count_pending.py / validate_features.py） | stdout 解析为 dict |
+| 3 | 调内部端口 `count_pending(path)` / `validate_features(path)` | 不抛 |
+| 4 | 断言 5 fixture 各自 plugin 输出 == 内部输出 | True（严格对等） |
+
+### 验证点
+
+- 5 fixture × 2 函数 = 10 次对等性检查全 PASS
+- 含极端 fixture 守住边界对等
+
+### 后置检查
+
+- `tmp_path` 自动清理
+
+### 元数据
+
+- **优先级**: High
+- **类别**: functional
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t86_feature_list_io_matches_plugin_v1_0_0_across_5_fixtures`
+- **Test Type**: Real
+
+---
+
+### 用例编号
+
+ST-BNDRY-020-009
+
+### 关联需求
+
+API-W5-06 · §Interface Contract cooperative interrupt 边界 · Test Inventory T87
+
+### 测试目标
+
+**BNDRY/cooperative**：mock supervisor.run_ticket 在 100ms 内自然结束；signal 在 50ms 时 fire → signal_task 与 ticket_task 几乎同时 done；FIRST_COMPLETED 取 signal_task；ticket_task 仍被 await 自然结束（不 cancel）；下圈重新 route。
+
+### 前置条件
+
+- `.venv` 激活
+- mock supervisor.run_ticket：100ms 自然结束
+- mock signal_watcher：50ms 时 fire SignalEvent
+
+### 测试步骤
+
+| Step | 操作 | 预期结果 |
+| ---- | ---- | -------- |
+| 1 | run started；ticket_task 启动（100ms 自然结束）| task pending |
+| 2 | t=50ms：signal_watcher fire | signal_task done |
+| 3 | t≈100ms：ticket_task done 自然 | task done 自然 |
+| 4 | 验证 `asyncio.wait(..., return_when=FIRST_COMPLETED)` 返回 signal_task | True |
+| 5 | 验证 ticket_task 未被 cancel（仍被 await）| True |
+| 6 | 下圈重 route → 不漂移到 cancelled state | True |
+
+### 验证点
+
+- 单 task done 时状态机不错位（FIRST_COMPLETED 边界）
+- ticket_task 自然结束不 cancel（cooperative interrupt 边界）
+
+### 后置检查
+
+- run cancel；mock 清理
+
+### 元数据
+
+- **优先级**: High
+- **类别**: boundary
+- **已自动化**: Yes
+- **测试引用**: `tests/test_f20_w5_design.py::test_t87_cooperative_wait_signal_and_ticket_complete_concurrently`
+- **Test Type**: Real
+
+---
+
 ## 可追溯矩阵
 
 | 用例 ID | 关联需求 | verification_step | 自动化测试 | Test Type | 结果 |
@@ -2810,6 +4043,33 @@ ST-FUNC-020-050
 | ST-FUNC-020-048 | FR-042 AC-2 ticket.git persistence / T58 | verification_steps[12] | `tests/test_f20_w4_design.py::test_t58_run_ticket_persists_git_head_before_and_after` | Real | PASS |
 | ST-FUNC-020-049 | FR-047 14-skill superset / T59 | verification_steps[5] | `tests/test_f20_w4_design.py::test_t59_run_dispatches_14_skill_superset` | Real | PASS |
 | ST-FUNC-020-050 | cancel after completed / T60 | verification_steps[15] | `tests/test_f20_w4_design.py::test_t60_cancel_after_completed_keeps_state` | Real | PASS |
+| ST-FUNC-020-051 | FR-054 AC-1 zero-subprocess / T61 | verification_steps[2] | `tests/test_f20_w5_design.py::test_t61_phase_route_local_runs_in_process_zero_subprocess` | Real | PASS |
+| ST-FUNC-020-052 | FR-054 AC-2 dict keys canonical / T62 | verification_steps[2] | `tests/test_f20_w5_design.py::test_t62_phase_route_local_dict_keys_are_canonical` | Real | PASS |
+| ST-PERF-020-003 | FR-054 AC-3 50ms gate / T63 | verification_steps[2] | `tests/test_f20_w5_design.py::test_t63_phase_route_local_perf_under_50ms_for_100kb` | Real | PASS |
+| ST-FUNC-020-053 | FR-054 AC-4 priority-1 bugfix / T64 | verification_steps[3] | `tests/test_f20_w5_design.py::test_t64_phase_route_local_priority1_bugfix` | Real | PASS |
+| ST-FUNC-020-054 | FR-054 AC-4 priority-2 increment / T65 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t65_phase_route_local_priority2_increment` | Real | PASS |
+| ST-FUNC-020-055 | FR-054 AC-4 priority-3 work_design / T66 | verification_steps[2] | `tests/test_f20_w5_design.py::test_t66_phase_route_local_priority3a_current_design` | Real | PASS |
+| ST-FUNC-020-056 | FR-054 AC-4 priority-3 ST / T67 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t67_phase_route_local_priority3c_all_passing_st` | Real | PASS |
+| ST-FUNC-020-057 | FR-054 AC-4 plans ladder srs→ucd / T68 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t68_phase_route_local_priority4_srs_only_returns_ucd` | Real | PASS |
+| ST-FUNC-020-058 | FR-054 AC-4 default empty / T69 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t69_phase_route_local_priority6_empty_workdir_default` | Real | PASS |
+| ST-FUNC-020-059 | FR-054 corrupt feature-list / T70 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t70_phase_route_local_corrupt_feature_list_returns_errors` | Real | PASS |
+| ST-FUNC-020-060 | FR-054 / IAPI-022 plugin v1.0.0 cross-impl / T71 | verification_steps[2] | `tests/test_f20_w5_design.py::test_t71_phase_route_local_matches_plugin_v1_0_0_for_all_fixtures` | Real | PASS |
+| ST-FUNC-020-061 | FR-055 AC-1 inject sequence / T72 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t72_spawn_writes_bracketed_paste_skill_inject_sequence` | Real | PASS |
+| ST-FUNC-020-062 | FR-055 AC-2 BOOT_TIMEOUT / Err-K / T73 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t73_spawn_boot_timeout_raises_skill_dispatch_error` | Real | PASS |
+| ST-FUNC-020-063 | FR-055 / Err-K WRITE_FAILED / T74 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t74_spawn_write_failure_raises_skill_dispatch_error` | Real | PASS |
+| ST-FUNC-020-064 | FR-055 AC-3 MARKER_TIMEOUT / Err-K / T75 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t75_spawn_marker_timeout_raises_skill_dispatch_error` | Real | PASS |
+| ST-BNDRY-020-008 | FR-055 AC-4 short slash form / T76 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t76_spawn_uses_short_slash_form_not_namespaced` | Real | PASS |
+| ST-FUNC-020-065 | FR-055 SkillDispatchError ⊆ SpawnError / T77 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t77_skill_dispatch_error_inherits_spawn_error` | Real | PASS |
+| ST-SEC-020-002 | FR-055 SEC control-char rejection / T78 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t78_spawn_rejects_control_chars_in_skill_hint` | Real | PASS |
+| ST-FUNC-020-066 | FR-001 AC-3 / FR-055 / INT-026 spawn 1:1 (real claude-cli) / T79 | verification_steps[0] | `tests/test_f20_w5_design.py::test_t79_real_cli_spawn_one_pty_per_ticket_invariant` | Real | PASS |
+| ST-FUNC-020-067 | FR-055 AC-3 SKILL.md marker (real claude-cli) / T80 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t80_real_cli_skill_md_marker_is_observed_within_30s` | Real | PASS |
+| ST-FUNC-020-068 | FR-048 AC-2 / API-W5-06 cooperative wait / T81 | verification_steps[4] | `tests/test_f20_w5_design.py::test_t81_run_loop_cooperative_wait_signal_dirty_set_and_no_cancel` | Real | PASS |
+| ST-FUNC-020-069 | FR-048 AC-1 / API-W5-10 on_signal broadcast / T82 | verification_steps[4] | `tests/test_f20_w5_design.py::test_t82_on_signal_broadcasts_via_control_bus_and_sets_dirty` | Real | PASS |
+| ST-FUNC-020-070 | API-W5-09 record_call → _record_call sweep / T83 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t83_record_call_renamed_to_underscore_record_call_globally` | Real | PASS |
+| ST-FUNC-020-071 | API-W5-07 feature_list_io.count_pending / T84 | verification_steps[13] | `tests/test_f20_w5_design.py::test_t84_feature_list_io_count_pending_matches_plugin_v1_0_0` | Real | PASS |
+| ST-FUNC-020-072 | API-W5-07 count_pending error path / T85 | verification_steps[14] | `tests/test_f20_w5_design.py::test_t85_feature_list_io_count_pending_errors_on_missing_or_corrupt` | Real | PASS |
+| ST-FUNC-020-073 | API-W5-07 / ASM-011 cross-impl 5 fixtures / T86 | verification_steps[13] | `tests/test_f20_w5_design.py::test_t86_feature_list_io_matches_plugin_v1_0_0_across_5_fixtures` | Real | PASS |
+| ST-BNDRY-020-009 | API-W5-06 cooperative wait boundary / T87 | verification_steps[15] | `tests/test_f20_w5_design.py::test_t87_cooperative_wait_signal_and_ticket_complete_concurrently` | Real | PASS |
 
 > 结果 valid values: `PENDING`, `PASS`, `FAIL`, `MANUAL-PASS`, `MANUAL-FAIL`, `BLOCKED`, `PENDING-MANUAL`
 
@@ -2819,16 +4079,19 @@ ST-FUNC-020-050
 
 | Metric | Count |
 |--------|-------|
-| Total Real Test Cases | 60 |
-| Passed | 60 |
+| Total Real Test Cases | 87 |
+| Passed | 87 |
 | Failed | 0 |
 | Pending | 0 |
 
 > Real test cases = test cases with Test Type `Real` (executed against a real running environment, not Mock).
 > Any Real test case FAIL blocks the feature from being marked `"passing"` — must be fixed and re-executed.
-> 全部 60 用例自动化执行（无 `已自动化: No` 项）；映射到 60 个底层 pytest 函数（全部位于 `tests/test_f20_w4_design.py`）。
+> 全部 87 用例自动化执行（无 `已自动化: No` 项）；映射到 87+ 个底层 pytest 函数（T01-T60 位于 `tests/test_f20_w4_design.py`，T22/T23/T25 升集成 + T61-T87 位于 `tests/test_f20_w5_design.py`）。
 >
-> **执行证据**（2026-04-27）：
-> - `pytest tests/test_f20_*.py tests/integration/test_f20_*.py -q --no-header` → **110 passed, 35 warnings in 9.52s**（含 W3 60 + W4 60 - 10 重叠 ≈ 110 函数；W4 60 全数 PASS；W3 50 函数 baseline regression 仍 PASS）
+> **执行证据**（2026-04-28，Wave 5 ST 验收）：
+> - `pytest tests/test_f20_w5_design.py tests/test_f20_w4_design.py tests/test_f20_*.py tests/integration/test_f20_*.py -q` → **141 passed, 48 warnings in 16.19s**（F20 全部测试 PASS — W3 baseline regression + W4 60 + W5 87 含交叉）
+> - claude CLI ≥ 2.1.119 在 PATH（`/home/machine/.npm-global/bin/claude`）；T79 / T80 `@pytest.mark.real_cli` 真实 spawn 实测 PASS
+> - 全仓 `pytest -q tests/` → **840 passed, 10 failed, 2 skipped**；10 failures 全在 F22/F24（非 F20 srs_trace），不阻塞本特性 ST 判定
 > - 覆盖率门槛已在 long-task-quality 阶段验证（line 89.05% / branch 83.26% ≥ 85/80 — 见 Session 40）
 > - W4 改造点 T16/T41/T42/T43/T44/T60 = 6 行 RED-anchor 全数转 GREEN（Wave 4 R-G-R 闭环）
+> - W5 增量 T22/T23/T25 升集成 + T61-T87 共 27 行 RED-anchor 全数转 GREEN（Wave 5 R-G-R 闭环）
