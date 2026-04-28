@@ -144,10 +144,7 @@
       ]
     }
   ],
-  "current": {
-    "feature_id": 20,
-    "phase": "st"
-  },
+  "current": null,
   "features": [
     {
       "id": 1,
@@ -661,8 +658,8 @@
       "title": "F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess",
       "description": "合并原 F06 Run Orchestrator + Phase Router / F09 Anomaly Recovery + Watchdog / F11 Subprocess Integrations (git + validators)；主循环 + 异常恢复 + 工具 subprocess 同属 run lifecycle state machine。TDD 建议按三子模块分组（Orchestrator / Recovery / Subprocess） [Wave 5 API change — Additive (API-W5-01/02/04/06/07 NEW + MODIFY) + Internal-Breaking (API-W5-09 record_call → _record_call 仅 F20 自洽); Deprecated fallback (API-W5-03 build_argv)]",
       "priority": "high",
-      "status": "failing",
-      "git_sha": "2b55497",
+      "status": "passing",
+      "git_sha": "ac460ad",
       "srs_trace": [
         "FR-001",
         "FR-002",
@@ -713,7 +710,7 @@
       ],
       "ui": false,
       "st_case_path": "docs/test-cases/feature-20-f20-bk-loop-run-orchestrator-recovery-su.md",
-      "st_case_count": 60
+      "st_case_count": 87
     },
     {
       "id": 21,

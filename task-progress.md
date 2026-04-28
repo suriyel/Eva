@@ -1210,3 +1210,34 @@ Handoff → next session: open new conversation; `phase_route.py` will pick firs
 - ⚠ [Workspace Inheritance · 跨会话延续] `scripts/init_project.py` 工作树脏数据继承自 Session 38；本会话 commit 仅打包 F20 Wave 5 范围，不触碰
 - ℹ [Wave 5 Design Compliance] Refactor 反转 Green 的 gate 方向是关键判定——Green 的 `[CONTRACT-DEVIATION]` 不是 design 的 silent ambiguity 而是 Green 的 misread；下一个增量需注意 design §6/§8 字面文本始终是 spec source of truth
 
+## Session 45 — Worker ST (F20 Wave 5)
+
+- target_feature: id=20, title="F20 · Bk-Loop — Run Orchestrator · Recovery · Subprocess", category=core, ui=false, wave=5
+- starting_new=false → router 锁 `{feature_id: 20, phase: "st"}`
+- env-guide: approved (godsuriyel@gmail.com 已审批 2026-04-28，v1.4 §3/§4)
+- Bootstrap: §1 ui:false 后端编排——pure CLI / library mode（env-guide §1.6），无 uvicorn / vite 启停；仅 venv 激活
+- Feature-ST SubAgent: PASS — ST 用例文档增量扩展（Wave 4 60 cases → Wave 5 87 cases · T01-T87 1:1 对齐 design Test Inventory）
+  - 新增 27 Wave 5 cases (T61-T87) 覆盖 FR-054 phase_route_local 内化（zero subprocess + 6 fixture 矩阵 + 50ms PERF gate + plugin v1.0.0 字段对等）/ FR-055 spawn 内部 inject `/<next_skill>`（bracketed paste + CR + SKILL.md `I'm using` marker + SkillDispatchError 三路径）/ FR-001 AC-3/4 spawn_model_invariant 1:1 / FR-016 AC-NEW argv `--plugin-dir` + `--setting-sources project` / FR-048 双 AC 拆 / IFR-003 修订 / INT-026 / INT-027 / Err-K / IAPI-022 / API-W5-07 feature_list_io 端口 / API-W5-09 record_call → _record_call 私有化回归
+  - 类别 FUNC=73 / BNDRY=10 / SEC=2 / PERF=3 / INTG=16（UI=N/A ui:false，FR-004/029/040/048 UI 表面归 F21/F22）
+  - SRS trace 21/21（含 Wave 5 +FR-054/055）
+  - 自动化执行：`pytest -q tests/test_f20_w5_design.py tests/test_f20_w4_design.py tests/test_f20_*.py tests/integration/test_f20_*.py` → 141 passed / 0 failed；real claude-cli T79/T80（INT-026 spawn 1:1 + SKILL.md marker 真集成）2/2 passed（claude /home/machine/.npm-global/bin/claude · `@pytest.mark.real_cli` gate engaged）；全仓 `pytest -q tests/` → 840 passed / 10 failed / 2 skipped（10 失败均不在 F20 srs_trace · baseline noise 详见 Session 44 Risks）
+  - 负向占比 ~48% ≥ 40%
+  - validate_st_cases.py: VALID — 87 test case(s) (0 errors / 0 warnings)
+  - check_ats_coverage.py 非 strict: OK with 1 ui:false warning（已豁免 — 同 F18/F20 Wave 4 backend-only 处置惯例 commit `2b55497` / `95f984c`）
+  - 0 manual cases / 0 blockers / 0 [MANUAL_TEST_REQUIRED] / 0 [SRS-MISSING] / 0 [ATS-CATEGORY-MISSING-ST]
+- Inline Check 主 agent: PASS（P2: 9/9 Wave 5 NEW/MOD 公开符号 grep 命中 — `phase_route_local.route` / `feature_list_io.count_pending+validate_features` / `SkillDispatchError(SpawnError)` / `ClaudeCodeAdapter.spawn` / `TicketSupervisor._run_ticket_impl + RetryPolicy/RetryCounter` / `RunOrchestrator._record_call` / `PhaseRouteInvoker.invoke + asyncio.to_thread` / `SignalFileWatcher.on_signal + broadcast_signal` / API-W5-09 `record_call(` 无 `_` 前缀 0 命中 · T2: 20/20 抽样 Wave 5 测试函数（T22/T23/T25/T61-T63/T72-T75/T77-T85/T87）在 `tests/test_f20_w5_design.py` 全部命中 · D3: 本会话 requirements.txt / package.json 无变化；claude CLI ≥ 2.1.119 在 env-guide §3 既定 · U1: ui:false 跳过 · e: validate_st_cases VALID · e2: check_ats_coverage 非 strict OK · §4: 本会话 ST 阶段无 harness/ 源码改动（仅 ST 文档）· vacuous PASS）
+- Service lifecycle: SubAgent 自管 — env-guide §1.6 纯 CLI / library 模式，无服务启停，无端口残留
+- Git: ac460ad feat: feature #20 f20-bk-loop-run-orchestrator-recovery-su — Wave 5 ST 87 cases passing
+- ST 文档: docs/test-cases/feature-20-f20-bk-loop-run-orchestrator-recovery-su.md（ISO/IEC/IEEE 29119-3 · Wave 4 60 cases + Wave 5 27 cases = 87 总计）
+- current: {feature_id: 20, phase: "st"} → null
+- status: failing → passing
+
+#### Risks
+- ⚠ [Coverage Margin] line 88.55% 离阈值 85% 余量 3.55pp；branch 83.26% 离 80% 余量 3.26pp（Session 44 Quality Gate baseline）；后续 increment 若引入新 production 行需注意覆盖率不再回退
+- ⚠ [Async Teardown Resource Warning · 沿自 Session 44] `tests/integration/test_f20_real_*.py` 拆解时 PytestUnraisableExceptionWarning "Event loop is closed" + "Task was destroyed but it is pending"，提示 `RunOrchestrator._run_loop` teardown 可能漏 cancel 一些后台 task；非 fatal，建议下次 increment 评估
+- ⚠ [Whole-suite Baseline Noise · 跨会话延续] 10 pre-existing 失败（6 F24 b8 + 3 F24 health-ttl + 1 F22 validator）不在 F20 srs_trace · 不阻断 F20 ST 验收；F24 b8 根因为 `scripts/init_project.py` Session 38 脏数据；F24 health-ttl 要求 uvicorn 8765 在跑（env 前置）；F22 validator 是 commit `53a0ac6` pre-W5 已知问题。建议独立 hotfix
+- ⚠ [Strict ATS UI Warning · 已豁免] check_ats_coverage 非 strict EXIT=0 with 1 ui:false warning — F20 srs_trace 含 FR-004/029/040/048 (ATS 标 UI 必须类别) 但本特性 ui:false。skill Step 4e2 用非 strict 命令满足要求；豁免依据：(a) ST 文档前言段含明确 ui:false 豁免声明 + Visual Rendering Contract = N/A backend-only feature，(b) F18/F20 Wave 4 commit `2b55497`/`95f984c` + Wave 3 commit `b1532db` + F23 commit `458dd32` 均同样处置
+- ⚠ [Workspace Inheritance · 跨会话延续] `scripts/init_project.py` 工作树脏数据继承自 Session 38（沿自 Session 38/42/43/44）；本会话两次 commit 均未触碰；用户自行处置（建议 git checkout HEAD -- scripts/init_project.py 或独立 hotfix）
+- ℹ [Async Cosmetic Warning · 沿自 Session 44] `tests/test_f20_w5_design.py` 13 处 `@pytest.mark.asyncio` 标在同步函数上触发 PytestWarning（非 fatal）；本会话 ST 阶段未清理（不在 ST scope）；下次维护性 refactor 可一次性移除
+- ℹ [Next-up State] 本特性 passing；当前活跃特性总计 11 passing / 1 failing — 余 #17 F17 PyInstaller Packaging 待 design/tdd/st。下次会话 router 将选取 #17 进入 work-design
+
