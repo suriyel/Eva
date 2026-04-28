@@ -211,16 +211,6 @@ def validate(path: str) -> tuple[list[str], list[str]]:
     if not isinstance(features, list):
         return ['"features" must be an array'], []
 
-    # F22 FR-039 strict mode: when invoked via POST /api/validate/feature-list.json,
-    # the route layer sets HARNESS_STRICT_FEATURES=1 so empty features[] is a hard
-    # error (the FE binds CrossFieldErrorList to the issues array). The default
-    # lenient behavior is preserved for phase_route subprocess and other callers.
-    if len(features) == 0 and os.environ.get("HARNESS_STRICT_FEATURES") == "1":
-        errors.append(
-            '"features" must contain at least one feature '
-            "(strict mode: empty list rejected)"
-        )
-
     # Validate root `current` shape (structural — reference checks below need ids_seen)
     cur = data.get("current")
     current_feature_id = None
